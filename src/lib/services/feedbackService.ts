@@ -1,4 +1,5 @@
 import { feedbackApiService } from './feedbackApiService';
+import type { FeedbackHistoryInput } from './feedbackApiService';
 import { FeedbackHistory, TaskEvaluationUpdate } from '@/types';
 import { apiErrorHandler } from '@/utils/errorHandler';
 import { taskService } from './taskService';
@@ -44,7 +45,7 @@ export const feedbackService = {
   },
 
   // 피드백 히스토리 생성 (평가 저장 시 사용)
-  async createFeedbackHistory(feedback: { task_id: string; content: string; evaluator_name: string }): Promise<FeedbackHistory> {
+  async createFeedbackHistory(feedback: FeedbackHistoryInput): Promise<FeedbackHistory> {
     try {
       return await feedbackApiService.createFeedbackHistory(feedback);
     } catch (error) {

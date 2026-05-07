@@ -297,14 +297,17 @@ const MyTasksPage = () => {
   const computeNextTaskId = () => {
     const evaluateeId = evaluationData?.evaluateeId;
     if (!evaluateeId) return null;
+    const evaluationId = evaluationData.id ?? (evaluationData as any).evaluation_id ?? '';
+    const idSuffix = String(evaluationId).slice(0, 8);
+    const prefix = idSuffix ? `${evaluateeId}_${idSuffix}_T` : `${evaluateeId}_T`;
     const numbers = tasks
       .map((t) => {
-        const m = (t.taskId ?? '').match(new RegExp(`^${evaluateeId}_T(\\d+)$`));
+        const m = (t.taskId ?? '').match(new RegExp(`^${prefix}(\\d+)$`));
         return m ? parseInt(m[1], 10) : 0;
       })
       .filter((n) => n > 0);
     const next = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
-    return `${evaluateeId}_T${next}`;
+    return `${prefix}${next}`;
   };
 
   const maybeFinalizeEvaluation = async () => {

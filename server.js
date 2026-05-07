@@ -258,8 +258,13 @@ const getEvaluationContextForEmployee = async (client, employeeId) => {
           ev.id AS evaluation_id,
           ev.evaluation_period_id
         FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
         LEFT JOIN evaluation_periods p ON p.id = ev.evaluation_period_id
         WHERE ev.evaluatee_id = $1
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
         ORDER BY
           CASE WHEN p.status = 'active' THEN 0 ELSE 1 END,
           p.is_default DESC NULLS LAST,
@@ -296,13 +301,14 @@ const createDraftEvaluationForEmployeeAssignment = async (client, employee) => {
         evaluatee_department,
         growth_level,
         evaluation_status,
+        record_status,
         evaluation_year,
         evaluation_period_id,
         last_modified,
         created_at,
         updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,NOW(),NOW(),NOW())
+      VALUES ($1,$2,$3,$4,$5,'draft','active',$6,$7,NOW(),NOW(),NOW())
       RETURNING *
     `,
     [
@@ -317,6 +323,54 @@ const createDraftEvaluationForEmployeeAssignment = async (client, employee) => {
   );
 
   return rows[0] ?? null;
+};
+
+const rebuildTaskEvaluationSnapshot = async (client, taskIds = []) => {
+  const uniqueTaskIds = [...new Set(taskIds.filter(Boolean))];
+  if (uniqueTaskIds.length === 0) return;
+
+  await client.query(
+    `
+      WITH affected AS (
+        SELECT unnest($1::uuid[]) AS task_uuid
+      ),
+      entry_counts AS (
+        SELECT
+          tee.task_uuid,
+          COUNT(*) AS total_count
+        FROM task_evaluation_entries tee
+        INNER JOIN affected a ON a.task_uuid = tee.task_uuid
+        GROUP BY tee.task_uuid
+      ),
+      latest AS (
+        SELECT DISTINCT ON (tee.task_uuid)
+          tee.task_uuid,
+          tee.contribution_method,
+          tee.contribution_scope,
+          tee.score,
+          tee.feedback,
+          tee.feedback_date,
+          tee.evaluator_name
+        FROM task_evaluation_entries tee
+        INNER JOIN affected a ON a.task_uuid = tee.task_uuid
+        WHERE COALESCE(tee.status, 'active') = 'active'
+        ORDER BY tee.task_uuid, tee.updated_at DESC, tee.created_at DESC
+      )
+      UPDATE tasks t
+      SET
+        contribution_method = CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_method ELSE t.contribution_method END,
+        contribution_scope = CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_scope ELSE t.contribution_scope END,
+        score = CASE WHEN entry_counts.total_count > 0 THEN latest.score ELSE t.score END,
+        feedback = CASE WHEN entry_counts.total_count > 0 THEN latest.feedback ELSE t.feedback END,
+        feedback_date = CASE WHEN entry_counts.total_count > 0 THEN latest.feedback_date ELSE t.feedback_date END,
+        evaluator_name = CASE WHEN entry_counts.total_count > 0 THEN latest.evaluator_name ELSE t.evaluator_name END
+      FROM affected a
+      LEFT JOIN entry_counts ON entry_counts.task_uuid = a.task_uuid
+      LEFT JOIN latest ON latest.task_uuid = a.task_uuid
+      WHERE t.id = a.task_uuid
+    `,
+    [uniqueTaskIds]
+  );
 };
 
 const insertEvaluatorAssignmentHistory = async (
@@ -533,15 +587,25 @@ const assertEvaluationWritableById = async (evaluationId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT p.status
+        SELECT
+          p.status AS period_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM evaluations e
         LEFT JOIN evaluation_periods p ON p.id = e.evaluation_period_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE e.id = $1
         LIMIT 1
       `,
       [evaluationId]
     );
-    const status = rows[0]?.status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.period_status;
     if (status && NON_WRITABLE_PERIOD_STATUSES.has(status)) {
       throw createPeriodWriteError(status);
     }
@@ -559,10 +623,25 @@ const assertEvaluationTaskStructureEditableById = async (evaluationId) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT evaluation_status FROM evaluations WHERE id = $1 LIMIT 1',
+      `
+        SELECT
+          e.evaluation_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
+        FROM evaluations e
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
+        WHERE e.id = $1
+        LIMIT 1
+      `,
       [evaluationId]
     );
-    const status = rows[0]?.evaluation_status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
       throw createEvaluationStructureWriteError(status);
     }
@@ -581,15 +660,26 @@ const assertTaskWritableById = async (taskId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT p.status
+        SELECT
+          p.status AS period_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
+        LEFT JOIN evaluations e ON e.id = t.evaluation_id
         LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE t.id = $1
         LIMIT 1
       `,
       [taskId]
     );
-    const status = rows[0]?.status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.period_status;
     if (status && NON_WRITABLE_PERIOD_STATUSES.has(status)) {
       throw createPeriodWriteError(status);
     }
@@ -608,15 +698,25 @@ const assertTaskStructureEditableById = async (taskId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT e.evaluation_status
+        SELECT
+          e.evaluation_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE t.id = $1
         LIMIT 1
       `,
       [taskId]
     );
-    const status = rows[0]?.evaluation_status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
       throw createEvaluationStructureWriteError(status);
     }
@@ -635,15 +735,25 @@ const assertTaskEvaluationEditableById = async (taskId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT e.evaluation_status
+        SELECT
+          e.evaluation_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE t.id = $1
         LIMIT 1
       `,
       [taskId]
     );
-    const status = rows[0]?.evaluation_status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.evaluation_status;
     if (status && !TASK_EVALUATION_EDITABLE_STATUSES.has(status)) {
       throw createEvaluationValueWriteError(status);
     }
@@ -662,15 +772,26 @@ const assertTaskWritableByTaskId = async (taskId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT p.status
+        SELECT
+          p.status AS period_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
+        LEFT JOIN evaluations e ON e.id = t.evaluation_id
         LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE t.task_id = $1
         LIMIT 1
       `,
       [taskId]
     );
-    const status = rows[0]?.status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.period_status;
     if (status && NON_WRITABLE_PERIOD_STATUSES.has(status)) {
       throw createPeriodWriteError(status);
     }
@@ -689,15 +810,25 @@ const assertTaskEvaluationEditableByTaskId = async (taskId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT e.evaluation_status
+        SELECT
+          e.evaluation_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         WHERE t.task_id = $1
         LIMIT 1
       `,
       [taskId]
     );
-    const status = rows[0]?.evaluation_status;
+    const row = rows[0];
+    if (row?.record_status === 'cancelled' || row?.cancelled_assignment_id) {
+      throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.evaluation_status;
     if (status && !TASK_EVALUATION_EDITABLE_STATUSES.has(status)) {
       throw createEvaluationValueWriteError(status);
     }
@@ -739,6 +870,19 @@ const normalizeTaskEvaluationEntryPayload = (body = {}) => {
   };
 };
 
+const normalizeFeedbackPayload = (body = {}) => ({
+  task_id: normalizeNullableText(body.task_id ?? body.taskId),
+  task_uuid: normalizeNullableText(body.task_uuid ?? body.taskUuid),
+  evaluation_id: normalizeNullableText(body.evaluation_id ?? body.evaluationId),
+  evaluator_id: normalizeNullableText(body.evaluator_id ?? body.evaluatorId),
+  task_evaluation_entry_id: normalizeNullableText(
+    body.task_evaluation_entry_id ?? body.taskEvaluationEntryId
+  ),
+  content: normalizeNullableText(body.content),
+  evaluator_name: normalizeNullableText(body.evaluator_name ?? body.evaluatorName),
+  status: body.status === 'cancelled' ? 'cancelled' : 'active',
+});
+
 const getTaskForEvaluationEntry = async (client, payload) => {
   if (!payload.task_uuid && !payload.task_id) {
     throw Object.assign(new Error('task_uuid or task_id is required'), { statusCode: 400 });
@@ -751,9 +895,14 @@ const getTaskForEvaluationEntry = async (client, payload) => {
         t.task_id,
         t.evaluation_id,
         e.evaluation_status,
+        e.record_status,
+        cancelled_assignment.id AS cancelled_assignment_id,
         p.status AS period_status
       FROM tasks t
       LEFT JOIN evaluations e ON e.id = t.evaluation_id
+      LEFT JOIN evaluator_assignment_history cancelled_assignment
+        ON cancelled_assignment.evaluation_id = e.id
+        AND cancelled_assignment.status = 'cancelled'
       LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
       WHERE
         ($1::text IS NOT NULL AND t.id::text = $1)
@@ -774,6 +923,10 @@ const getTaskForEvaluationEntry = async (client, payload) => {
 
   if (task.period_status && NON_WRITABLE_PERIOD_STATUSES.has(task.period_status)) {
     throw createPeriodWriteError(task.period_status);
+  }
+
+  if (task.record_status === 'cancelled' || task.cancelled_assignment_id) {
+    throw Object.assign(new Error('Evaluation is cancelled; writes are disabled.'), { statusCode: 423 });
   }
 
   if (task.evaluation_status && !TASK_EVALUATION_EDITABLE_STATUSES.has(task.evaluation_status)) {
@@ -860,16 +1013,32 @@ const assertFeedbackWritableById = async (feedbackId) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT p.status
+        SELECT
+          p.status AS period_status,
+          f.status AS feedback_status,
+          e.record_status,
+          cancelled_assignment.id AS cancelled_assignment_id
         FROM feedback_history f
-        LEFT JOIN tasks t ON t.task_id = f.task_id
+        LEFT JOIN tasks t ON t.id = f.task_uuid OR t.task_id = f.task_id
+        LEFT JOIN evaluations e ON e.id = COALESCE(f.evaluation_id, t.evaluation_id)
+        LEFT JOIN evaluator_assignment_history cancelled_assignment
+          ON cancelled_assignment.evaluation_id = e.id
+          AND cancelled_assignment.status = 'cancelled'
         LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
         WHERE f.id = $1
         LIMIT 1
       `,
       [feedbackId]
     );
-    const status = rows[0]?.status;
+    const row = rows[0];
+    if (
+      row?.feedback_status === 'cancelled' ||
+      row?.record_status === 'cancelled' ||
+      row?.cancelled_assignment_id
+    ) {
+      throw Object.assign(new Error('Feedback is cancelled; writes are disabled.'), { statusCode: 423 });
+    }
+    const status = row?.period_status;
     if (status && NON_WRITABLE_PERIOD_STATUSES.has(status)) {
       throw createPeriodWriteError(status);
     }
@@ -1085,7 +1254,7 @@ app.put('/api/employee/:id', async (req, res) => {
         updatedEmployee.evaluator_id == null
           ? null
           : await createDraftEvaluationForEmployeeAssignment(client, updatedEmployee);
-      await insertEvaluatorAssignmentHistory(client, {
+      const assignmentHistory = await insertEvaluatorAssignmentHistory(client, {
         employeeId: req.params.id,
         previousEvaluatorId: existingEmployee.evaluator_id ?? null,
         newEvaluatorId: updates.evaluator_id ?? null,
@@ -1095,6 +1264,12 @@ app.put('/api/employee/:id', async (req, res) => {
         evaluationId: assignmentEvaluation?.id ?? null,
         evaluationPeriodId: assignmentEvaluation?.evaluation_period_id ?? null,
       });
+      if (assignmentEvaluation?.id && assignmentHistory?.id) {
+        await client.query(
+          'UPDATE evaluations SET assignment_history_id = $2, updated_at = NOW() WHERE id = $1',
+          [assignmentEvaluation.id, assignmentHistory.id]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -1213,6 +1388,19 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
       [history.id, cancelledBy, cancelReason]
     );
 
+    if (history.evaluation_id) {
+      await client.query(
+        `
+          UPDATE evaluations
+          SET
+            record_status = 'cancelled',
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [history.evaluation_id]
+      );
+    }
+
     let updatedEmployee = null;
     if ((history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null)) {
       const { rows: employeeRows } = await client.query(
@@ -1242,8 +1430,11 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
           AND ev.evaluatee_id = $4
           AND tee.evaluator_id IS NOT DISTINCT FROM $5
           AND COALESCE(tee.status, 'active') = 'active'
-          AND ($6::uuid IS NULL OR tee.evaluation_id = $6)
-          AND (tee.assignment_history_id IS NULL OR tee.assignment_history_id = $1)
+          AND (
+            tee.assignment_history_id IS NULL
+            OR tee.assignment_history_id = $1
+            OR tee.evaluation_id = $6::uuid
+          )
         RETURNING tee.task_uuid
       `,
       [
@@ -1259,41 +1450,46 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
     const affectedTaskIds = [
       ...new Set(cancelledEntryRows.map((entry) => entry.task_uuid).filter(Boolean)),
     ];
-    if (affectedTaskIds.length > 0) {
-      await client.query(
-        `
-          WITH affected AS (
-            SELECT unnest($1::uuid[]) AS task_uuid
-          ),
-          latest AS (
-            SELECT DISTINCT ON (tee.task_uuid)
-              tee.task_uuid,
-              tee.contribution_method,
-              tee.contribution_scope,
-              tee.score,
-              tee.feedback,
-              tee.feedback_date,
-              tee.evaluator_name
-            FROM task_evaluation_entries tee
-            INNER JOIN affected a ON a.task_uuid = tee.task_uuid
-            WHERE COALESCE(tee.status, 'active') = 'active'
-            ORDER BY tee.task_uuid, tee.updated_at DESC, tee.created_at DESC
+    await rebuildTaskEvaluationSnapshot(client, affectedTaskIds);
+
+    const { rows: evaluatorRows } = await client.query(
+      'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+      [history.new_evaluator_id]
+    );
+    const cancelledEvaluatorName = evaluatorRows[0]?.name ?? null;
+    await client.query(
+      `
+        UPDATE feedback_history fh
+        SET
+          status = 'cancelled',
+          cancelled_at = NOW(),
+          cancelled_by = $2,
+          cancel_reason = $3
+        FROM tasks t
+        INNER JOIN evaluations ev ON ev.id = t.evaluation_id
+        WHERE fh.task_id = t.task_id
+          AND ev.evaluatee_id = $4
+          AND COALESCE(fh.status, 'active') = 'active'
+          AND (
+            fh.task_evaluation_entry_id IN (
+              SELECT id
+              FROM task_evaluation_entries
+              WHERE assignment_history_id = $1
+                 OR evaluator_id IS NOT DISTINCT FROM $5
+            )
+            OR fh.evaluator_id IS NOT DISTINCT FROM $5
+            OR ($6::text IS NOT NULL AND fh.evaluator_name = $6)
           )
-          UPDATE tasks t
-          SET
-            contribution_method = latest.contribution_method,
-            contribution_scope = latest.contribution_scope,
-            score = latest.score,
-            feedback = latest.feedback,
-            feedback_date = latest.feedback_date,
-            evaluator_name = latest.evaluator_name
-          FROM affected a
-          LEFT JOIN latest ON latest.task_uuid = a.task_uuid
-          WHERE t.id = a.task_uuid
-        `,
-        [affectedTaskIds]
-      );
-    }
+      `,
+      [
+        history.id,
+        cancelledBy,
+        cancelReason,
+        history.employee_id,
+        history.new_evaluator_id ?? null,
+        cancelledEvaluatorName,
+      ]
+    );
 
     await client.query('COMMIT');
     res.json({
@@ -1323,14 +1519,24 @@ app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
       `
         SELECT ev.*
         FROM evaluations ev
+        LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
+        LEFT JOIN evaluator_assignment_history assignment
+          ON assignment.id = ev.assignment_history_id
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.employee_id = ev.evaluatee_id
           AND h.status = 'cancelled'
         WHERE ev.evaluatee_id = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
+          AND COALESCE(ev.record_status, 'active') = 'active'
           AND h.id IS NULL
-        ORDER BY ev.created_at DESC
+        ORDER BY
+          CASE
+            WHEN assignment.status = 'applied' AND assignment.new_evaluator_id IS NOT DISTINCT FROM emp.evaluator_id THEN 0
+            WHEN assignment.id IS NULL THEN 1
+            ELSE 2
+          END,
+          ev.created_at DESC
         LIMIT 1
       `,
       [req.params.employeeId, ...filter.values]
@@ -1484,7 +1690,17 @@ app.get('/api/evaluations', async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query);
     const { rows } = await pool.query(
-      `SELECT * FROM evaluations WHERE ${filter.clause} ORDER BY evaluatee_name`,
+      `
+        SELECT ev.*
+        FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
+        ORDER BY ev.evaluatee_name
+      `,
       filter.values
     );
     res.json(rows);
@@ -1507,6 +1723,7 @@ app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
           AND h.status = 'cancelled'
         WHERE ev.evaluatee_id = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
+          AND COALESCE(ev.record_status, 'active') = 'active'
           AND h.id IS NULL
         ORDER BY ev.created_at DESC
       `,
@@ -1521,7 +1738,20 @@ app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
 
 app.get('/api/evaluation/:id', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM evaluations WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query(
+      `
+        SELECT ev.*
+        FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE ev.id = $1
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
+        LIMIT 1
+      `,
+      [req.params.id]
+    );
     res.json(rows[0] ?? null);
   } catch (err) {
     console.error('Error fetching evaluation:', err);
@@ -1547,7 +1777,18 @@ app.post('/api/evaluation', async (req, res) => {
             values: [evaluation.evaluatee_id, evaluation.evaluation_year],
           };
       const { rows: existingRows } = await pool.query(
-        `SELECT * FROM evaluations WHERE ${existingFilter.clause} ORDER BY created_at DESC LIMIT 1`,
+        `
+          SELECT ev.*
+          FROM evaluations ev
+          LEFT JOIN evaluator_assignment_history h
+            ON h.evaluation_id = ev.id
+            AND h.status = 'cancelled'
+          WHERE ${existingFilter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year').replaceAll('evaluatee_id', 'ev.evaluatee_id')}
+            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND h.id IS NULL
+          ORDER BY ev.created_at DESC
+          LIMIT 1
+        `,
         existingFilter.values
       );
       if (existingRows[0]) {
@@ -1615,7 +1856,18 @@ app.get('/api/evaluations/status/:status', async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
-      `SELECT * FROM evaluations WHERE evaluation_status = $1 AND ${filter.clause} ORDER BY created_at DESC`,
+      `
+        SELECT ev.*
+        FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE ev.evaluation_status = $1
+          AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
+        ORDER BY ev.created_at DESC
+      `,
       [req.params.status, ...filter.values]
     );
     res.json(rows);
@@ -1632,7 +1884,55 @@ app.get('/api/tasks/evaluation/:evaluationId', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM tasks WHERE evaluation_id = $1 ORDER BY created_at DESC',
+      `
+        SELECT
+          t.id,
+          t.task_id,
+          t.evaluation_id,
+          t.title,
+          t.weight,
+          t.description,
+          t.start_date,
+          t.end_date,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_method ELSE t.contribution_method END AS contribution_method,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_scope ELSE t.contribution_scope END AS contribution_scope,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.score ELSE t.score END AS score,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.feedback ELSE t.feedback END AS feedback,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.feedback_date ELSE t.feedback_date END AS feedback_date,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.evaluator_name ELSE t.evaluator_name END AS evaluator_name,
+          t.created_at,
+          t.deleted_at,
+          t.evaluation_year,
+          t.evaluation_period_id
+        FROM tasks t
+        INNER JOIN evaluations ev ON ev.id = t.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS total_count
+          FROM task_evaluation_entries tee
+          WHERE tee.task_uuid = t.id
+        ) entry_counts ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            tee.contribution_method,
+            tee.contribution_scope,
+            tee.score,
+            tee.feedback,
+            tee.feedback_date,
+            tee.evaluator_name
+          FROM task_evaluation_entries tee
+          WHERE tee.task_uuid = t.id
+            AND COALESCE(tee.status, 'active') = 'active'
+          ORDER BY tee.updated_at DESC, tee.created_at DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE t.evaluation_id = $1
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
+        ORDER BY t.created_at DESC
+      `,
       [req.params.evaluationId]
     );
     res.json(rows);
@@ -1651,7 +1951,55 @@ app.get('/api/tasks/current-year', async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query);
     const { rows } = await pool.query(
-      `SELECT * FROM tasks WHERE ${filter.clause} ORDER BY created_at DESC`,
+      `
+        SELECT
+          t.id,
+          t.task_id,
+          t.evaluation_id,
+          t.title,
+          t.weight,
+          t.description,
+          t.start_date,
+          t.end_date,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_method ELSE t.contribution_method END AS contribution_method,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.contribution_scope ELSE t.contribution_scope END AS contribution_scope,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.score ELSE t.score END AS score,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.feedback ELSE t.feedback END AS feedback,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.feedback_date ELSE t.feedback_date END AS feedback_date,
+          CASE WHEN entry_counts.total_count > 0 THEN latest.evaluator_name ELSE t.evaluator_name END AS evaluator_name,
+          t.created_at,
+          t.deleted_at,
+          t.evaluation_year,
+          t.evaluation_period_id
+        FROM tasks t
+        INNER JOIN evaluations ev ON ev.id = t.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS total_count
+          FROM task_evaluation_entries tee
+          WHERE tee.task_uuid = t.id
+        ) entry_counts ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            tee.contribution_method,
+            tee.contribution_scope,
+            tee.score,
+            tee.feedback,
+            tee.feedback_date,
+            tee.evaluator_name
+          FROM task_evaluation_entries tee
+          WHERE tee.task_uuid = t.id
+            AND COALESCE(tee.status, 'active') = 'active'
+          ORDER BY tee.updated_at DESC, tee.created_at DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE ${filter.clause.replaceAll('evaluation_period_id', 't.evaluation_period_id').replaceAll('evaluation_year', 't.evaluation_year')}
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
+        ORDER BY t.created_at DESC
+      `,
       filter.values
     );
     res.json(rows);
@@ -1673,8 +2021,14 @@ app.get('/api/task-evaluation-entries/evaluation/:evaluationId', async (req, res
         SELECT tee.*
         FROM task_evaluation_entries tee
         INNER JOIN tasks t ON t.id = tee.task_uuid
+        INNER JOIN evaluations ev ON ev.id = tee.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
         WHERE tee.evaluation_id = $1
           AND COALESCE(tee.status, 'active') = 'active'
+          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND h.id IS NULL
         ORDER BY tee.updated_at DESC, tee.created_at DESC
       `,
       [req.params.evaluationId]
@@ -1762,28 +2116,7 @@ app.put('/api/task-evaluation-entry', async (req, res) => {
       entryValues
     );
 
-    await client.query(
-      `
-        UPDATE tasks
-        SET
-          contribution_method = $1,
-          contribution_scope = $2,
-          score = $3,
-          feedback = $4,
-          feedback_date = $5,
-          evaluator_name = $6
-        WHERE id = $7
-      `,
-      [
-        payload.contribution_method,
-        payload.contribution_scope,
-        payload.score,
-        payload.feedback,
-        payload.feedback_date || new Date().toISOString(),
-        payload.evaluator_name,
-        task.id,
-      ]
-    );
+    await rebuildTaskEvaluationSnapshot(client, [task.id]);
 
     await client.query('COMMIT');
     res.json(rows[0]);
@@ -1945,7 +2278,20 @@ app.delete('/api/task/:id', async (req, res) => {
 
 app.get('/api/feedbacks', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM feedback_history ORDER BY created_at DESC');
+    const { rows } = await pool.query(
+      `
+        SELECT fh.*
+        FROM feedback_history fh
+        LEFT JOIN evaluations ev ON ev.id = fh.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE COALESCE(fh.status, 'active') = 'active'
+          AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
+          AND h.id IS NULL
+        ORDER BY fh.created_at DESC
+      `
+    );
     res.json(rows);
   } catch (err) {
     console.error('Error fetching feedbacks:', err);
@@ -1955,7 +2301,22 @@ app.get('/api/feedbacks', async (req, res) => {
 
 app.get('/api/feedback/:id', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM feedback_history WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query(
+      `
+        SELECT fh.*
+        FROM feedback_history fh
+        LEFT JOIN evaluations ev ON ev.id = fh.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE fh.id = $1
+          AND COALESCE(fh.status, 'active') = 'active'
+          AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
+          AND h.id IS NULL
+        LIMIT 1
+      `,
+      [req.params.id]
+    );
     res.json(rows[0] ?? null);
   } catch (err) {
     console.error('Error fetching feedback:', err);
@@ -1965,10 +2326,34 @@ app.get('/api/feedback/:id', async (req, res) => {
 
 app.post('/api/feedback', async (req, res) => {
   try {
-    await assertTaskWritableByTaskId(req.body.task_id);
-    await assertTaskEvaluationEditableByTaskId(req.body.task_id);
-    const cols = Object.keys(req.body);
-    const vals = Object.values(req.body);
+    const payload = normalizeFeedbackPayload(req.body);
+    if (!payload.task_id || !payload.content) {
+      return res.status(400).json({ error: 'task_id and content are required' });
+    }
+
+    await assertTaskWritableByTaskId(payload.task_id);
+    await assertTaskEvaluationEditableByTaskId(payload.task_id);
+
+    if (!payload.task_uuid || !payload.evaluation_id) {
+      const { rows: taskRows } = await pool.query(
+        'SELECT id, evaluation_id FROM tasks WHERE task_id = $1 LIMIT 1',
+        [payload.task_id]
+      );
+      payload.task_uuid = payload.task_uuid ?? taskRows[0]?.id ?? null;
+      payload.evaluation_id = payload.evaluation_id ?? taskRows[0]?.evaluation_id ?? null;
+    }
+
+    const cols = [
+      'task_id',
+      'task_uuid',
+      'evaluation_id',
+      'evaluator_id',
+      'task_evaluation_entry_id',
+      'content',
+      'evaluator_name',
+      'status',
+    ];
+    const vals = cols.map((column) => payload[column]);
     const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
     const { rows } = await pool.query(
       `INSERT INTO feedback_history (${cols.join(',')}) VALUES (${placeholders}) RETURNING *`,
@@ -1998,7 +2383,19 @@ app.delete('/api/feedback/:id', async (req, res) => {
 app.get('/api/feedbacks/task/:taskId', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM feedback_history WHERE task_id = $1 ORDER BY created_at DESC',
+      `
+        SELECT fh.*
+        FROM feedback_history fh
+        LEFT JOIN evaluations ev ON ev.id = fh.evaluation_id
+        LEFT JOIN evaluator_assignment_history h
+          ON h.evaluation_id = ev.id
+          AND h.status = 'cancelled'
+        WHERE fh.task_id = $1
+          AND COALESCE(fh.status, 'active') = 'active'
+          AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
+          AND h.id IS NULL
+        ORDER BY fh.created_at DESC
+      `,
       [req.params.taskId]
     );
     res.json(rows);

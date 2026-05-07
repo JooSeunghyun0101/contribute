@@ -446,7 +446,7 @@ export const useEvaluationDataDB = (employeeId: string) => {
             content: fh.content,
             date: fh.created_at,
             evaluatorName: fh.evaluator_name || '평가자',
-            evaluatorId: currentEvaluatorId || 'unknown'
+            evaluatorId: fh.evaluator_id || currentEvaluatorId || 'unknown'
           }));
 
           // 날짜순으로 정렬 (최신순)
@@ -969,6 +969,7 @@ export const useEvaluationDataDB = (employeeId: string) => {
 
         let hasChanges = false;
         let hasNewFeedback = false;
+        let shouldCreateFeedbackHistory = false;
         const changeDetails: string[] = [];
 
         if ((currentEntry?.score ?? null) !== (task.score ?? null)) {
@@ -984,22 +985,11 @@ export const useEvaluationDataDB = (employeeId: string) => {
           changeDetails.push('기여범위');
         }
 
-        // 피드백 변경 감지 및 히스토리 저장
+        // 피드백 변경 감지
         if (currentFeedback.trim() && (currentFeedback.trim() !== previousFeedback.trim() || !previousFeedback.trim())) {
-          try {
-
-            await feedbackService.createFeedbackHistory({
-              task_id: dbTask.task_id,
-              content: currentFeedback,
-              evaluator_name: evaluatorName
-            });
-
-            hasNewFeedback = true;
-            hasChanges = true;
-            changeDetails.push('피드백');
-          } catch (error) {
-            console.error('❌ 피드백 히스토리 저장 실패:', error);
-          }
+          shouldCreateFeedbackHistory = true;
+          hasChanges = true;
+          changeDetails.push('피드백');
         } else if (currentFeedback.trim() && currentFeedback.trim() === previousFeedback.trim()) {
           console.log('⚪ 피드백 변경 없음 - 히스토리 저장 건너뜀:', {
             taskTitle: task.title,
@@ -1013,8 +1003,9 @@ export const useEvaluationDataDB = (employeeId: string) => {
           });
         }
 
+        let savedEntry;
         try {
-          await taskEvaluationEntryService.upsertEntry({
+          savedEntry = await taskEvaluationEntryService.upsertEntry({
             task_uuid: dbTask.id,
             task_id: dbTask.task_id,
             evaluation_id: evaluation.id,
@@ -1032,6 +1023,24 @@ export const useEvaluationDataDB = (employeeId: string) => {
             error: err,
           });
           throw err;
+        }
+
+        if (shouldCreateFeedbackHistory) {
+          try {
+            await feedbackService.createFeedbackHistory({
+              task_id: dbTask.task_id,
+              task_uuid: dbTask.id,
+              evaluation_id: evaluation.id,
+              evaluator_id: evaluatorId,
+              evaluator_name: evaluatorName,
+              task_evaluation_entry_id: savedEntry?.id ?? null,
+              content: currentFeedback,
+            });
+
+            hasNewFeedback = true;
+          } catch (error) {
+            console.error('❌ 피드백 히스토리 저장 실패:', error);
+          }
         }
 
         if (hasChanges) {

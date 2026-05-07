@@ -50,6 +50,8 @@ CREATE TABLE public.evaluations (
   updated_at timestamptz DEFAULT now(),
   evaluation_year integer NOT NULL DEFAULT EXTRACT(YEAR FROM CURRENT_DATE),
   evaluation_period_id uuid,
+  assignment_history_id uuid,
+  record_status text NOT NULL DEFAULT 'active' CHECK (record_status = ANY (ARRAY['active'::text, 'cancelled'::text])),
   CONSTRAINT evaluations_pkey PRIMARY KEY (id),
   CONSTRAINT uq_evaluations_id_year UNIQUE (id, evaluation_year)
 );
@@ -122,8 +124,16 @@ CREATE TABLE public.task_evaluation_entries (
 CREATE TABLE public.feedback_history (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   task_id text NOT NULL,
+  task_uuid uuid,
+  evaluation_id uuid,
+  evaluator_id text,
+  task_evaluation_entry_id uuid,
   content text NOT NULL,
   evaluator_name text,
+  status text NOT NULL DEFAULT 'active' CHECK (status = ANY (ARRAY['active'::text, 'cancelled'::text])),
+  cancelled_at timestamptz,
+  cancelled_by text,
+  cancel_reason text,
   created_at timestamptz DEFAULT now(),
   CONSTRAINT feedback_history_pkey PRIMARY KEY (id)
 );
@@ -201,6 +211,11 @@ ALTER TABLE public.evaluations
   FOREIGN KEY (evaluation_period_id) REFERENCES public.evaluation_periods(id)
   ON UPDATE CASCADE ON DELETE RESTRICT;
 
+ALTER TABLE public.evaluations
+  ADD CONSTRAINT fk_evaluations_assignment_history
+  FOREIGN KEY (assignment_history_id) REFERENCES public.evaluator_assignment_history(id)
+  ON UPDATE CASCADE ON DELETE SET NULL;
+
 ALTER TABLE public.evaluator_assignment_history
   ADD CONSTRAINT fk_evaluator_assignment_history_evaluation
   FOREIGN KEY (evaluation_id) REFERENCES public.evaluations(id)
@@ -246,6 +261,26 @@ ALTER TABLE public.feedback_history
   FOREIGN KEY (task_id) REFERENCES public.tasks(task_id)
   ON UPDATE CASCADE ON DELETE SET NULL;
 
+ALTER TABLE public.feedback_history
+  ADD CONSTRAINT fk_feedback_history_task_uuid
+  FOREIGN KEY (task_uuid) REFERENCES public.tasks(id)
+  ON UPDATE CASCADE ON DELETE SET NULL;
+
+ALTER TABLE public.feedback_history
+  ADD CONSTRAINT fk_feedback_history_evaluation
+  FOREIGN KEY (evaluation_id) REFERENCES public.evaluations(id)
+  ON UPDATE CASCADE ON DELETE SET NULL;
+
+ALTER TABLE public.feedback_history
+  ADD CONSTRAINT fk_feedback_history_evaluator
+  FOREIGN KEY (evaluator_id) REFERENCES public.employees(employee_id)
+  ON UPDATE CASCADE ON DELETE SET NULL;
+
+ALTER TABLE public.feedback_history
+  ADD CONSTRAINT fk_feedback_history_task_evaluation_entry
+  FOREIGN KEY (task_evaluation_entry_id) REFERENCES public.task_evaluation_entries(id)
+  ON UPDATE CASCADE ON DELETE SET NULL;
+
 ALTER TABLE public.final_assessment
   ADD CONSTRAINT fk_final_assessment_evaluations
   FOREIGN KEY (evaluation_id) REFERENCES public.evaluations(id);
@@ -276,6 +311,8 @@ ALTER TABLE public.notifications
   ON DELETE SET NULL ON UPDATE CASCADE;
 
 CREATE INDEX idx_evaluations_period ON public.evaluations (evaluation_period_id);
+CREATE INDEX idx_evaluations_record_status ON public.evaluations (record_status);
+CREATE INDEX idx_evaluations_assignment_history ON public.evaluations (assignment_history_id);
 CREATE INDEX idx_evaluator_assignment_history_employee ON public.evaluator_assignment_history (employee_id);
 CREATE INDEX idx_evaluator_assignment_history_previous ON public.evaluator_assignment_history (previous_evaluator_id);
 CREATE INDEX idx_evaluator_assignment_history_new ON public.evaluator_assignment_history (new_evaluator_id);
@@ -289,6 +326,11 @@ CREATE INDEX idx_task_evaluation_entries_evaluator ON public.task_evaluation_ent
 CREATE INDEX idx_task_evaluation_entries_status ON public.task_evaluation_entries (status);
 CREATE INDEX idx_task_evaluation_entries_assignment_history ON public.task_evaluation_entries (assignment_history_id);
 CREATE INDEX idx_evaluator_assignment_history_evaluation_status ON public.evaluator_assignment_history (evaluation_id, status);
+CREATE INDEX idx_feedback_history_status ON public.feedback_history (status);
+CREATE INDEX idx_feedback_history_task_uuid ON public.feedback_history (task_uuid);
+CREATE INDEX idx_feedback_history_evaluation ON public.feedback_history (evaluation_id);
+CREATE INDEX idx_feedback_history_evaluator ON public.feedback_history (evaluator_id);
+CREATE INDEX idx_feedback_history_task_evaluation_entry ON public.feedback_history (task_evaluation_entry_id);
 
 -- ============================================================
 -- TRIGGER FUNCTIONS

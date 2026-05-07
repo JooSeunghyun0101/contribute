@@ -89,6 +89,8 @@ export interface Evaluation {
   /** 연도 컬럼 – 평가와 연동되는 연도 */
   evaluation_year?: number;
   evaluation_period_id?: string | null;
+  assignment_history_id?: string | null;
+  record_status?: 'active' | 'cancelled';
   last_modified: string;
   created_at: string;
   updated_at: string;
@@ -141,8 +143,16 @@ export interface TaskEvaluationEntry {
 export interface FeedbackHistory {
   id: string;
   task_id: string;
+  task_uuid?: string | null;
+  evaluation_id?: string | null;
+  evaluator_id?: string | null;
+  task_evaluation_entry_id?: string | null;
   content: string;
   evaluator_name: string | null;
+  status?: 'active' | 'cancelled';
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string | null;
   created_at: string;
 }
 

@@ -2,6 +2,16 @@ import { apiFetch } from '@/lib/api';
 import { FeedbackHistory } from '@/types';
 import { apiErrorHandler } from '@/utils/errorHandler';
 
+export type FeedbackHistoryInput = {
+  task_id: string;
+  task_uuid?: string | null;
+  evaluation_id?: string | null;
+  evaluator_id?: string | null;
+  task_evaluation_entry_id?: string | null;
+  content: string;
+  evaluator_name: string | null;
+};
+
 export const feedbackApiService = {
   // 피드백 히스토리 조회 (task_id 기준)
   async getFeedbackHistoryByTaskId(taskId: string): Promise<FeedbackHistory[]> {
@@ -26,7 +36,7 @@ export const feedbackApiService = {
   },
 
   // 피드백 히스토리 생성 (피드백 저장 시 사용)
-  async createFeedbackHistory(feedback: { task_id: string; content: string; evaluator_name: string }): Promise<FeedbackHistory> {
+  async createFeedbackHistory(feedback: FeedbackHistoryInput): Promise<FeedbackHistory> {
     try {
       return await apiFetch<FeedbackHistory>('/api/feedback', {
         method: 'POST',
