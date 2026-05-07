@@ -1,0 +1,1 @@
+// Supabase client removed – project now uses PostgreSQL via pg Pool.

@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>OK금융그룹 기여도평가시스템 프로토타입</title>
+<link rel="stylesheet" href="tokens.css"/>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  html,body{margin:0;padding:0;background:var(--bg-app);}
+  #app-root{min-height:100vh;display:flex;flex-direction:column;}
+</style>
+</head>
+<body>
+<div id="app-root"></div>
+
+<script src="mock.js"></script>
+<script src="components.jsx" type="text/babel"></script>
+<script src="pages.jsx" type="text/babel"></script>
+
+<script type="text/babel" data-presets="env,react">
+
+const { useState, useEffect, useRef, useMemo } = React;
+const M = window.OK_MOCK;
+
+// Shared primitives
+const Pill = ({ tone = 'neutral', children }) => {
+  const map = {
+    neutral: { bg: 'var(--n-50)', c: 'var(--fg-muted)', b: 'var(--border)' },
+    orange: { bg: 'var(--ok-orange-50)', c: 'var(--ok-orange-700)', b: 'transparent' },
+    success: { bg: 'var(--success-bg)', c: 'var(--success)', b: 'transparent' },
+    warning: { bg: 'var(--warning-bg)', c: 'var(--warning)', b: 'transparent' },
+    danger: { bg: 'var(--danger-bg)', c: 'var(--danger)', b: 'transparent' },
+    info: { bg: 'var(--info-bg)', c: 'var(--info)', b: 'transparent' },
+    ghost: { bg: 'transparent', c: 'var(--fg-muted)', b: 'var(--border-strong)' }
+  }[tone];
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: map.bg, color: map.c, border: `1px solid ${map.b}` }}>{children}</span>;
+};
+
+const SCORE_COLORS = { 4: 'var(--ok-orange)', 3: 'var(--ok-orange-600)', 2: 'var(--ok-yellow)', 1: 'var(--n-300)' };
+const ScoreBadge = ({ score }) => {
+  if (score == null) return <Pill tone="neutral">미평가</Pill>;
+  const col = SCORE_COLORS[score];
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <span style={{ width: 28, height: 28, borderRadius: 8, background: col, color: '#fff', fontWeight: 900, fontSize: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} className="tnum">{score}</span>
+    <span style={{ fontWeight: 800, fontSize: 14 }} className="tnum">{score}.0</span>
+  </span>;
+};
+
+// =========================================================
+// ROUTER — role-based pages
+// =========================================================
+const DEFAULT_ROLE = 'evaluatee';
+const DEFAULT_PAGE = 'dashboard';
+
+const userFor = (role) => role === 'evaluator' ? M.evaluatorUser : role === 'hr' ? M.hrUser : M.currentUser;
+
+// =========================================================
+// LOGIN — Option C (dark impact)
+// =========================================================
+const Login = ({ onLogin }) => {
+  const [pw, setPw] = useState('••••');
+  // Solar Dusk login — deep plum-navy with sunset gradient
+  const bgL = '#1F1428';const panelL = '#2A1D35';const inputL = '#3A2A48';const borderL = '#4A3A58';const textSoft = '#C9B8D4';const textSubtle = '#8A7A96';
+  return <div style={{ width: '100%', minHeight: '100vh', background: `radial-gradient(1200px 600px at 15% 20%, rgba(217,98,60,0.18), transparent 60%), radial-gradient(900px 500px at 85% 100%, rgba(217,154,78,0.12), transparent 60%), ${bgL}`, color: '#F4EDE3', display: 'flex' }}>
+    <div style={{ flex: 1, padding: '70px 72px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative' }}>
+      {/* sun horizon decoration */}
+      <div style={{ position: 'absolute', bottom: -120, left: -80, width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle, rgba(232,122,82,0.35) 0%, rgba(217,154,78,0.15) 40%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'relative' }}>
+        <BrandLockup />
+        <div style={{ marginTop: 100, fontSize: 15, color: 'var(--ok-yellow-300)', fontWeight: 700, letterSpacing: '0.12em' }}>CONTRIBUTION EVALUATION</div>
+        <h1 style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, marginTop: 12 }}>
+          기여를<br /><span style={{ background: 'linear-gradient(90deg, #E87A52 0%, #E8BC82 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>측정하다<span style={{ color: 'var(--ok-yellow)', WebkitTextFillColor: 'var(--ok-yellow)' }}>!</span></span>
+        </h1>
+        <p style={{ color: textSoft, marginTop: 20, fontSize: 15, lineHeight: 1.6, maxWidth: 480 }}>
+          과업 × 기여방식 × 기여범위의 정량 매트릭스.<br />
+          2026년, OK금융그룹의 새로운 평가 체계가 시작됩니다.
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: 40, fontSize: 12, color: textSubtle, position: 'relative' }}>
+        <div><div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>342</div>평가 대상자</div>
+        <div><div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>48</div>평가자</div>
+        <div><div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>4×4</div>매트릭스</div>
+      </div>
+    </div>
+    <div style={{ width: 480, padding: '80px 56px', background: panelL, borderLeft: `1px solid ${borderL}`, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.14em', color: 'var(--ok-yellow-300)' }}>LOGIN</div>
+      <h2 style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>Welcome back.</h2>
+      <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="field"><label style={{ color: textSoft }}>사번</label><input className="input" style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }} defaultValue="H1911042" /></div>
+        <div className="field"><label style={{ color: textSoft }}>비밀번호</label><input className="input" type="password" style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }} value={pw} onChange={(e) => setPw(e.target.value)} /></div>
+        <button className="btn btn-primary" style={{ height: 46, justifyContent: 'center', background: 'linear-gradient(135deg, #D9623C 0%, #BE4E2C 100%)' }} onClick={onLogin}>로그인 <I.arrowRight width={16} height={16} /></button>
+        <div style={{ fontSize: 11, color: textSubtle, textAlign: 'center', marginTop: 6 }}>SSO · OK금융그룹 통합인증</div>
+      </div>
+      <div style={{ marginTop: 32, padding: '14px 16px', background: 'rgba(217,98,60,0.12)', borderRadius: 10, border: `1px solid ${borderL}` }}>
+        <div style={{ fontSize: 11, color: 'var(--ok-yellow-300)', fontWeight: 700, letterSpacing: '0.1em' }}>TIP</div>
+        <div style={{ fontSize: 12, marginTop: 4, color: textSoft, lineHeight: 1.5 }}>로그인 후 상단바의 역할 스위처에서 피평가자 / 평가자 / HR을 전환해볼 수 있습니다.</div>
+      </div>
+    </div>
+  </div>;
+};
+
+// =========================================================
+// EVALUATEE — Option B (matrix distribution + gantt)
+// =========================================================
+const EvaluateeDashboard = () =>
+<div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+      <div>
+        <div className="label-mini">MY CONTRIBUTION · 2026 H1</div>
+        <h1 style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.03em', marginTop: 6 }}>김민선 <span style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 20 }}>대리 · 인사기획팀</span></h1>
+      </div>
+      <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+        <div style={{ textAlign: 'right' }}><div className="label-mini">최종 점수</div><div className="tnum" style={{ fontSize: 36, fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}>3.3</div></div>
+        <div style={{ height: 44, width: 1, background: 'var(--border)' }} />
+        <div style={{ textAlign: 'right' }}><div className="label-mini">목표 레벨</div><div style={{ fontWeight: 800, lineHeight: 1, fontSize: "36px" }}>Lv.2</div></div>
+        <div style={{ height: 44, width: 1, background: 'var(--border)' }} />
+        <div style={{ textAlign: 'right' }}><div className="label-mini">달성 여부</div><div style={{ fontSize: 14, fontWeight: 800, color: 'var(--success)' }}>🎉 달성</div></div>
+      </div>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 20 }}>
+      <div className="card-lg">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h4>기여 분포</h4><span style={{ fontSize: 11, color: 'var(--fg-subtle)' }}>방식 × 범위</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '60px repeat(4,1fr)', gap: 4 }}>
+          <div></div>
+          {M.scopes.map((s) => <div key={s} style={{ fontSize: 10, textAlign: 'center', color: 'var(--fg-muted)', fontWeight: 700, padding: '4px 0' }}>{s}</div>)}
+          {M.methods.map((m, mi) =>
+        <React.Fragment key={m}>
+              <div style={{ fontSize: 10, color: 'var(--fg-muted)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 6 }}>{m}</div>
+              {M.scopes.map((s, si) => {
+            const sc = M.scoreMatrix[mi][si];
+            const mapIdx = [[0, 0], [0, 1], [1, 2], [3, 2]];
+            const taskHere = mapIdx.findIndex(([a, b]) => a === mi && b === si);
+            const hasTask = taskHere >= 0;
+            return <div key={s} style={{
+              aspectRatio: '1', borderRadius: 6,
+              background: hasTask ? ['var(--ok-orange)', 'var(--ok-yellow)', 'var(--ok-orange-600)', 'var(--n-300)'][taskHere] : 'var(--bg-muted)',
+              color: hasTask ? '#fff' : 'var(--fg-subtle)',
+              fontWeight: 800, fontSize: 11,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: hasTask ? 1 : 0.5, border: hasTask ? 'none' : '1px solid var(--border)'
+            }}>{hasTask ? `T${taskHere + 1}` : sc}</div>;
+          })}
+            </React.Fragment>
+        )}
+        </div>
+        <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--fg-muted)' }}>4점 과업</span><span className="fw-7">1</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--fg-muted)' }}>3점 과업</span><span className="fw-7">2</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--fg-muted)' }}>미평가</span><span className="fw-7">1</span></div>
+        </div>
+      </div>
+      <div className="card-lg">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h4>과업 일정 (간트)</h4>
+          <div style={{ display: 'flex', gap: 6 }}>{['1월', '2월', '3월', '4월', '5월', '6월'].map((m) => <span key={m} style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, width: 68, textAlign: 'center' }}>{m}</span>)}</div>
+        </div>
+        <div style={{ position: 'relative' }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} style={{ position: 'absolute', top: 0, bottom: 0, left: `${i * 16.66}%`, width: 1, background: 'var(--border)' }} />)}
+          <div style={{ position: 'absolute', top: -4, bottom: -4, left: '66%', width: 2, background: 'var(--ok-orange)', zIndex: 2 }}>
+            <div style={{ position: 'absolute', top: -18, left: -18, fontSize: 10, fontWeight: 700, color: 'var(--ok-orange)', background: 'var(--bg-card)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--ok-orange)' }}>오늘</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            {M.myTasks.map((t, i) => {
+            const startM = parseInt(t.start.slice(5, 7)) - 1;
+            const endM = parseInt(t.end.slice(5, 7)) - 1;
+            const startPct = (startM + parseInt(t.start.slice(8, 10)) / 30) / 6 * 100;
+            const widthPct = (endM - startM + (parseInt(t.end.slice(8, 10)) - parseInt(t.start.slice(8, 10))) / 30) / 6 * 100;
+            const colors = ['var(--ok-orange)', 'var(--ok-yellow)', 'var(--ok-orange-600)', 'var(--ok-brown)'];
+            return <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, height: 32 }}>
+                <div style={{ flex: 1, position: 'relative', height: 22, background: 'var(--bg-muted)', borderRadius: 6 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${startPct}%`, width: `${widthPct}%`, background: colors[i], borderRadius: 6, display: 'flex', alignItems: 'center', padding: '0 10px', color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden' }}>T{i + 1} · {t.title.slice(0, 18)}</div>
+                </div>
+                <div style={{ width: 60, textAlign: 'right' }}><ScoreBadge score={t.score} /></div>
+              </div>;
+          })}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div className="card-lg">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}><h4>최근 피드백</h4><Pill tone="orange">신규 2건</Pill></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {M.myTasks.filter((t) => t.feedback).slice(0, 2).map((t) =>
+      <div key={t.id} style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--ok-orange-50)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{t.title}</div>
+              <ScoreBadge score={t.score} />
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ok-brown)', lineHeight: 1.6 }}>{t.feedback}</div>
+            <div style={{ fontSize: 11, color: 'var(--fg-subtle)', marginTop: 8 }}>{t.evaluator} · {t.feedbackDate}</div>
+          </div>
+      )}
+      </div>
+    </div>
+  </div>;
+
+
+// =========================================================
+// EVALUATOR — Option C (Kanban board)
+// =========================================================
+const EvaluatorDashboard = ({ onOpenDetail }) =>
+<div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div><h1 style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.03em' }}>평가 진행 보드</h1><p style={{ color: 'var(--fg-muted)', fontSize: 13, marginTop: 4 }}>상태별 평가 진행 현황을 한눈에 · 인사기획팀 3명</p></div>
+      <button className="btn btn-primary btn-sm"><I.plus width={14} height={14} /> 새 평가 시작</button>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+      {[
+    { name: '대기 중', color: 'var(--n-400)', items: [
+      { n: '주승현 차장', p: 75, score: 2.8, sub: 'T002 · 피드백 작성 필요', d: '2일 전' },
+      { n: '김민선 대리', p: 75, score: 3.3, sub: 'T004 · 신입 멘토링 평가 대기', d: '어제' }]
+    },
+    { name: '진행 중', color: 'var(--ok-orange)', items: [
+      { n: '주승현 차장', p: 50, score: 2.8, sub: 'T003 · 점수 확인 중', active: true, d: '오늘' }]
+    },
+    { name: '완료', color: 'var(--success)', items: [
+      { n: '이수한 차장', p: 100, score: 3.4, sub: '모든 과업 평가 완료 · 달성', done: true, d: '4/20' }]
+    }].
+    map((col) =>
+    <div key={col.name} style={{ background: 'var(--bg-muted)', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 520 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 4px 10px', borderBottom: '2px solid ' + col.color }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><div style={{ width: 8, height: 8, borderRadius: '50%', background: col.color }} /><b style={{ fontSize: 14 }}>{col.name}</b></div>
+            <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>{col.items.length}건</span>
+          </div>
+          {col.items.map((it, i) => <div key={i} onClick={onOpenDetail} className="card" style={{ padding: 14, borderColor: it.active ? 'var(--ok-orange)' : 'var(--border)', boxShadow: it.active ? 'var(--sh-md)' : 'none', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><div className="avatar sm">{it.n[0]}</div><b style={{ fontSize: 13 }}>{it.n}</b></div>
+              {it.done && <span style={{ color: 'var(--success)' }}><I.check width={18} height={18} /></span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>{it.sub}</div>
+            <div className="bar" style={{ marginTop: 10, height: 4 }}><div className="fill" style={{ width: it.p + '%', background: col.color }} /></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, alignItems: 'center' }}>
+              <span className="tnum fw-7" style={{ fontSize: 14, color: 'var(--ok-orange)' }}>{it.score.toFixed(1)}점</span>
+              <span style={{ fontSize: 11, color: 'var(--fg-subtle)' }}>{it.d}</span>
+            </div>
+          </div>)}
+        </div>
+    )}
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+      <StatCard icon={I.users} label="담당 피평가자" value="3" sub="인사기획팀" />
+      <StatCard icon={I.check} label="완료" value="1" sub="33%" />
+      <StatCard icon={I.clock} label="진행중" value="2" accent />
+      <StatCard icon={I.msg} label="작성 피드백" value="12" sub="+3 신규" />
+    </div>
+  </div>;
+
+
+// =========================================================
+// HR — Option A (Standard BI dashboard)
+// =========================================================
+const HrDashboard = () =>
+<div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <div><h1 style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em' }}>HR 관리자 대시보드</h1><p style={{ color: 'var(--fg-muted)', fontSize: 13, marginTop: 4 }}>2026 상반기 기여도 평가 · 전사 현황</p></div>
+      <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-outline btn-sm"><I.file width={14} height={14} /> 보고서</button><button className="btn btn-primary btn-sm"><I.settings width={14} height={14} /> 평가 설정</button></div>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+      <StatCard icon={I.users} label="전체 직원" value="342" sub="활성 평가자 48" />
+      <StatCard icon={I.check} label="완료율" value="72%" sub="246 / 342" trend={8} accent />
+      <StatCard icon={I.target} label="달성률" value="68%" sub="목표 Lv. 이상" />
+      <StatCard icon={I.clock} label="진행 중" value="96" sub="마감 D-7" />
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 14 }}>
+      <div className="card-lg">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h4>주간 완료율 추이</h4>
+          <div style={{ display: 'flex', gap: 6 }}><Pill tone="neutral">최근 8주</Pill></div>
+        </div>
+        <svg width="100%" height="180" viewBox="0 0 600 180" preserveAspectRatio="none">
+          <defs><linearGradient id="gr1" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="var(--ok-orange)" stopOpacity="0.35" /><stop offset="100%" stopColor="var(--ok-orange)" stopOpacity="0" /></linearGradient></defs>
+          {[0, 1, 2, 3, 4].map((i) => <line key={i} x1="0" x2="600" y1={i * 40 + 10} y2={i * 40 + 10} stroke="var(--border)" strokeWidth="1" />)}
+          <path d="M 0,120 L 85,100 L 170,92 L 255,85 L 340,68 L 425,60 L 510,52 L 600,48 L 600,180 L 0,180 Z" fill="url(#gr1)" />
+          <path d="M 0,120 L 85,100 L 170,92 L 255,85 L 340,68 L 425,60 L 510,52 L 600,48" fill="none" stroke="var(--ok-orange)" strokeWidth="3" strokeLinecap="round" />
+          {[[0, 120], [85, 100], [170, 92], [255, 85], [340, 68], [425, 60], [510, 52], [600, 48]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="4" fill="var(--ok-orange)" />)}
+        </svg>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: 'var(--fg-subtle)' }}>
+          {['3월 1주', '2주', '3주', '4주', '4월 1주', '2주', '3주', '현재'].map((w) => <span key={w}>{w}</span>)}
+        </div>
+      </div>
+      <div className="card-lg">
+        <h4 style={{ marginBottom: 14 }}>부서별 진행률</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {M.hrStats.byDept.map((d) =>
+        <div key={d.name}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span className="fw-6">{d.name}</span>
+                <span className="tnum fg-muted">{d.completed}/{d.total} · {d.rate}%</span>
+              </div>
+              <div className="bar"><div className="fill" style={{ width: d.rate + '%', background: d.rate >= 80 ? 'var(--success)' : d.rate >= 70 ? 'var(--ok-orange)' : 'var(--ok-yellow)' }} /></div>
+            </div>
+        )}
+        </div>
+      </div>
+    </div>
+    <div className="card-lg">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}><h4>최근 시스템 활동</h4><button className="btn btn-ghost btn-xs">전체 보기 →</button></div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {[
+      { t: '박판근 부장이 이수한 차장의 평가를 완료했습니다.', c: 'evaluation_completed', d: '10분 전' },
+      { t: '김남엽 차장이 최은송 차장의 T003 과업에 점수를 부여했습니다 (A/3).', c: 'score_changed', d: '32분 전' },
+      { t: 'HR 정책팀에서 평가 매트릭스를 업데이트했습니다.', c: 'settings', d: '1시간 전' },
+      { t: '신규 평가자 3명이 시스템에 등록되었습니다.', c: 'user', d: '오늘 오전 9:12' }].
+      map((a, i) => {
+        const col = { evaluation_completed: 'var(--success)', score_changed: 'var(--ok-orange)', settings: 'var(--warning)', user: 'var(--info)' }[a.c];
+        return <div key={i} style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, marginTop: 6, flexShrink: 0 }} />
+            <div style={{ flex: 1, fontSize: 13 }}>{a.t}</div>
+            <div style={{ fontSize: 12, color: 'var(--fg-subtle)' }}>{a.d}</div>
+          </div>;
+      })}
+      </div>
+    </div>
+  </div>;
+
+
+// =========================================================
+// EVALUATION DETAIL — Option C (list + inline AI)
+// =========================================================
+const EvalDetail = ({ onBack }) => {
+  const [selected, setSelected] = useState(0);
+  const [score, setScore] = useState([0, 0]); // mi, si
+  const [fb, setFb] = useState(M.myTasks[0].feedback);
+  const t = M.myTasks[selected];
+  return <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+    <div style={{ width: 340, borderRight: '1px solid var(--border)', background: 'var(--bg-card)', overflow: 'auto' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="btn btn-ghost btn-xs" onClick={onBack} style={{ padding: 4 }}><I.arrowRight width={16} height={16} style={{ transform: 'rotate(180deg)' }} /></button>
+        <div><div style={{ fontWeight: 800, fontSize: 14 }}>김민선 대리</div><div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>인사기획팀 · Lv.2</div></div>
+        <Pill tone="warning">3/4</Pill>
+      </div>
+      {M.myTasks.map((tt, i) => <div key={tt.id} onClick={() => {setSelected(i);setFb(tt.feedback || '');}} style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: i === selected ? 'var(--ok-orange-50)' : 'transparent', borderLeft: i === selected ? '3px solid var(--ok-orange)' : '3px solid transparent', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><Pill tone="neutral">T{String(i + 1).padStart(2, '0')}</Pill><ScoreBadge score={tt.score} /></div>
+        <div style={{ fontWeight: i === selected ? 700 : 500, fontSize: 13, marginTop: 4 }}>{tt.title}</div>
+        <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 4 }}>{tt.method} · {tt.scope} · {tt.weight}%</div>
+      </div>)}
+    </div>
+    <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div><Pill tone="orange">T{String(selected + 1).padStart(2, '0')} · 가중치 {t.weight}%</Pill><h2 style={{ marginTop: 8 }}>{t.title}</h2><p style={{ color: 'var(--fg-muted)', fontSize: 13, marginTop: 6, maxWidth: 700 }}>{t.desc}</p></div>
+        <ScoreBadge score={t.score || 4} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div className="card">
+          <div className="label-mini">평가 매트릭스 — 점수 선택</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '70px repeat(4,1fr)', gap: 4, marginTop: 10 }}>
+            <div></div>{M.scopes.map((s) => <div key={s} style={{ fontSize: 10, textAlign: 'center', color: 'var(--fg-muted)', fontWeight: 700 }}>{s.slice(0, 2)}</div>)}
+            {M.methods.map((m, mi) => <React.Fragment key={m}>
+              <div style={{ fontSize: 10, color: 'var(--fg-muted)', textAlign: 'right', paddingRight: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>{m}</div>
+              {M.scopes.map((s, si) => {
+                const sc = M.scoreMatrix[mi][si];const active = mi === score[0] && si === score[1];
+                const col = SCORE_COLORS[sc];
+                return <button key={s} onClick={() => setScore([mi, si])} style={{ aspectRatio: '1.2', borderRadius: 6, background: active ? col : 'var(--bg-muted)', color: active ? '#fff' : 'var(--fg-subtle)', fontSize: 13, fontWeight: 800, border: active ? `2px solid ${col}` : '1px solid var(--border)', cursor: 'pointer' }} className="tnum">{active ? '★ ' : ''}{sc}</button>;
+              })}
+            </React.Fragment>)}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--fg-muted)' }}>선택: <b style={{ color: 'var(--fg)' }}>{M.methods[score[0]]} × {M.scopes[score[1]]}</b> → <b style={{ color: 'var(--ok-orange)' }}>{M.scoreMatrix[score[0]][score[1]]}.0점</b></div>
+        </div>
+        <div className="card">
+          <div className="label-mini">피드백 이력</div>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(t.history || []).map((h) => <div key={h.id} style={{ fontSize: 12, padding: 8, background: 'var(--bg-muted)', borderRadius: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-subtle)', marginBottom: 4 }}><b style={{ color: 'var(--fg)' }}>{h.evaluator}</b><span className="tnum">{h.date}</span></div>
+              <div style={{ lineHeight: 1.5 }}>{h.content.slice(0, 120)}...</div>
+            </div>)}
+          </div>
+        </div>
+      </div>
+      <div className="card-lg" style={{ marginTop: 14, padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h4>피드백 작성</h4>
+          <button className="btn btn-outline btn-sm" onClick={() => setFb((prev) => prev + '\n\n[AI 초안] 현업 인터뷰 20+회, 매트릭스 4x4 설계. 수용도 4.6/5, 일정 2주 단축. 리더십·실행력 모두 우수.')}><I.sparkle width={14} height={14} style={{ color: 'var(--ok-orange)' }} /> AI 초안 생성</button>
+        </div>
+        <textarea className="textarea" rows="5" value={fb} onChange={(e) => setFb(e.target.value)} />
+        <div style={{ marginTop: 12, padding: 14, background: 'var(--ok-orange-50)', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ color: 'var(--ok-orange)', flexShrink: 0, marginTop: 2 }}><I.sparkle width={18} height={18} /></div>
+          <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ok-brown)' }}>
+            <b>AI 제안:</b> 피드백이 잘 작성되었습니다. 구체적 수치가 포함되어 있어 인상적입니다. 다만 <b>다음 단계 성장 포인트</b>를 한 문장 추가하면 더 좋겠습니다.
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+          <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>마지막 저장: 4월 20일 14:32</span>
+          <div style={{ display: 'flex', gap: 6 }}><button className="btn btn-outline btn-sm">임시 저장</button><button className="btn btn-primary btn-sm"><I.check width={14} height={14} /> 평가 확정</button></div>
+        </div>
+      </div>
+    </div>
+  </div>;
+};
+
+// =========================================================
+// MATRIX SETTINGS — Option A (visual cell editor)
+// =========================================================
+const MatrixSettings = () =>
+<div style={{ padding: 24 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 }}>
+      <div><h1 style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.03em' }}>평가 매트릭스 설정</h1><p style={{ color: 'var(--fg-muted)', fontSize: 13, marginTop: 4 }}>기여 방식(행) × 기여 범위(열) 점수 체계를 정의합니다</p></div>
+      <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-outline btn-sm">템플릿 불러오기</button><button className="btn btn-primary btn-sm"><I.check width={14} height={14} /> 변경사항 저장</button></div>
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 18 }}>
+      <div className="card-lg">
+        <div style={{ display: 'grid', gridTemplateColumns: '160px repeat(4,1fr)', gap: 6 }}>
+          <div></div>
+          {M.scopes.map((s, i) => <div key={s} style={{ padding: '14px 8px', background: 'var(--ok-orange-50)', borderRadius: 8, textAlign: 'center' }}>
+            <div style={{ fontSize: 10, color: 'var(--ok-orange)', fontWeight: 700 }}>범위 · {String.fromCharCode(65 + i)}</div>
+            <input defaultValue={s} style={{ marginTop: 4, width: '100%', textAlign: 'center', fontWeight: 800, fontSize: 14, border: 'none', background: 'transparent', color: 'var(--ok-orange-700)', outline: 'none' }} />
+          </div>)}
+          {M.methods.map((m, mi) => <React.Fragment key={m}>
+            <div style={{ padding: '14px 10px', background: 'var(--ok-orange-50)', borderRadius: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div style={{ fontSize: 10, color: 'var(--ok-orange)', fontWeight: 700 }}>방식 · {mi + 1}</div>
+              <input defaultValue={m} style={{ marginTop: 2, width: '100%', fontWeight: 800, fontSize: 14, border: 'none', background: 'transparent', color: 'var(--ok-orange-700)', outline: 'none' }} />
+            </div>
+            {M.scopes.map((s, si) => {
+            const sc = M.scoreMatrix[mi][si];
+            const col = SCORE_COLORS[sc];
+            return <div key={s} style={{ aspectRatio: '1.2', borderRadius: 12, background: 'var(--bg-card)', border: `2px solid ${col}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: 'var(--sh-sm)' }}>
+                <div style={{ position: 'absolute', top: 6, right: 8, fontSize: 10, color: 'var(--fg-subtle)' }}>M{mi + 1}·S{si + 1}</div>
+                <div className="tnum" style={{ fontSize: 44, fontWeight: 900, color: col, lineHeight: 1 }}>{sc}</div>
+                <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                  {[1, 2, 3, 4].map((v) => <button key={v} style={{ width: 22, height: 22, borderRadius: 4, border: 'none', background: v === sc ? col : 'var(--bg-muted)', color: v === sc ? '#fff' : 'var(--fg-muted)', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>{v}</button>)}
+                </div>
+              </div>;
+          })}
+          </React.Fragment>)}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="card">
+          <h4>매트릭스 정보</h4>
+          <div className="field" style={{ marginTop: 12 }}><label>버전</label><input className="input" defaultValue="v2.1 — 2026 상반기" /></div>
+          <div className="field" style={{ marginTop: 10 }}><label>적용 기간</label><input className="input" defaultValue="2026-01-01 ~ 2026-06-30" /></div>
+          <div className="field" style={{ marginTop: 10 }}><label>적용 대상</label>
+            <select className="input"><option>전사 (342명)</option><option>본부별</option></select>
+          </div>
+        </div>
+        <div className="card">
+          <h4>점수별 등급</h4>
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[[4, 'var(--ok-orange)', '탁월', 'S급'], [3, 'var(--ok-orange-600)', '우수', 'A급'], [2, 'var(--ok-yellow)', '양호', 'B급'], [1, 'var(--n-300)', '기대 미달', 'C급']].map(([v, c, t, g]) =>
+          <div key={v} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--bg-muted)', borderRadius: 8 }}>
+                <div className="tnum" style={{ width: 36, height: 36, borderRadius: 8, background: c, color: '#fff', fontWeight: 900, fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{v}</div>
+                <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{t} <span style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 11 }}>· {g}</span></div><div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{v}점 · 매트릭스 기여도</div></div>
+                <input className="input tnum" defaultValue={v} style={{ width: 54, textAlign: 'center', padding: '6px 8px' }} />
+              </div>)}
+          </div>
+        </div>
+        <div className="card" style={{ background: 'var(--ok-orange-50)', border: '1px solid var(--ok-orange-100)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div style={{ color: 'var(--ok-orange)' }}><I.sparkle width={18} height={18} /></div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ok-brown)' }}><b>주의</b> · 적용 중인 매트릭스를 변경하면 진행 중인 평가 96건에 영향이 있습니다.</div>
+          </div>
+          <button className="btn btn-outline btn-sm" style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}>시뮬레이션 실행</button>
+        </div>
+      </div>
+    </div>
+  </div>;
+
+
+// =========================================================
+// NOTIFICATION DROPDOWN — Option B (overlay)
+// =========================================================
+const NotifDropdown = ({ onClose }) => {
+  const n = M.notifications;
+  return <>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(31,20,40,0.35)', zIndex: 50 }} />
+    <div style={{ position: 'fixed', top: 66, right: 18, width: 420, background: 'var(--bg-card)', borderRadius: 14, boxShadow: 'var(--sh-lg)', border: '1px solid var(--border)', overflow: 'hidden', zIndex: 60 }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><h4>알림</h4><Pill tone="orange">신규 3</Pill></div>
+        <button className="btn btn-ghost btn-xs">모두 읽음</button>
+      </div>
+      <div style={{ padding: '8px 0', maxHeight: 520, overflow: 'auto' }}>
+        {n.slice(0, 6).map((x, i) => {
+          const icons = { feedback_added: I.msg, evaluation_completed: I.check, score_changed: I.target, task_content_changed: I.file, evaluation_updated: I.calendar };
+          const cols = { feedback_added: 'var(--ok-orange)', evaluation_completed: 'var(--success)', score_changed: 'var(--ok-yellow)', task_content_changed: 'var(--info)', evaluation_updated: 'var(--ok-orange)' };
+          const Icon = icons[x.type] || I.bell;
+          return <div key={x.id} style={{ display: 'flex', gap: 10, padding: '10px 20px', background: x.read ? 'transparent' : 'var(--ok-orange-50)', borderLeft: x.read ? '3px solid transparent' : '3px solid var(--ok-orange)', cursor: 'pointer' }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-muted)', color: cols[x.type], display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon width={14} height={14} /></div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: x.read ? 500 : 700, fontSize: 13 }}>{x.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{x.message}</div>
+              <div style={{ fontSize: 11, color: 'var(--fg-subtle)', marginTop: 4 }}>{x.from} · {x.time}</div>
+            </div>
+          </div>;
+        })}
+      </div>
+      <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'center' }}>
+        <a style={{ color: 'var(--ok-orange)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>전체 알림 보기 →</a>
+      </div>
+    </div>
+  </>;
+};
+
+// =========================================================
+// SHELL (TopBar + Sidebar + content area)
+// =========================================================
+const Shell = ({ role, setRole, page, setPage, user, openDetail, setOpenDetail, theme, setTheme }) => {
+  const [bellOpen, setBellOpen] = useState(false);
+
+  const pageMap = {
+    evaluatee: {
+      dashboard: <EvaluateeDashboard />,
+      tasks: <MyTasksPage />,
+      schedule: <MySchedulePage />,
+      feedback: <MyFeedbackPage />
+    },
+    evaluator: {
+      dashboard: <EvaluatorDashboard onOpenDetail={() => setOpenDetail(true)} />,
+      scores: <ScoreTablePage onOpenDetail={() => setOpenDetail(true)} />,
+      team: <TeamMembersPage onOpenDetail={() => setOpenDetail(true)} />,
+      schedule: <EvaluatorSchedulePage />,
+      feedback: <EvaluatorFeedbackPage />
+    },
+    hr: {
+      dashboard: <HrDashboard />,
+      departments: <HrDepartmentsPage />,
+      matrix: <MatrixSettings />,
+      users: <HrUsersPage />,
+      settings: <HrSettingsPage />
+    }
+  };
+  const content = openDetail && role === 'evaluator' ?
+  <EvalDetail onBack={() => setOpenDetail(false)} /> :
+  pageMap[role][page] || pageMap[role].dashboard;
+
+  return <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <Sidebar page={page} onPage={(p) => {setOpenDetail(false);setPage(p);}} role={role} />
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <TopBar role={role} onRole={(r) => {setRole(r);setPage('dashboard');setOpenDetail(false);}} user={user} onBell={() => setBellOpen(true)} unread={3} theme={theme} onTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')} />
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-app)', display: 'flex', flexDirection: 'column' }}>
+        {content}
+      </div>
+    </div>
+    {bellOpen && <NotifDropdown onClose={() => setBellOpen(false)} />}
+  </div>;
+};
+
+// =========================================================
+// ROOT APP
+// =========================================================
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "startLoggedIn": true,
+  "dark": false,
+  "accentDensity": "comfortable"
+} /*EDITMODE-END*/;
+
+const App = () => {
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+  const [loggedIn, setLoggedIn] = useState(() => {
+    try {return localStorage.getItem('ok_loggedIn') === '1' || TWEAK_DEFAULTS.startLoggedIn;} catch {return TWEAK_DEFAULTS.startLoggedIn;}
+  });
+  const [role, setRole] = useState(() => localStorage.getItem('ok_role') || 'evaluatee');
+  const [page, setPage] = useState(() => localStorage.getItem('ok_page') || 'dashboard');
+  const [theme, setTheme] = useState(() => localStorage.getItem('ok_theme') || (TWEAK_DEFAULTS.dark ? 'dark' : 'light'));
+  const [openDetail, setOpenDetail] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+
+  useEffect(() => {localStorage.setItem('ok_role', role);localStorage.setItem('ok_page', page);localStorage.setItem('ok_loggedIn', loggedIn ? '1' : '0');localStorage.setItem('ok_theme', theme);}, [role, page, loggedIn, theme]);
+
+  // Apply theme to document root
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Edit mode protocol
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data || {};
+      if (d.type === '__activate_edit_mode') setEditMode(true);else
+      if (d.type === '__deactivate_edit_mode') setEditMode(false);
+    };
+    window.addEventListener('message', onMsg);
+    try {window.parent.postMessage({ type: '__edit_mode_available' }, '*');} catch {}
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />;
+
+  const user = userFor(role);
+  return <>
+    <Shell role={role} setRole={setRole} page={page} setPage={setPage} user={user} openDetail={openDetail} setOpenDetail={setOpenDetail} theme={theme} setTheme={setTheme} />
+    {editMode &&
+    <div style={{ position: 'fixed', bottom: 20, right: 20, width: 300, background: '#fff', borderRadius: 14, boxShadow: '0 16px 48px rgba(40,28,24,0.2)', border: '1px solid var(--border)', padding: 16, zIndex: 100 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <b style={{ fontSize: 13 }}>Tweaks</b>
+          <span style={{ fontSize: 10, color: 'var(--fg-subtle)', fontWeight: 700, letterSpacing: '0.1em' }}>PROTOTYPE</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
+          <div><div className="label-mini">테마</div>
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              {[['light', '라이트'], ['dark', '다크']].map(([t, l]) =>
+            <button key={t} onClick={() => setTheme(t)} style={{ flex: 1, padding: '6px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: theme === t ? 'var(--ok-orange)' : 'var(--bg-muted)', color: theme === t ? '#fff' : 'var(--fg)', border: 'none', cursor: 'pointer' }}>{l}</button>)}
+            </div>
+          </div>
+          <div><div className="label-mini">역할 바로 이동</div>
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              {[['evaluatee', '피평가자'], ['evaluator', '평가자'], ['hr', 'HR']].map(([r, l]) =>
+            <button key={r} onClick={() => {setRole(r);setPage('dashboard');setOpenDetail(false);}} style={{ flex: 1, padding: '6px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: role === r ? 'var(--ok-orange)' : 'var(--bg-muted)', color: role === r ? '#fff' : 'var(--fg)', border: 'none', cursor: 'pointer' }}>{l}</button>)}
+            </div>
+          </div>
+          <div><div className="label-mini">상태</div>
+            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <button className="btn btn-outline btn-xs" onClick={() => {setLoggedIn(false);}}>로그아웃</button>
+              <button className="btn btn-outline btn-xs" onClick={() => {if (role === 'evaluator') setOpenDetail((v) => !v);}}>{openDetail ? '목록으로' : '평가 상세 열기'}</button>
+            </div>
+          </div>
+          <div style={{ paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            상단 역할 스위처 + 좌측 메뉴로도 네비게이션 가능. 벨 아이콘을 누르면 알림 드롭다운이 열립니다.
+          </div>
+        </div>
+      </div>
+    }
+  </>;
+};
+
+Object.assign(window, { Pill, ScoreBadge });
+ReactDOM.createRoot(document.getElementById('app-root')).render(<App />);
+</script>
+</body>
+</html>
