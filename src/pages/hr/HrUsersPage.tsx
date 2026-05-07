@@ -224,13 +224,18 @@ const HrUsersPage = () => {
     });
   };
 
-  const saveEmployeeEdit = async (employee: Employee) => {
+  const saveEmployeeEdit = async (
+    employee: Employee,
+    evaluatorMode: 'assignment' | 'direct' = 'assignment',
+  ) => {
     if (!editForm) return;
 
     const name = editForm.name.trim();
     const position = editForm.position.trim();
     const department = editForm.department.trim();
     const growthLevel = editForm.growthLevel.trim();
+    const nextEvaluatorId = editForm.evaluatorId || null;
+    const evaluatorChanged = (employee.evaluator_id ?? null) !== nextEvaluatorId;
 
     if (!name || !position || !department) {
       toast({
@@ -263,16 +268,59 @@ const HrUsersPage = () => {
       return;
     }
 
+    if (evaluatorMode === 'direct' && !evaluatorChanged) {
+      toast({
+        title: '평가자 수정 대상이 없습니다.',
+        description: '현재 평가자와 다른 평가자를 선택한 뒤 실행해주세요.',
+      });
+      return;
+    }
+
+    if (evaluatorMode === 'direct') {
+      const ok = window.confirm(
+        `${employee.name}님의 평가자를 이력 없이 수정할까요?\n\n기존 평가자가 입력한 활성 평가/피드백은 취소 처리되어 화면과 점수 산출에서 제외됩니다.`,
+      );
+      if (!ok) return;
+    } else if (evaluatorChanged) {
+      const ok = window.confirm(
+        `${employee.name}님의 평가자 변경 이력을 남기고 새 평가건을 생성할까요?\n\n잘못 매칭을 바로잡는 경우라면 "평가자 수정"을 사용하세요.`,
+      );
+      if (!ok) return;
+    }
+
     setSavingEmployeeId(employee.employee_id);
     try {
-      await employeeService.updateEmployee(employee.employee_id, {
+      const baseUpdates = {
         name,
         position,
         department,
         growth_level: parsedGrowthLevel,
-        evaluator_id: editForm.evaluatorId || null,
         available_roles: editForm.roles,
         changed_by: actorId,
+      };
+
+      if (evaluatorMode === 'direct') {
+        await employeeService.updateEmployee(employee.employee_id, baseUpdates);
+        const result = await employeeService.editEvaluator(employee.employee_id, {
+          evaluator_id: nextEvaluatorId,
+          changed_by: actorId,
+          reason: 'HR evaluator edit',
+        });
+        await reload();
+        cancelEditing();
+        toast({
+          title: '평가자가 수정되었습니다.',
+          description:
+            result.cancelled_entries > 0
+              ? `기존 평가 ${result.cancelled_entries}건을 화면과 점수 산출에서 제외했습니다.`
+              : '평가자 변경 이력 없이 현재 평가자만 수정했습니다.',
+        });
+        return;
+      }
+
+      await employeeService.updateEmployee(employee.employee_id, {
+        ...baseUpdates,
+        evaluator_id: nextEvaluatorId,
       });
       await reload();
       cancelEditing();
@@ -478,6 +526,10 @@ const HrUsersPage = () => {
                   const isUpdating = updatingEvaluationId === evaluation?.id;
                   const isEditing = editingEmployeeId === employee.employee_id && Boolean(editForm);
                   const isSaving = savingEmployeeId === employee.employee_id;
+                  const hasEvaluatorChange =
+                    isEditing &&
+                    Boolean(editForm) &&
+                    (employee.evaluator_id ?? '') !== editForm.evaluatorId;
                   const isHistoryExpanded = expandedHistoryEmployeeId === employee.employee_id;
                   const isHistoryLoading = loadingHistoryEmployeeId === employee.employee_id;
                   const historyItems = assignmentHistoryByEmployee[employee.employee_id] ?? [];
@@ -703,14 +755,29 @@ const HrUsersPage = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         {isEditing ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
                             <button
                               className="sd-btn sd-btn-primary sd-btn-sm"
-                              onClick={() => saveEmployeeEdit(employee)}
+                              onClick={() => saveEmployeeEdit(employee, 'assignment')}
                               disabled={isSaving}
+                              title={
+                                hasEvaluatorChange
+                                  ? '발령/담당 변경처럼 평가자 변경 이력을 남깁니다.'
+                                  : undefined
+                              }
                             >
-                              {isSaving ? '저장 중' : '저장'}
+                              {isSaving ? '저장 중' : hasEvaluatorChange ? '평가자 변경' : '저장'}
                             </button>
+                            {hasEvaluatorChange && (
+                              <button
+                                className="sd-btn sd-btn-outline sd-btn-sm"
+                                onClick={() => saveEmployeeEdit(employee, 'direct')}
+                                disabled={isSaving}
+                                title="잘못된 초기 매칭을 이력 없이 바로잡습니다."
+                              >
+                                평가자 수정
+                              </button>
+                            )}
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
                               onClick={cancelEditing}

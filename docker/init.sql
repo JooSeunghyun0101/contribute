@@ -183,6 +183,18 @@ CREATE TABLE public.settings (
   CONSTRAINT settings_user_type_unique UNIQUE (user_id, setting_type)
 );
 
+CREATE TABLE public.admin_audit_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  action_type text NOT NULL,
+  actor_id text,
+  target_employee_id text,
+  previous_value jsonb,
+  new_value jsonb,
+  reason text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT admin_audit_logs_pkey PRIMARY KEY (id)
+);
+
 CREATE TABLE public.prompt_templates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   key text NOT NULL UNIQUE,
@@ -310,6 +322,16 @@ ALTER TABLE public.notifications
   FOREIGN KEY (related_task_id) REFERENCES public.tasks(task_id)
   ON DELETE SET NULL ON UPDATE CASCADE;
 
+ALTER TABLE public.admin_audit_logs
+  ADD CONSTRAINT fk_admin_audit_logs_actor
+  FOREIGN KEY (actor_id) REFERENCES public.employees(employee_id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+ALTER TABLE public.admin_audit_logs
+  ADD CONSTRAINT fk_admin_audit_logs_target_employee
+  FOREIGN KEY (target_employee_id) REFERENCES public.employees(employee_id)
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
 CREATE INDEX idx_evaluations_period ON public.evaluations (evaluation_period_id);
 CREATE INDEX idx_evaluations_record_status ON public.evaluations (record_status);
 CREATE INDEX idx_evaluations_assignment_history ON public.evaluations (assignment_history_id);
@@ -331,6 +353,9 @@ CREATE INDEX idx_feedback_history_task_uuid ON public.feedback_history (task_uui
 CREATE INDEX idx_feedback_history_evaluation ON public.feedback_history (evaluation_id);
 CREATE INDEX idx_feedback_history_evaluator ON public.feedback_history (evaluator_id);
 CREATE INDEX idx_feedback_history_task_evaluation_entry ON public.feedback_history (task_evaluation_entry_id);
+CREATE INDEX idx_admin_audit_logs_action_type ON public.admin_audit_logs (action_type);
+CREATE INDEX idx_admin_audit_logs_target_employee ON public.admin_audit_logs (target_employee_id, created_at DESC);
+CREATE INDEX idx_admin_audit_logs_actor ON public.admin_audit_logs (actor_id, created_at DESC);
 
 -- ============================================================
 -- TRIGGER FUNCTIONS

@@ -429,6 +429,140 @@ const insertEvaluatorAssignmentHistory = async (
   return rows[0];
 };
 
+const insertAdminAuditLog = async (
+  client,
+  { actionType, actorId, targetEmployeeId, previousValue, newValue, reason }
+) => {
+  try {
+    await client.query(
+      `
+        INSERT INTO admin_audit_logs (
+          action_type,
+          actor_id,
+          target_employee_id,
+          previous_value,
+          new_value,
+          reason,
+          created_at
+        )
+        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,NOW())
+      `,
+      [
+        actionType,
+        actorId ?? null,
+        targetEmployeeId ?? null,
+        JSON.stringify(previousValue ?? null),
+        JSON.stringify(newValue ?? null),
+        reason ?? null,
+      ]
+    );
+  } catch (err) {
+    if (err.code === '42P01') {
+      return;
+    }
+    if (err.code === '23503' && actorId) {
+      await insertAdminAuditLog(client, {
+        actionType,
+        actorId: null,
+        targetEmployeeId,
+        previousValue,
+        newValue,
+        reason,
+      });
+      return;
+    }
+    throw err;
+  }
+};
+
+const cancelEvaluatorEntriesForCorrection = async (
+  client,
+  { employeeId, previousEvaluatorId, newEvaluatorId, actorId, reason }
+) => {
+  if (!previousEvaluatorId || previousEvaluatorId === newEvaluatorId) {
+    return { cancelledEntries: [], cancelledFeedbackCount: 0, resetEvaluations: [] };
+  }
+
+  const cancelReason = reason || 'HR evaluator edit';
+  const { rows: cancelledEntries } = await client.query(
+    `
+      WITH target_evaluations AS (
+        SELECT id
+        FROM evaluations
+        WHERE evaluatee_id = $1
+          AND COALESCE(record_status, 'active') = 'active'
+      )
+      UPDATE task_evaluation_entries tee
+      SET
+        status = 'cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $3,
+        cancel_reason = $4,
+        updated_at = NOW()
+      FROM target_evaluations ev
+      WHERE tee.evaluation_id = ev.id
+        AND tee.evaluator_id IS NOT DISTINCT FROM $2
+        AND COALESCE(tee.status, 'active') = 'active'
+      RETURNING tee.id, tee.task_uuid, tee.evaluation_id, tee.evaluator_id, tee.evaluator_name
+    `,
+    [employeeId, previousEvaluatorId, actorId ?? null, cancelReason]
+  );
+
+  const affectedTaskIds = [
+    ...new Set(cancelledEntries.map((entry) => entry.task_uuid).filter(Boolean)),
+  ];
+  await rebuildTaskEvaluationSnapshot(client, affectedTaskIds);
+
+  const cancelledEntryIds = cancelledEntries.map((entry) => entry.id).filter(Boolean);
+  let cancelledFeedbackCount = 0;
+  if (cancelledEntryIds.length > 0) {
+    const { rowCount } = await client.query(
+      `
+        UPDATE feedback_history fh
+        SET
+          status = 'cancelled',
+          cancelled_at = NOW(),
+          cancelled_by = $3,
+          cancel_reason = $4
+        FROM task_evaluation_entries tee
+        WHERE tee.id = ANY($1::uuid[])
+          AND fh.task_uuid = tee.task_uuid
+          AND COALESCE(fh.status, 'active') = 'active'
+          AND (
+            fh.task_evaluation_entry_id = tee.id
+            OR fh.evaluator_id IS NOT DISTINCT FROM $2
+            OR fh.evaluator_name = tee.evaluator_name
+          )
+      `,
+      [cancelledEntryIds, previousEvaluatorId, actorId ?? null, cancelReason]
+    );
+    cancelledFeedbackCount = rowCount ?? 0;
+  }
+
+  const affectedEvaluationIds = [
+    ...new Set(cancelledEntries.map((entry) => entry.evaluation_id).filter(Boolean)),
+  ];
+  let resetEvaluations = [];
+  if (affectedEvaluationIds.length > 0) {
+    const { rows } = await client.query(
+      `
+        UPDATE evaluations
+        SET
+          evaluation_status = 'submitted',
+          last_modified = NOW(),
+          updated_at = NOW()
+        WHERE id = ANY($1::uuid[])
+          AND evaluation_status = 'completed'
+        RETURNING id
+      `,
+      [affectedEvaluationIds]
+    );
+    resetEvaluations = rows;
+  }
+
+  return { cancelledEntries, cancelledFeedbackCount, resetEvaluations };
+};
+
 const createPeriodWriteError = (status) =>
   Object.assign(
     new Error(`Evaluation period is ${status}; writes are disabled.`),
@@ -1277,6 +1411,90 @@ app.put('/api/employee/:id', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating employee:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+
+  const evaluatorId = normalizeOptionalText(req.body?.evaluator_id ?? req.body?.evaluatorId);
+  const actorId = getAssignmentActor(req.body);
+  const reason = getAssignmentReason(req.body) || 'HR evaluator edit';
+
+  if (evaluatorId === req.params.id) {
+    return res.status(400).json({ error: 'Employee cannot evaluate themselves' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { rows: existingRows } = await client.query(
+      'SELECT * FROM employees WHERE employee_id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const existingEmployee = existingRows[0];
+    if (!existingEmployee) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    if (evaluatorId) {
+      const { rows: evaluatorRows } = await client.query(
+        'SELECT employee_id FROM employees WHERE employee_id = $1 LIMIT 1',
+        [evaluatorId]
+      );
+      if (!evaluatorRows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Evaluator not found' });
+      }
+    }
+
+    const previousEvaluatorId = existingEmployee.evaluator_id ?? null;
+    const { rows: updatedRows } = await client.query(
+      `
+        UPDATE employees
+        SET evaluator_id = $2, updated_at = NOW()
+        WHERE employee_id = $1
+        RETURNING *
+      `,
+      [req.params.id, evaluatorId ?? null]
+    );
+    const updatedEmployee = updatedRows[0];
+
+    const correctionResult = await cancelEvaluatorEntriesForCorrection(client, {
+      employeeId: req.params.id,
+      previousEvaluatorId,
+      newEvaluatorId: evaluatorId ?? null,
+      actorId,
+      reason,
+    });
+
+    await insertAdminAuditLog(client, {
+      actionType: 'evaluator_edit',
+      actorId,
+      targetEmployeeId: req.params.id,
+      previousValue: { evaluator_id: previousEvaluatorId },
+      newValue: { evaluator_id: evaluatorId ?? null },
+      reason,
+    });
+
+    await client.query('COMMIT');
+    res.json({
+      employee: updatedEmployee,
+      cancelled_entries: correctionResult.cancelledEntries.length,
+      cancelled_feedbacks: correctionResult.cancelledFeedbackCount,
+      reset_evaluations: correctionResult.resetEvaluations.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error editing evaluator:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();

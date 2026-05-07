@@ -19,6 +19,16 @@ type AssignmentActionPayload = {
   cancel_reason?: string | null;
 };
 
+type EvaluatorEditPayload = {
+  evaluator_id?: string | null;
+  evaluatorId?: string | null;
+  changed_by?: string | null;
+  changedBy?: string | null;
+  actor_id?: string | null;
+  actorId?: string | null;
+  reason?: string | null;
+};
+
 export const employeeService = {
   // 모든 직원 조회
   async getAllEmployees(): Promise<Employee[]> {
@@ -136,6 +146,31 @@ export const employeeService = {
   },
 
   // 직원 ID로 해당 평가 조회 (자동 생성된 평가가 존재함)
+  async editEvaluator(
+    employeeId: string,
+    payload: EvaluatorEditPayload,
+  ): Promise<{
+    employee: Employee;
+    cancelled_entries: number;
+    cancelled_feedbacks: number;
+    reset_evaluations: number;
+  }> {
+    try {
+      return await apiFetch<{
+        employee: Employee;
+        cancelled_entries: number;
+        cancelled_feedbacks: number;
+        reset_evaluations: number;
+      }>(`/api/employee/${employeeId}/evaluator-edit`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   async getEvaluationByEmployeeId(employeeId: string): Promise<{ id: string }> {
     try {
       // 엔드포인트는 /api/evaluations/by-employee/:employeeId 로 가정
