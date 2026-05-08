@@ -475,92 +475,157 @@ const insertAdminAuditLog = async (
   }
 };
 
-const cancelEvaluatorEntriesForCorrection = async (
+const transferEvaluatorEntriesForCorrection = async (
   client,
   { employeeId, previousEvaluatorId, newEvaluatorId, actorId, reason }
 ) => {
-  if (!previousEvaluatorId || previousEvaluatorId === newEvaluatorId) {
-    return { cancelledEntries: [], cancelledFeedbackCount: 0, resetEvaluations: [] };
+  if (!previousEvaluatorId || !newEvaluatorId || previousEvaluatorId === newEvaluatorId) {
+    return { transferredEntries: [], mergedEntries: [], transferredFeedbackCount: 0 };
   }
 
-  const cancelReason = reason || 'HR evaluator edit';
-  const { rows: cancelledEntries } = await client.query(
+  const { rows: evaluatorRows } = await client.query(
+    'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+    [newEvaluatorId]
+  );
+  const newEvaluatorName = evaluatorRows[0]?.name ?? newEvaluatorId;
+
+  const { rows: targetEntries } = await client.query(
     `
-      WITH target_evaluations AS (
-        SELECT id
-        FROM evaluations
-        WHERE evaluatee_id = $1
-          AND COALESCE(record_status, 'active') = 'active'
-      )
-      UPDATE task_evaluation_entries tee
-      SET
-        status = 'cancelled',
-        cancelled_at = NOW(),
-        cancelled_by = $3,
-        cancel_reason = $4,
-        updated_at = NOW()
-      FROM target_evaluations ev
-      WHERE tee.evaluation_id = ev.id
+      SELECT tee.*
+      FROM task_evaluation_entries tee
+      INNER JOIN evaluations ev ON ev.id = tee.evaluation_id
+      WHERE ev.evaluatee_id = $1
+        AND COALESCE(ev.record_status, 'active') = 'active'
         AND tee.evaluator_id IS NOT DISTINCT FROM $2
         AND COALESCE(tee.status, 'active') = 'active'
-      RETURNING tee.id, tee.task_uuid, tee.evaluation_id, tee.evaluator_id, tee.evaluator_name
+      ORDER BY tee.updated_at DESC, tee.created_at DESC
     `,
-    [employeeId, previousEvaluatorId, actorId ?? null, cancelReason]
+    [employeeId, previousEvaluatorId]
   );
 
-  const affectedTaskIds = [
-    ...new Set(cancelledEntries.map((entry) => entry.task_uuid).filter(Boolean)),
-  ];
-  await rebuildTaskEvaluationSnapshot(client, affectedTaskIds);
+  const transferredEntries = [];
+  const mergedEntries = [];
+  let transferredFeedbackCount = 0;
+  const affectedTaskIds = new Set();
 
-  const cancelledEntryIds = cancelledEntries.map((entry) => entry.id).filter(Boolean);
-  let cancelledFeedbackCount = 0;
-  if (cancelledEntryIds.length > 0) {
-    const { rowCount } = await client.query(
-      `
-        UPDATE feedback_history fh
-        SET
-          status = 'cancelled',
-          cancelled_at = NOW(),
-          cancelled_by = $3,
-          cancel_reason = $4
-        FROM task_evaluation_entries tee
-        WHERE tee.id = ANY($1::uuid[])
-          AND fh.task_uuid = tee.task_uuid
-          AND COALESCE(fh.status, 'active') = 'active'
-          AND (
-            fh.task_evaluation_entry_id = tee.id
-            OR fh.evaluator_id IS NOT DISTINCT FROM $2
-            OR fh.evaluator_name = tee.evaluator_name
-          )
-      `,
-      [cancelledEntryIds, previousEvaluatorId, actorId ?? null, cancelReason]
-    );
-    cancelledFeedbackCount = rowCount ?? 0;
+  for (const entry of targetEntries) {
+    let targetEntry = null;
+    await client.query('SAVEPOINT evaluator_entry_transfer');
+    try {
+      const { rows } = await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET
+            evaluator_id = $2,
+            evaluator_name = $3,
+            assignment_history_id = NULL,
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [entry.id, newEvaluatorId, newEvaluatorName]
+      );
+      targetEntry = rows[0] ?? null;
+      await client.query('RELEASE SAVEPOINT evaluator_entry_transfer');
+      if (targetEntry) transferredEntries.push(targetEntry);
+    } catch (err) {
+      await client.query('ROLLBACK TO SAVEPOINT evaluator_entry_transfer');
+      if (err.code !== '23505') {
+        throw err;
+      }
+
+      const { rows } = await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET
+            evaluator_name = $3,
+            contribution_method = $4,
+            contribution_scope = $5,
+            score = $6,
+            feedback = $7,
+            feedback_date = $8,
+            assignment_history_id = NULL,
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          WHERE task_uuid = $1
+            AND evaluator_id IS NOT DISTINCT FROM $2
+          RETURNING *
+        `,
+        [
+          entry.task_uuid,
+          newEvaluatorId,
+          newEvaluatorName,
+          entry.contribution_method,
+          entry.contribution_scope,
+          entry.score,
+          entry.feedback,
+          entry.feedback_date,
+        ]
+      );
+      targetEntry = rows[0] ?? null;
+      if (targetEntry) mergedEntries.push(targetEntry);
+
+      await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET
+            status = 'cancelled',
+            cancelled_at = NOW(),
+            cancelled_by = $2,
+            cancel_reason = $3,
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [entry.id, actorId ?? null, reason || 'Merged into corrected evaluator']
+      );
+      await client.query('RELEASE SAVEPOINT evaluator_entry_transfer');
+    }
+
+    if (entry.task_uuid) affectedTaskIds.add(entry.task_uuid);
+    if (targetEntry?.id) {
+      const { rowCount } = await client.query(
+        `
+          UPDATE feedback_history
+          SET
+            evaluator_id = $4,
+            evaluator_name = $5,
+            task_evaluation_entry_id = $6,
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL
+          WHERE task_uuid = $1
+            AND COALESCE(status, 'active') = 'active'
+            AND (
+              task_evaluation_entry_id = $2
+              OR evaluator_id IS NOT DISTINCT FROM $3
+              OR evaluator_name = $7
+            )
+        `,
+        [
+          entry.task_uuid,
+          entry.id,
+          previousEvaluatorId,
+          newEvaluatorId,
+          newEvaluatorName,
+          targetEntry.id,
+          entry.evaluator_name,
+        ]
+      );
+      transferredFeedbackCount += rowCount ?? 0;
+    }
   }
 
-  const affectedEvaluationIds = [
-    ...new Set(cancelledEntries.map((entry) => entry.evaluation_id).filter(Boolean)),
-  ];
-  let resetEvaluations = [];
-  if (affectedEvaluationIds.length > 0) {
-    const { rows } = await client.query(
-      `
-        UPDATE evaluations
-        SET
-          evaluation_status = 'submitted',
-          last_modified = NOW(),
-          updated_at = NOW()
-        WHERE id = ANY($1::uuid[])
-          AND evaluation_status = 'completed'
-        RETURNING id
-      `,
-      [affectedEvaluationIds]
-    );
-    resetEvaluations = rows;
-  }
+  await rebuildTaskEvaluationSnapshot(client, [...affectedTaskIds]);
 
-  return { cancelledEntries, cancelledFeedbackCount, resetEvaluations };
+  return { transferredEntries, mergedEntries, transferredFeedbackCount };
 };
 
 const createPeriodWriteError = (status) =>
@@ -1468,7 +1533,7 @@ app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
     );
     const updatedEmployee = updatedRows[0];
 
-    const correctionResult = await cancelEvaluatorEntriesForCorrection(client, {
+    const correctionResult = await transferEvaluatorEntriesForCorrection(client, {
       employeeId: req.params.id,
       previousEvaluatorId,
       newEvaluatorId: evaluatorId ?? null,
@@ -1488,9 +1553,9 @@ app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
     await client.query('COMMIT');
     res.json({
       employee: updatedEmployee,
-      cancelled_entries: correctionResult.cancelledEntries.length,
-      cancelled_feedbacks: correctionResult.cancelledFeedbackCount,
-      reset_evaluations: correctionResult.resetEvaluations.length,
+      transferred_entries: correctionResult.transferredEntries.length,
+      merged_entries: correctionResult.mergedEntries.length,
+      transferred_feedbacks: correctionResult.transferredFeedbackCount,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

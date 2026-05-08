@@ -278,7 +278,7 @@ const HrUsersPage = () => {
 
     if (evaluatorMode === 'direct') {
       const ok = window.confirm(
-        `${employee.name}님의 평가자를 이력 없이 수정할까요?\n\n기존 평가자가 입력한 활성 평가/피드백은 취소 처리되어 화면과 점수 산출에서 제외됩니다.`,
+        `${employee.name}님의 평가자를 이력 없이 수정할까요?\n\n기존 평가자가 입력한 평가/피드백은 수정한 평가자에게 그대로 승계됩니다.`,
       );
       if (!ok) return;
     } else if (evaluatorChanged) {
@@ -311,8 +311,8 @@ const HrUsersPage = () => {
         toast({
           title: '평가자가 수정되었습니다.',
           description:
-            result.cancelled_entries > 0
-              ? `기존 평가 ${result.cancelled_entries}건을 화면과 점수 산출에서 제외했습니다.`
+            result.transferred_entries + result.merged_entries > 0
+              ? `기존 평가 ${result.transferred_entries + result.merged_entries}건을 수정한 평가자에게 넘겼습니다.`
               : '평가자 변경 이력 없이 현재 평가자만 수정했습니다.',
         });
         return;
@@ -773,7 +773,7 @@ const HrUsersPage = () => {
                                 className="sd-btn sd-btn-outline sd-btn-sm"
                                 onClick={() => saveEmployeeEdit(employee, 'direct')}
                                 disabled={isSaving}
-                                title="잘못된 초기 매칭을 이력 없이 바로잡습니다."
+                                title="잘못된 초기 매칭을 이력 없이 바로잡고 기존 평가를 새 평가자에게 넘깁니다."
                               >
                                 평가자 수정
                               </button>

@@ -151,16 +151,16 @@ export const employeeService = {
     payload: EvaluatorEditPayload,
   ): Promise<{
     employee: Employee;
-    cancelled_entries: number;
-    cancelled_feedbacks: number;
-    reset_evaluations: number;
+    transferred_entries: number;
+    merged_entries: number;
+    transferred_feedbacks: number;
   }> {
     try {
       return await apiFetch<{
         employee: Employee;
-        cancelled_entries: number;
-        cancelled_feedbacks: number;
-        reset_evaluations: number;
+        transferred_entries: number;
+        merged_entries: number;
+        transferred_feedbacks: number;
       }>(`/api/employee/${employeeId}/evaluator-edit`, {
         method: 'POST',
         body: JSON.stringify(payload),
