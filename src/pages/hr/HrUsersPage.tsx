@@ -1,8 +1,9 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSearch, Pill } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { employeeService, evaluationService } from '@/lib/services';
+import type { MatchingImportRowInput } from '@/lib/services/employeeService';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -105,7 +106,92 @@ type EmployeeEditForm = {
   roles: UserRole[];
 };
 
+const toCellText = (value: unknown) => {
+  if (value === undefined || value === null) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).trim();
+};
+
+const toOptionalCellText = (value: unknown) => {
+  const text = toCellText(value);
+  return text || null;
+};
+
+const MATCHING_IMPORT_HEADERS = [
+  '사번',
+  '성명',
+  '소속순번',
+  '부서ID',
+  '부서명',
+  '근무시작일',
+  '근무종료일',
+  '평가자사번',
+  '평가자명',
+  '확인자사번',
+  '확인자명',
+  '평가유형',
+  '결과',
+];
+
+const hasMatchingImportHeaders = (sheetRows: unknown[][]) => {
+  const headerRow = sheetRows[0] ?? [];
+  return MATCHING_IMPORT_HEADERS.every((header, index) => toCellText(headerRow[index]) === header);
+};
+
+const buildMatchingImportRows = (sheetRows: unknown[][]): MatchingImportRowInput[] =>
+  sheetRows
+    .slice(1)
+    .map((row, index) => {
+      const employeeId = toCellText(row[0]);
+      const employeeName = toCellText(row[1]);
+      const orgSequence = toOptionalCellText(row[2]);
+      const departmentId = toOptionalCellText(row[3]);
+      const departmentName = toOptionalCellText(row[4]);
+      const workStartDate = toOptionalCellText(row[5]);
+      const workEndDate = toOptionalCellText(row[6]);
+      const evaluatorId = toOptionalCellText(row[7]);
+      const evaluatorName = toOptionalCellText(row[8]);
+      const confirmerId = toOptionalCellText(row[9]);
+      const confirmerName = toOptionalCellText(row[10]);
+      const evaluationType = toOptionalCellText(row[11]);
+      const matchingResult = toOptionalCellText(row[12]);
+
+      return {
+        row_number: index + 2,
+        employee_id: employeeId,
+        employee_name: employeeName,
+        org_sequence: orgSequence,
+        department_id: departmentId,
+        department_name: departmentName,
+        work_start_date: workStartDate,
+        work_end_date: workEndDate,
+        evaluator_id: evaluatorId,
+        evaluator_name: evaluatorName,
+        confirmer_id: confirmerId,
+        confirmer_name: confirmerName,
+        evaluation_type: evaluationType,
+        matching_result: matchingResult,
+        raw_data: {
+          employee_id: employeeId,
+          employee_name: employeeName,
+          org_sequence: orgSequence,
+          department_id: departmentId,
+          department_name: departmentName,
+          work_start_date: workStartDate,
+          work_end_date: workEndDate,
+          evaluator_id: evaluatorId,
+          evaluator_name: evaluatorName,
+          confirmer_id: confirmerId,
+          confirmer_name: confirmerName,
+          evaluation_type: evaluationType,
+          matching_result: matchingResult,
+        },
+      };
+    })
+    .filter((row) => row.employee_id || row.employee_name);
+
 const HrUsersPage = () => {
+  const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
   const [statusDrafts, setStatusDrafts] = useState<Record<string, EvaluationStatus>>({});
@@ -119,6 +205,7 @@ const HrUsersPage = () => {
   >({});
   const [loadingHistoryEmployeeId, setLoadingHistoryEmployeeId] = useState<string | null>(null);
   const [historyActionId, setHistoryActionId] = useState<string | null>(null);
+  const [isImportingMatching, setIsImportingMatching] = useState(false);
   const { employees, records, isLoading, error, reload } = useAllEmployees();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -418,6 +505,75 @@ const HrUsersPage = () => {
     }
   };
 
+  const openMatchingFileDialog = () => {
+    if (isImportingMatching) return;
+    matchingFileInputRef.current?.click();
+  };
+
+  const importMatchingFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      toast({
+        title: '엑셀 파일을 선택해 주세요.',
+        description: '개인별 매칭결과 xlsx/xls 파일만 업로드할 수 있습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsImportingMatching(true);
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), {
+        type: 'array',
+        cellDates: true,
+      });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = sheetName ? workbook.Sheets[sheetName] : null;
+      if (!worksheet) {
+        throw new Error('엑셀 시트를 찾을 수 없습니다.');
+      }
+
+      const sheetRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: true,
+        defval: '',
+      }) as unknown[][];
+      if (!hasMatchingImportHeaders(sheetRows)) {
+        throw new Error('개인별 매칭결과 양식의 13개 헤더가 필요합니다.');
+      }
+      const rows = buildMatchingImportRows(sheetRows);
+      if (rows.length === 0) {
+        throw new Error('업로드할 매칭 데이터가 없습니다.');
+      }
+
+      const result = await employeeService.importMatchingRows({
+        source_file_name: file.name,
+        source_sheet_name: sheetName,
+        changed_by: actorId,
+        rows,
+      });
+      await reload();
+
+      toast({
+        title: '엑셀 업로드가 완료되었습니다.',
+        description: `${result.applied_count}명 반영 · 평가자 ${result.evaluator_count}명 · 경고 ${result.warning_count}건`,
+      });
+    } catch (error) {
+      console.error('매칭 엑셀 업로드 실패:', error);
+      toast({
+        title: '엑셀 업로드 실패',
+        description: error instanceof Error ? error.message : '매칭 파일을 처리하지 못했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsImportingMatching(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -425,7 +581,20 @@ const HrUsersPage = () => {
         subtitle={`${employees.length}명 · 평가 권한 & 매핑 관리`}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="sd-btn sd-btn-outline sd-btn-sm">엑셀 업로드</button>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={openMatchingFileDialog}
+              disabled={isImportingMatching}
+            >
+              {isImportingMatching ? '업로드 중' : '엑셀 업로드'}
+            </button>
+            <input
+              ref={matchingFileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={importMatchingFile}
+              style={{ display: 'none' }}
+            />
             <button className="sd-btn sd-btn-primary sd-btn-sm">+ 사용자 추가</button>
           </div>
         }

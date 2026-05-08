@@ -30,9 +30,18 @@ export interface Employee {
   name: string;
   position: string;
   department: string;
+  department_id?: string | null;
   growth_level: number | null;
   evaluator_id: string | null;
   available_roles: string[];
+  org_sequence?: string | null;
+  work_start_date?: string | null;
+  work_end_date?: string | null;
+  evaluation_type?: string | null;
+  matching_result?: string | null;
+  confirmer_id?: string | null;
+  confirmer_name?: string | null;
+  last_matching_batch_id?: string | null;
   created_at: string;
   updated_at: string;
 }

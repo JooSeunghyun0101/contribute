@@ -250,6 +250,96 @@ const getAssignmentReason = (body = {}) =>
 const getAssignmentCancellationReason = (body = {}) =>
   normalizeOptionalText(body.cancel_reason ?? body.reason);
 
+const normalizeImportDate = (value) => {
+  const text = normalizeOptionalText(value);
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return text.slice(0, 10);
+  }
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && numeric > 20000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    return new Date(excelEpoch + numeric * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+};
+
+const normalizeMatchingImportRow = (row = {}, index = 0) => {
+  const matchingResult = normalizeOptionalText(row.matching_result ?? row.matchingResult ?? row.result);
+  const employeeId = normalizeOptionalText(row.employee_id ?? row.employeeId);
+  const employeeName = normalizeOptionalText(row.employee_name ?? row.employeeName);
+  const evaluatorId = normalizeOptionalText(row.evaluator_id ?? row.evaluatorId);
+  const evaluatorName = normalizeOptionalText(row.evaluator_name ?? row.evaluatorName);
+  const rowNumber = Number(row.row_number ?? row.rowNumber ?? index + 2);
+
+  let validationStatus = 'valid';
+  const messages = [];
+  if (!employeeId) messages.push('사번 누락');
+  if (!employeeName) messages.push('성명 누락');
+  if (!evaluatorId && matchingResult !== '휴직') {
+    validationStatus = 'warning';
+    messages.push('평가자사번 누락');
+  }
+  if (employeeId && evaluatorId && employeeId === evaluatorId) {
+    validationStatus = 'error';
+    messages.push('본인 평가자 매칭');
+  }
+  if (messages.some((message) => message.includes('누락') && message !== '평가자사번 누락')) {
+    validationStatus = 'error';
+  }
+
+  return {
+    row_number: Number.isInteger(rowNumber) ? rowNumber : index + 2,
+    employee_id: employeeId,
+    employee_name: employeeName,
+    org_sequence: normalizeOptionalText(row.org_sequence ?? row.orgSequence),
+    department_id: normalizeOptionalText(row.department_id ?? row.departmentId),
+    department_name: normalizeOptionalText(row.department_name ?? row.departmentName),
+    work_start_date: normalizeImportDate(row.work_start_date ?? row.workStartDate),
+    work_end_date: normalizeImportDate(row.work_end_date ?? row.workEndDate),
+    evaluator_id: evaluatorId,
+    evaluator_name: evaluatorName,
+    confirmer_id: normalizeOptionalText(row.confirmer_id ?? row.confirmerId),
+    confirmer_name: normalizeOptionalText(row.confirmer_name ?? row.confirmerName),
+    evaluation_type: normalizeOptionalText(row.evaluation_type ?? row.evaluationType),
+    matching_result: matchingResult,
+    validation_status: validationStatus,
+    validation_message: messages.join(', ') || null,
+    raw_data: row.raw_data ?? row.rawData ?? row,
+  };
+};
+
+const compareMatchingImportRows = (a, b) => {
+  const score = (row) => ({
+    hasEvaluator: row.evaluator_id ? 1 : 0,
+    openEnded: row.work_end_date ? 0 : 1,
+    hasStart: row.work_start_date ? 1 : 0,
+    startTime: row.work_start_date ? Date.parse(row.work_start_date) || 0 : 0,
+    sequence: Number(row.org_sequence) || 9999,
+  });
+  const left = score(a);
+  const right = score(b);
+  if (left.hasEvaluator !== right.hasEvaluator) return left.hasEvaluator - right.hasEvaluator;
+  if (left.openEnded !== right.openEnded) return left.openEnded - right.openEnded;
+  if (left.hasStart !== right.hasStart) return left.hasStart - right.hasStart;
+  if (left.startTime !== right.startTime) return left.startTime - right.startTime;
+  return right.sequence - left.sequence;
+};
+
+const selectPrimaryMatchingRows = (rows) => {
+  const primaryByEmployee = new Map();
+  rows
+    .filter((row) => row.validation_status !== 'error' && row.employee_id)
+    .forEach((row) => {
+      const existing = primaryByEmployee.get(row.employee_id);
+      if (!existing || compareMatchingImportRows(row, existing) > 0) {
+        primaryByEmployee.set(row.employee_id, row);
+      }
+    });
+  return primaryByEmployee;
+};
+
 const getEvaluationContextForEmployee = async (client, employeeId) => {
   try {
     const { rows } = await client.query(
@@ -371,6 +461,104 @@ const rebuildTaskEvaluationSnapshot = async (client, taskIds = []) => {
     `,
     [uniqueTaskIds]
   );
+};
+
+const ensureActiveEvaluationForImportedEmployee = async (client, employee) => {
+  if (!employee?.employee_id || !employee.evaluator_id) return null;
+
+  const context = await getEvaluationContextForEmployee(client, employee.employee_id);
+  if (context.evaluation_id) {
+    await client.query(
+      `
+        UPDATE evaluations
+        SET
+          evaluatee_name = $2,
+          evaluatee_position = $3,
+          evaluatee_department = $4,
+          growth_level = $5,
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        context.evaluation_id,
+        employee.name,
+        employee.position,
+        employee.department,
+        employee.growth_level ?? 0,
+      ]
+    );
+    return null;
+  }
+
+  return createDraftEvaluationForEmployeeAssignment(client, employee);
+};
+
+const cancelActiveEvaluationsForUnassignedEmployee = async (
+  client,
+  { employeeId, actorId, reason }
+) => {
+  const { rows: evaluationRows } = await client.query(
+    `
+      UPDATE evaluations
+      SET record_status = 'cancelled', updated_at = NOW()
+      WHERE evaluatee_id = $1
+        AND COALESCE(record_status, 'active') = 'active'
+      RETURNING id
+    `,
+    [employeeId]
+  );
+  const evaluationIds = evaluationRows.map((row) => row.id);
+  if (evaluationIds.length === 0) {
+    return { cancelledEvaluations: 0, cancelledEntries: 0, cancelledFeedbacks: 0 };
+  }
+
+  const { rows: entryRows, rowCount: entryCount } = await client.query(
+    `
+      UPDATE task_evaluation_entries
+      SET
+        status = 'cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $2,
+        cancel_reason = $3,
+        updated_at = NOW()
+      WHERE evaluation_id = ANY($1::uuid[])
+        AND COALESCE(status, 'active') = 'active'
+      RETURNING task_uuid
+    `,
+    [evaluationIds, actorId ?? null, reason || 'Matching import unassigned evaluator']
+  );
+
+  const { rowCount: feedbackCount } = await client.query(
+    `
+      UPDATE feedback_history
+      SET
+        status = 'cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $2,
+        cancel_reason = $3
+      WHERE evaluation_id = ANY($1::uuid[])
+        AND COALESCE(status, 'active') = 'active'
+    `,
+    [evaluationIds, actorId ?? null, reason || 'Matching import unassigned evaluator']
+  );
+
+  await client.query(
+    `
+      UPDATE final_assessment
+      SET deleted_at = COALESCE(deleted_at, NOW())
+      WHERE evaluation_id = ANY($1::uuid[])
+        AND deleted_at IS NULL
+    `,
+    [evaluationIds]
+  );
+
+  await rebuildTaskEvaluationSnapshot(client, entryRows.map((row) => row.task_uuid));
+
+  return {
+    cancelledEvaluations: evaluationIds.length,
+    cancelledEntries: entryCount ?? 0,
+    cancelledFeedbacks: feedbackCount ?? 0,
+  };
 };
 
 const insertEvaluatorAssignmentHistory = async (
@@ -1452,6 +1640,366 @@ app.get('/api/employees/department/:dept', async (req, res) => {
   } catch (err) {
     console.error('Error fetching employees by department:', err);
     res.json(getMockEmployeesByDepartment(req.params.dept));
+  }
+});
+
+app.get('/api/matching-imports', async (req, res) => {
+  if (!isDbAvailable) {
+    return res.json([]);
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+        SELECT *
+        FROM matching_import_batches
+        ORDER BY created_at DESC
+        LIMIT 20
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    if (MISSING_PERIOD_SCHEMA_CODES.has(err.code)) {
+      return res.json([]);
+    }
+    console.error('Error fetching matching imports:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/matching-imports', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+
+  const sourceFileName = normalizeOptionalText(req.body?.source_file_name ?? req.body?.sourceFileName);
+  const sourceSheetName = normalizeOptionalText(req.body?.source_sheet_name ?? req.body?.sourceSheetName);
+  const requestedImportedBy = getAssignmentActor(req.body);
+  const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+  if (!sourceFileName) {
+    return res.status(400).json({ error: 'source_file_name is required' });
+  }
+  if (rawRows.length === 0) {
+    return res.status(400).json({ error: 'rows are required' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    let importedBy = requestedImportedBy;
+    if (importedBy) {
+      const { rows: actorRows } = await client.query(
+        'SELECT employee_id FROM employees WHERE employee_id = $1 LIMIT 1',
+        [importedBy]
+      );
+      if (!actorRows[0]) importedBy = null;
+    }
+
+    const normalizedRows = rawRows.map((row, index) => normalizeMatchingImportRow(row, index));
+    const primaryByEmployee = selectPrimaryMatchingRows(normalizedRows);
+    const primaryRows = [...primaryByEmployee.values()];
+    const primaryIds = new Set(primaryRows.map((row) => row.employee_id));
+    const evaluatorRefs = new Map();
+    normalizedRows.forEach((row) => {
+      if (row.evaluator_id) {
+        evaluatorRefs.set(row.evaluator_id, row.evaluator_name ?? row.evaluator_id);
+      }
+    });
+
+    const employeeIds = primaryRows.map((row) => row.employee_id);
+    const existingEmployees = new Map();
+    if (employeeIds.length > 0) {
+      const { rows } = await client.query(
+        'SELECT employee_id, evaluator_id FROM employees WHERE employee_id = ANY($1::text[])',
+        [employeeIds]
+      );
+      rows.forEach((employee) => existingEmployees.set(employee.employee_id, employee));
+    }
+
+    const { rows: batchRows } = await client.query(
+      `
+        INSERT INTO matching_import_batches (
+          source_file_name,
+          source_sheet_name,
+          imported_by,
+          row_count,
+          status
+        )
+        VALUES ($1,$2,$3,$4,'applied')
+        RETURNING *
+      `,
+      [sourceFileName, sourceSheetName, importedBy, normalizedRows.length]
+    );
+    const batch = batchRows[0];
+
+    for (const row of normalizedRows) {
+      await client.query(
+        `
+          INSERT INTO matching_import_rows (
+            batch_id,
+            row_number,
+            employee_id,
+            employee_name,
+            org_sequence,
+            department_id,
+            department_name,
+            work_start_date,
+            work_end_date,
+            evaluator_id,
+            evaluator_name,
+            confirmer_id,
+            confirmer_name,
+            evaluation_type,
+            matching_result,
+            is_primary,
+            validation_status,
+            validation_message,
+            raw_data
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
+        `,
+        [
+          batch.id,
+          row.row_number,
+          row.employee_id,
+          row.employee_name,
+          row.org_sequence,
+          row.department_id,
+          row.department_name,
+          row.work_start_date,
+          row.work_end_date,
+          row.evaluator_id,
+          row.evaluator_name,
+          row.confirmer_id,
+          row.confirmer_name,
+          row.evaluation_type,
+          row.matching_result,
+          primaryIds.has(row.employee_id) && primaryByEmployee.get(row.employee_id) === row,
+          row.validation_status,
+          row.validation_message,
+          JSON.stringify(row.raw_data ?? {}),
+        ]
+      );
+    }
+
+    for (const [evaluatorId, evaluatorName] of evaluatorRefs.entries()) {
+      await client.query(
+        `
+          INSERT INTO employees (
+            employee_id,
+            name,
+            position,
+            department,
+            available_roles,
+            created_at,
+            updated_at
+          )
+          VALUES ($1,$2,'평가자','미지정',ARRAY['evaluator']::text[],NOW(),NOW())
+          ON CONFLICT (employee_id) DO UPDATE SET
+            name = COALESCE(EXCLUDED.name, employees.name),
+            available_roles = (
+              SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
+              FROM (
+                SELECT DISTINCT role
+                FROM unnest(
+                EXCLUDED.available_roles ||
+                CASE
+                  WHEN 'hr' = ANY(employees.available_roles) THEN ARRAY['hr']::text[]
+                  ELSE ARRAY[]::text[]
+                END
+                ) AS roles(role)
+              ) AS unique_roles
+            ),
+            updated_at = NOW()
+        `,
+        [evaluatorId, evaluatorName]
+      );
+    }
+
+    let changedEvaluatorCount = 0;
+    let transferredEntries = 0;
+    let mergedEntries = 0;
+    let transferredFeedbacks = 0;
+    let reconciledHistories = 0;
+    let createdEvaluations = 0;
+    let cancelledEvaluations = 0;
+    let cancelledEntries = 0;
+    let cancelledFeedbacks = 0;
+
+    for (const row of primaryRows) {
+      const employeeRoles = evaluatorRefs.has(row.employee_id)
+        ? ['evaluatee', 'evaluator']
+        : ['evaluatee'];
+      const department = row.department_name ?? '미지정';
+      const { rows: upsertedEmployeeRows } = await client.query(
+        `
+          INSERT INTO employees (
+            employee_id,
+            name,
+            position,
+            department,
+            department_id,
+            growth_level,
+            evaluator_id,
+            available_roles,
+            org_sequence,
+            work_start_date,
+            work_end_date,
+            evaluation_type,
+            matching_result,
+            confirmer_id,
+            confirmer_name,
+            last_matching_batch_id,
+            created_at,
+            updated_at
+          )
+          VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+          ON CONFLICT (employee_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            department = EXCLUDED.department,
+            department_id = EXCLUDED.department_id,
+            evaluator_id = EXCLUDED.evaluator_id,
+            available_roles = (
+              SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
+              FROM (
+                SELECT DISTINCT role
+                FROM unnest(
+                EXCLUDED.available_roles ||
+                CASE
+                  WHEN 'hr' = ANY(employees.available_roles) THEN ARRAY['hr']::text[]
+                  ELSE ARRAY[]::text[]
+                END
+                ) AS roles(role)
+              ) AS unique_roles
+            ),
+            org_sequence = EXCLUDED.org_sequence,
+            work_start_date = EXCLUDED.work_start_date,
+            work_end_date = EXCLUDED.work_end_date,
+            evaluation_type = EXCLUDED.evaluation_type,
+            matching_result = EXCLUDED.matching_result,
+            confirmer_id = EXCLUDED.confirmer_id,
+            confirmer_name = EXCLUDED.confirmer_name,
+            last_matching_batch_id = EXCLUDED.last_matching_batch_id,
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [
+          row.employee_id,
+          row.employee_name,
+          department,
+          row.department_id,
+          row.evaluator_id,
+          employeeRoles,
+          row.org_sequence,
+          row.work_start_date,
+          row.work_end_date,
+          row.evaluation_type,
+          row.matching_result,
+          row.confirmer_id,
+          row.confirmer_name,
+          batch.id,
+        ]
+      );
+      const upsertedEmployee = upsertedEmployeeRows[0] ?? null;
+
+      const previousEvaluatorId = existingEmployees.get(row.employee_id)?.evaluator_id ?? null;
+      if (row.evaluator_id) {
+        const createdEvaluation = await ensureActiveEvaluationForImportedEmployee(
+          client,
+          upsertedEmployee
+        );
+        if (createdEvaluation) createdEvaluations += 1;
+      } else {
+        const cancelled = await cancelActiveEvaluationsForUnassignedEmployee(client, {
+          employeeId: row.employee_id,
+          actorId: importedBy,
+          reason: `Matching import: ${sourceFileName}`,
+        });
+        cancelledEvaluations += cancelled.cancelledEvaluations;
+        cancelledEntries += cancelled.cancelledEntries;
+        cancelledFeedbacks += cancelled.cancelledFeedbacks;
+      }
+
+      if ((previousEvaluatorId ?? null) !== (row.evaluator_id ?? null)) {
+        changedEvaluatorCount += 1;
+        const result = await transferEvaluatorEntriesForCorrection(client, {
+          employeeId: row.employee_id,
+          previousEvaluatorId,
+          newEvaluatorId: row.evaluator_id ?? null,
+          actorId: importedBy,
+          reason: `Matching import: ${sourceFileName}`,
+        });
+        const historyRows = await reconcileAssignmentHistoryForDirectEvaluatorEdit(client, {
+          employeeId: row.employee_id,
+          currentEvaluatorId: row.evaluator_id ?? null,
+          actorId: importedBy,
+          reason: `Matching import: ${sourceFileName}`,
+        });
+        transferredEntries += result.transferredEntries.length;
+        mergedEntries += result.mergedEntries.length;
+        transferredFeedbacks += result.transferredFeedbackCount;
+        reconciledHistories += historyRows.length;
+      }
+    }
+
+    const warningCount = normalizedRows.filter((row) => row.validation_status === 'warning').length;
+    const errorCount = normalizedRows.filter((row) => row.validation_status === 'error').length;
+    const { rows: updatedBatchRows } = await client.query(
+      `
+        UPDATE matching_import_batches
+        SET
+          applied_count = $2,
+          warning_count = $3,
+          error_count = $4
+        WHERE id = $1
+        RETURNING *
+      `,
+      [batch.id, primaryRows.length, warningCount, errorCount]
+    );
+
+    await insertAdminAuditLog(client, {
+      actionType: 'matching_import',
+      actorId: importedBy,
+      targetEmployeeId: null,
+      previousValue: { source_file_name: sourceFileName },
+      newValue: {
+        batch_id: batch.id,
+        row_count: normalizedRows.length,
+        applied_count: primaryRows.length,
+        evaluator_count: evaluatorRefs.size,
+        created_evaluations: createdEvaluations,
+        cancelled_evaluations: cancelledEvaluations,
+      },
+      reason: `Matching import: ${sourceFileName}`,
+    });
+
+    await client.query('COMMIT');
+    res.json({
+      batch: updatedBatchRows[0],
+      row_count: normalizedRows.length,
+      applied_count: primaryRows.length,
+      evaluator_count: evaluatorRefs.size,
+      changed_evaluator_count: changedEvaluatorCount,
+      warning_count: warningCount,
+      error_count: errorCount,
+      transferred_entries: transferredEntries,
+      merged_entries: mergedEntries,
+      transferred_feedbacks: transferredFeedbacks,
+      reconciled_histories: reconciledHistories,
+      created_evaluations: createdEvaluations,
+      cancelled_evaluations: cancelledEvaluations,
+      cancelled_entries: cancelledEntries,
+      cancelled_feedbacks: cancelledFeedbacks,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error importing matching file:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
