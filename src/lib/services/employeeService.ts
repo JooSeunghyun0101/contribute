@@ -154,6 +154,7 @@ export const employeeService = {
     transferred_entries: number;
     merged_entries: number;
     transferred_feedbacks: number;
+    reconciled_histories: number;
   }> {
     try {
       return await apiFetch<{
@@ -161,6 +162,7 @@ export const employeeService = {
         transferred_entries: number;
         merged_entries: number;
         transferred_feedbacks: number;
+        reconciled_histories: number;
       }>(`/api/employee/${employeeId}/evaluator-edit`, {
         method: 'POST',
         body: JSON.stringify(payload),

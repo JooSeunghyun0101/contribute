@@ -628,6 +628,67 @@ const transferEvaluatorEntriesForCorrection = async (
   return { transferredEntries, mergedEntries, transferredFeedbackCount };
 };
 
+const reconcileAssignmentHistoryForDirectEvaluatorEdit = async (
+  client,
+  { employeeId, currentEvaluatorId, actorId, reason }
+) => {
+  const { rows } = await client.query(
+    `
+      WITH anchor AS (
+        SELECT id, changed_at
+        FROM evaluator_assignment_history
+        WHERE employee_id = $1
+          AND status = 'applied'
+          AND change_type <> 'cancel'
+          AND new_evaluator_id IS NOT DISTINCT FROM $2
+        ORDER BY changed_at DESC, id DESC
+        LIMIT 1
+      ),
+      latest_mismatch AS (
+        SELECT id
+        FROM evaluator_assignment_history
+        WHERE employee_id = $1
+          AND status = 'applied'
+          AND change_type <> 'cancel'
+          AND new_evaluator_id IS DISTINCT FROM $2
+        ORDER BY changed_at DESC, id DESC
+        LIMIT 1
+      ),
+      to_cancel AS (
+        SELECT h.id
+        FROM evaluator_assignment_history h
+        WHERE h.employee_id = $1
+          AND h.status = 'applied'
+          AND h.change_type <> 'cancel'
+          AND h.new_evaluator_id IS DISTINCT FROM $2
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM anchor a
+              WHERE (h.changed_at, h.id::text) > (a.changed_at, a.id::text)
+            )
+            OR (
+              NOT EXISTS (SELECT 1 FROM anchor)
+              AND h.id IN (SELECT id FROM latest_mismatch)
+            )
+          )
+      )
+      UPDATE evaluator_assignment_history h
+      SET
+        status = 'cancelled',
+        cancelled_at = NOW(),
+        cancelled_by = $3,
+        cancel_reason = $4
+      FROM to_cancel
+      WHERE h.id = to_cancel.id
+      RETURNING h.*
+    `,
+    [employeeId, currentEvaluatorId ?? null, actorId ?? null, reason || 'HR evaluator edit']
+  );
+
+  return rows;
+};
+
 const createPeriodWriteError = (status) =>
   Object.assign(
     new Error(`Evaluation period is ${status}; writes are disabled.`),
@@ -1540,6 +1601,12 @@ app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
       actorId,
       reason,
     });
+    const reconciledHistories = await reconcileAssignmentHistoryForDirectEvaluatorEdit(client, {
+      employeeId: req.params.id,
+      currentEvaluatorId: evaluatorId ?? null,
+      actorId,
+      reason,
+    });
 
     await insertAdminAuditLog(client, {
       actionType: 'evaluator_edit',
@@ -1556,6 +1623,7 @@ app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
       transferred_entries: correctionResult.transferredEntries.length,
       merged_entries: correctionResult.mergedEntries.length,
       transferred_feedbacks: correctionResult.transferredFeedbackCount,
+      reconciled_histories: reconciledHistories.length,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

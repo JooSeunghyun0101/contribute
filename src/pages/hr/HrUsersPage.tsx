@@ -863,10 +863,7 @@ const HrUsersPage = () => {
                                     latestActionableHistory?.id === history.id &&
                                     history.status === 'applied' &&
                                     history.change_type !== 'cancel';
-                                  const canCancel =
-                                    isLatestAction &&
-                                    (employee.evaluator_id ?? null) ===
-                                      (history.new_evaluator_id ?? null);
+                                  const canCancel = isLatestAction;
                                   const isRowActionRunning = historyActionId === history.id;
 
                                   return (
@@ -932,6 +929,7 @@ const HrUsersPage = () => {
                                         <button
                                           className="sd-btn sd-btn-ghost sd-btn-xs"
                                           disabled={!canCancel || isRowActionRunning}
+                                          title={!canCancel ? '최신 적용 이력만 취소할 수 있습니다.' : undefined}
                                           onClick={() => cancelAssignmentChange(employee, history)}
                                         >
                                           취소
