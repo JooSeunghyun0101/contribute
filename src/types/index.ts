@@ -105,6 +105,11 @@ export interface Evaluation {
   evaluation_period_id?: string | null;
   assignment_history_id?: string | null;
   record_status?: 'active' | 'cancelled';
+  evaluator_id?: string | null;
+  evaluator_name?: string | null;
+  evaluator_position?: string | null;
+  evaluator_department?: string | null;
+  evaluator_assigned_at?: string | null;
   last_modified: string;
   created_at: string;
   updated_at: string;

@@ -3525,17 +3525,28 @@ app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
       `
-        SELECT ev.*
+        SELECT
+          ev.*,
+          ah.new_evaluator_id AS evaluator_id,
+          ah.changed_at AS evaluator_assigned_at,
+          ev_emp.name AS evaluator_name,
+          ev_emp.position AS evaluator_position,
+          ev_emp.department AS evaluator_department
         FROM evaluations ev
-        LEFT JOIN evaluator_assignment_history h
-          ON h.evaluation_id = ev.id
-          AND h.employee_id = ev.evaluatee_id
-          AND h.status = 'cancelled'
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = ev.assignment_history_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
+        LEFT JOIN evaluator_assignment_history hc
+          ON hc.evaluation_id = ev.id
+          AND hc.employee_id = ev.evaluatee_id
+          AND hc.status = 'cancelled'
         WHERE ev.evaluatee_id = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
           AND COALESCE(ev.record_status, 'active') = 'active'
-          AND h.id IS NULL
-        ORDER BY ev.created_at DESC
+          AND hc.id IS NULL
+        ORDER BY
+          CASE WHEN ev.evaluation_status = 'draft' THEN 0 ELSE 1 END,
+          ah.changed_at DESC NULLS LAST,
+          ev.created_at DESC
       `,
       [req.params.employeeId, ...filter.values]
     );
