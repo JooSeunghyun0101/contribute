@@ -1423,7 +1423,10 @@ const assertEvaluationWritableById = async (evaluationId) => {
   }
 };
 
-const assertEvaluationTaskStructureEditableById = async (evaluationId) => {
+const assertEvaluationTaskStructureEditableById = async (
+  evaluationId,
+  { bypassCompletedLock = false } = {},
+) => {
   if (!evaluationId || !isDbAvailable || !pool?.query) {
     return;
   }
@@ -1450,6 +1453,9 @@ const assertEvaluationTaskStructureEditableById = async (evaluationId) => {
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
+      if (bypassCompletedLock && status === 'completed') {
+        return;
+      }
       throw createEvaluationStructureWriteError(status);
     }
   } catch (err) {
@@ -1497,7 +1503,10 @@ const assertTaskWritableById = async (taskId) => {
   }
 };
 
-const assertTaskStructureEditableById = async (taskId) => {
+const assertTaskStructureEditableById = async (
+  taskId,
+  { bypassCompletedLock = false } = {},
+) => {
   if (!taskId || !isDbAvailable || !pool?.query) {
     return;
   }
@@ -1525,6 +1534,9 @@ const assertTaskStructureEditableById = async (taskId) => {
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
+      if (bypassCompletedLock && status === 'completed') {
+        return;
+      }
       throw createEvaluationStructureWriteError(status);
     }
   } catch (err) {
@@ -3967,10 +3979,13 @@ app.post('/api/task', async (req, res) => {
   }
 
   try {
+    const bypassCompletedLock = req.query?.past === '1' || req.query?.past === 'true';
     const task = await attachTaskEvaluationPeriod(req.body);
     if (task.evaluation_id) {
       await assertEvaluationWritableById(task.evaluation_id);
-      await assertEvaluationTaskStructureEditableById(task.evaluation_id);
+      await assertEvaluationTaskStructureEditableById(task.evaluation_id, {
+        bypassCompletedLock,
+      });
     } else {
       await assertPeriodWritableById(task.evaluation_period_id);
     }
@@ -3994,10 +4009,11 @@ app.post('/api/task', async (req, res) => {
 // Update an existing task (partial update)
 app.put('/api/task/:id', async (req, res) => {
   try {
+    const bypassCompletedLock = req.query?.past === '1' || req.query?.past === 'true';
     await assertTaskWritableById(req.params.id);
     const updates = req.body;
     if (hasTaskStructureChanges(updates)) {
-      await assertTaskStructureEditableById(req.params.id);
+      await assertTaskStructureEditableById(req.params.id, { bypassCompletedLock });
     }
     if (hasTaskEvaluationContentChanges(updates)) {
       await assertTaskEvaluationEditableById(req.params.id);
@@ -4050,8 +4066,9 @@ app.put('/api/task/:id', async (req, res) => {
 // Soft?멶elete a task (set deleted_at timestamp) ??PATCH endpoint
 app.patch('/api/task/:id', async (req, res) => {
   try {
+    const bypassCompletedLock = req.query?.past === '1' || req.query?.past === 'true';
     await assertTaskWritableById(req.params.id);
-    await assertTaskStructureEditableById(req.params.id);
+    await assertTaskStructureEditableById(req.params.id, { bypassCompletedLock });
     const { rowCount } = await pool.query(
       'UPDATE tasks SET deleted_at = NOW() WHERE id = $1',
       [req.params.id]
@@ -4070,8 +4087,9 @@ app.patch('/api/task/:id', async (req, res) => {
 // Hard delete a task (remove task and related feedback) ??retained for legacy use
 app.delete('/api/task/:id', async (req, res) => {
   try {
+    const bypassCompletedLock = req.query?.past === '1' || req.query?.past === 'true';
     await assertTaskWritableById(req.params.id);
-    await assertTaskStructureEditableById(req.params.id);
+    await assertTaskStructureEditableById(req.params.id, { bypassCompletedLock });
     // 1. Retrieve the task to obtain its human?몉eadable task_id
     const taskResult = await pool.query(
       'SELECT task_id FROM tasks WHERE id = $1',

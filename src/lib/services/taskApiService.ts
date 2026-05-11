@@ -23,13 +23,14 @@ export const taskApiService = {
   },
 
   // 과업 생성
-  async createTask(task: Omit<Task, 'id' | 'created_at'>): Promise<Task> {
+  async createTask(task: Omit<Task, 'id' | 'created_at'>, options?: { past?: boolean }): Promise<Task> {
     try {
       // Ensure evaluation_id is provided before sending request
       if (!task.evaluation_id) {
         throw new Error('evaluation_id is required for creating a task');
       }
-      return await apiFetch<Task>('/api/task', {
+      const path = options?.past ? '/api/task?past=1' : '/api/task';
+      return await apiFetch<Task>(path, {
         method: 'POST',
         body: JSON.stringify(task),
         headers: { 'Content-Type': 'application/json' },
@@ -41,10 +42,14 @@ export const taskApiService = {
   },
 
   // 과업 업데이트
-  async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
+  async updateTask(
+    id: string,
+    updates: Partial<Task>,
+    options?: { past?: boolean },
+  ): Promise<Task> {
     try {
-      // Use relative URL so the request follows the current origin (avoids hard‑coded localhost)
-      return await apiFetch<Task>(`/api/task/${id}`, {
+      const path = options?.past ? `/api/task/${id}?past=1` : `/api/task/${id}`;
+      return await apiFetch<Task>(path, {
         method: 'PUT',
         body: JSON.stringify(updates),
         headers: { 'Content-Type': 'application/json' },
@@ -55,10 +60,10 @@ export const taskApiService = {
   },
 
   // 과업 소프트 삭제 (deleted_at 설정)
-  async softDeleteTask(id: string): Promise<void> {
+  async softDeleteTask(id: string, options?: { past?: boolean }): Promise<void> {
     try {
-      // PATCH 로 변경하여 deleted_at에 현재 시각 저장
-      await apiFetch<void>(`/api/task/${id}`, {
+      const path = options?.past ? `/api/task/${id}?past=1` : `/api/task/${id}`;
+      await apiFetch<void>(path, {
         method: 'PATCH',
         body: JSON.stringify({ deleted_at: new Date().toISOString() }),
         headers: { 'Content-Type': 'application/json' },

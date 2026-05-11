@@ -395,7 +395,7 @@ const MyTasksPage = () => {
           feedback_date: null,
           evaluator_name: null,
           deleted_at: null,
-        } as any);
+        } as any, { past: isPastMode });
         if (isFinal) {
           await maybeFinalizeEvaluation();
         }
@@ -408,13 +408,17 @@ const MyTasksPage = () => {
         setSelectedTaskId(newTaskId);
       } else {
         if (!selectedTask) return;
-        await taskService.updateTask(selectedTask.id, {
-          title: draft.title.trim(),
-          description: draft.description?.trim() || null,
-          weight: draft.weight || 0,
-          start_date: draft.startDate || null,
-          end_date: draft.endDate || null,
-        });
+        await taskService.updateTask(
+          selectedTask.id,
+          {
+            title: draft.title.trim(),
+            description: draft.description?.trim() || null,
+            weight: draft.weight || 0,
+            start_date: draft.startDate || null,
+            end_date: draft.endDate || null,
+          },
+          { past: isPastMode },
+        );
         if (isFinal) {
           await maybeFinalizeEvaluation();
         }
