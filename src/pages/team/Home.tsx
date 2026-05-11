@@ -5,6 +5,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { Pill } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { evaluationService } from '@/lib/services';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 type ColumnId = 'draft' | 'submitted' | 'evaluating' | 'completed';
@@ -193,6 +194,23 @@ const TeamHome = () => {
     navigate(`/evaluation/${card.record.employee.employee_id}`);
   };
 
+  const openFormerEvaluation = async (card: CardModel) => {
+    if (card.disabled) return;
+    try {
+      const evals = await evaluationService.getEvaluationsByEmployeeId(
+        card.record.employee.employee_id,
+      );
+      const myPast = evals.find((ev) => ev.evaluator_id === user?.employeeId);
+      if (myPast) {
+        navigate(`/evaluation/${card.record.employee.employee_id}?evaluationId=${myPast.id}`);
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    navigate(`/evaluation/${card.record.employee.employee_id}`);
+  };
+
   const startNextReview = () => {
     const target = grouped.submitted[0] ?? grouped.evaluating[0];
     if (target) {
@@ -364,7 +382,7 @@ const TeamHome = () => {
                       <FormerBoardCard
                         key={card.record.employee.employee_id}
                         card={card}
-                        onClick={() => navigate(`/evaluation/${card.record.employee.employee_id}`)}
+                        onClick={() => openFormerEvaluation(card)}
                       />
                     ))}
                   </div>

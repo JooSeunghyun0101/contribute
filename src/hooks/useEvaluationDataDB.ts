@@ -422,16 +422,26 @@ export const useEvaluationDataDB = (
         taskEvaluationEntries.some(
           (entry) => !isEntryForEvaluator(entry, currentEvaluatorId, user?.name),
         );
-      const isCurrentAssignedEvaluator =
+      // 현재 evaluation 자체의 assignment_history.new_evaluator_id가 현재 사용자인 경우도
+      // '담당 평가자'로 인정 (과거 평가 소급 평가를 위해)
+      const evaluationOwnerEvaluatorId =
+        (evaluation as any)?.evaluator_id ?? null;
+      const isEvaluatorOfThisEvaluation =
         user?.role === 'evaluator' &&
         Boolean(currentEvaluatorId) &&
-        loadedEmployee?.evaluator_id === currentEvaluatorId;
+        evaluationOwnerEvaluatorId === currentEvaluatorId;
+      const isCurrentAssignedEvaluator =
+        (user?.role === 'evaluator' &&
+          Boolean(currentEvaluatorId) &&
+          loadedEmployee?.evaluator_id === currentEvaluatorId) ||
+        isEvaluatorOfThisEvaluation;
       const isFormerEvaluator =
         user?.role === 'evaluator' && !isCurrentAssignedEvaluator && Boolean(hasOwnEvaluationEntries);
       const canEditAsEvaluator =
         user?.role !== 'evaluator' ||
         Boolean(hasOwnEvaluationEntries) ||
-        Boolean(isCurrentAssignedEvaluator);
+        Boolean(isCurrentAssignedEvaluator) ||
+        Boolean(isEvaluatorOfThisEvaluation);
       const evaluatorAccessMessage =
         user?.role === 'evaluator' && !canEditAsEvaluator
           ? '현재 이 평가를 수정할 수 있는 담당자가 아닙니다.'

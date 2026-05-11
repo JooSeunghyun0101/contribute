@@ -3585,8 +3585,16 @@ app.get('/api/evaluation/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT ev.*
+        SELECT
+          ev.*,
+          ah.new_evaluator_id AS evaluator_id,
+          ah.changed_at AS evaluator_assigned_at,
+          ev_emp.name AS evaluator_name,
+          ev_emp.position AS evaluator_position,
+          ev_emp.department AS evaluator_department
         FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = ev.assignment_history_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'

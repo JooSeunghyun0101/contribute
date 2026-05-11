@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Clock3, PencilLine } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Pill } from '@/components/brand';
@@ -132,6 +132,8 @@ const Evaluation = () => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const overrideEvaluationId = searchParams.get('evaluationId');
 
   const {
     evaluationData,
@@ -147,7 +149,7 @@ const Evaluation = () => {
     isPeriodEditable,
     periodEditMessage,
     reloadData,
-  } = useEvaluationDataDB(id || '');
+  } = useEvaluationDataDB(id || '', { evaluationId: overrideEvaluationId });
   const { pastBundles } = usePastEvaluations(id ?? '', evaluationData?.id);
 
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
