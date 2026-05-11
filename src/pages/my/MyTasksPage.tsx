@@ -1189,7 +1189,7 @@ const MyTasksPage = () => {
           )}
         </section>
 
-        {pastBundles.length > 0 && (
+        {!isPastMode && pastBundles.length > 0 && (
           <>
             <div
               style={{
