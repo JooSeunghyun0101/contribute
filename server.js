@@ -1453,8 +1453,12 @@ const assertEvaluationTaskStructureEditableById = async (
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
+      // 'completed' 상태는 항상 잠금 — 반려(평가 수정으로 status 변경) 후에만 편집.
+      // submitted/evaluating/locked 등은 bypassCompletedLock가 있으면 우회(과거 평가 편집).
+      if (status === 'completed') {
+        throw createEvaluationStructureWriteError(status);
+      }
       if (bypassCompletedLock) {
-        // 과거 평가 소급 편집: 잠금 상태(submitted/evaluating/completed/locked) 무관하게 우회
         return;
       }
       throw createEvaluationStructureWriteError(status);
@@ -1535,8 +1539,12 @@ const assertTaskStructureEditableById = async (
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
+      // 'completed' 상태는 항상 잠금 — 반려(평가 수정으로 status 변경) 후에만 편집.
+      // submitted/evaluating/locked 등은 bypassCompletedLock가 있으면 우회(과거 평가 편집).
+      if (status === 'completed') {
+        throw createEvaluationStructureWriteError(status);
+      }
       if (bypassCompletedLock) {
-        // 과거 평가 소급 편집: 잠금 상태(submitted/evaluating/completed/locked) 무관하게 우회
         return;
       }
       throw createEvaluationStructureWriteError(status);
@@ -1763,6 +1771,7 @@ const assertTaskEvaluationEntryEditable = async (client, task, payload) => {
       `
         SELECT
           e.evaluatee_id,
+          e.evaluation_status,
           emp.evaluator_id AS assigned_evaluator_id,
           ah.new_evaluator_id AS evaluation_evaluator_id
         FROM evaluations e
@@ -1785,6 +1794,14 @@ const assertTaskEvaluationEntryEditable = async (client, task, payload) => {
   ]);
 
   const evaluation = evaluationRows[0];
+  // 'completed' 상태는 잠금 — 평가 수정(=반려)으로 status 변경 후에만 편집 가능
+  if (evaluation?.evaluation_status === 'completed') {
+    throw Object.assign(
+      new Error('Evaluation is completed; reopen via evaluator action before editing scores or feedback.'),
+      { statusCode: 423 }
+    );
+  }
+
   const isAssignedEvaluator = evaluation?.assigned_evaluator_id === payload.evaluator_id;
   // 이 평가의 assignment_history가 가리키는 평가자(과거 평가자 포함)이면 본인 평가 편집 허용
   const isEvaluationOwnerEvaluator =

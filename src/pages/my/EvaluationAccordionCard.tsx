@@ -89,9 +89,11 @@ const EvaluationAccordionCard = ({
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
   const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
-  // 과거 평가는 completed/submitted 등 잠금 상태여도 편집 허용
-  const isTaskEditingLocked =
-    isCurrent && EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
+  // 'completed'는 어떤 경우(현재/과거)든 항상 잠금 — 평가 수정(반려)을 통해서만 편집.
+  // 현재 평가는 submitted/evaluating 등도 잠금. 과거 평가는 completed가 아닌 한 편집 허용.
+  const isTaskEditingLocked = isCurrent
+    ? EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus)
+    : evaluationStatus === 'completed';
   const taskEditMessage = isTaskEditingLocked
     ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 반려를 요청하세요.'
     : periodEditMessage;
