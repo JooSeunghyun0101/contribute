@@ -1453,7 +1453,8 @@ const assertEvaluationTaskStructureEditableById = async (
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
-      if (bypassCompletedLock && status === 'completed') {
+      if (bypassCompletedLock) {
+        // 과거 평가 소급 편집: 잠금 상태(submitted/evaluating/completed/locked) 무관하게 우회
         return;
       }
       throw createEvaluationStructureWriteError(status);
@@ -1534,7 +1535,8 @@ const assertTaskStructureEditableById = async (
     }
     const status = row?.evaluation_status;
     if (status && TASK_STRUCTURE_LOCKED_EVALUATION_STATUSES.has(status)) {
-      if (bypassCompletedLock && status === 'completed') {
+      if (bypassCompletedLock) {
+        // 과거 평가 소급 편집: 잠금 상태(submitted/evaluating/completed/locked) 무관하게 우회
         return;
       }
       throw createEvaluationStructureWriteError(status);

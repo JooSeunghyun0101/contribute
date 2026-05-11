@@ -422,19 +422,23 @@ export const useEvaluationDataDB = (
         taskEvaluationEntries.some(
           (entry) => !isEntryForEvaluator(entry, currentEvaluatorId, user?.name),
         );
-      // 현재 evaluation 자체의 assignment_history.new_evaluator_id가 현재 사용자인 경우도
-      // '담당 평가자'로 인정 (과거 평가 소급 평가를 위해)
+      // '현재 평가' 라벨은 로드된 평가의 평가자가 현재 사용자인지로 판정.
+      // evaluator_id 정보가 있으면 그걸 우선 사용, 없으면 employees.evaluator_id 폴백.
       const evaluationOwnerEvaluatorId =
         (evaluation as any)?.evaluator_id ?? null;
       const isEvaluatorOfThisEvaluation =
         user?.role === 'evaluator' &&
         Boolean(currentEvaluatorId) &&
         evaluationOwnerEvaluatorId === currentEvaluatorId;
+      const isEmployeeCurrentEvaluator =
+        user?.role === 'evaluator' &&
+        Boolean(currentEvaluatorId) &&
+        loadedEmployee?.evaluator_id === currentEvaluatorId;
+      // evaluation에 owner 정보가 있으면 그걸로만 결정; 없으면 employees 기준
       const isCurrentAssignedEvaluator =
-        (user?.role === 'evaluator' &&
-          Boolean(currentEvaluatorId) &&
-          loadedEmployee?.evaluator_id === currentEvaluatorId) ||
-        isEvaluatorOfThisEvaluation;
+        evaluationOwnerEvaluatorId !== null
+          ? isEvaluatorOfThisEvaluation
+          : isEmployeeCurrentEvaluator;
       const isFormerEvaluator =
         user?.role === 'evaluator' && !isCurrentAssignedEvaluator && Boolean(hasOwnEvaluationEntries);
       const canEditAsEvaluator =
