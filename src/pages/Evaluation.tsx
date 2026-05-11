@@ -7,8 +7,10 @@ import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { usePastEvaluations } from '@/hooks/usePastEvaluations';
 import { useToast } from '@/hooks/use-toast';
 import { evaluationService } from '@/lib/services';
+import PastEvaluationAccordion from '@/components/Feedback/PastEvaluationAccordion';
 import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import {
   MATRIX_METHODS,
@@ -148,6 +150,11 @@ const Evaluation = () => {
     periodEditMessage,
     reloadData,
   } = useEvaluationDataDB(id || '', { evaluationId: overrideEvaluationId });
+  // override 없는 기본 진입(=현재 평가자)일 때만 과거 평가 데이터 로드
+  const { pastBundles } = usePastEvaluations(
+    !overrideEvaluationId ? id ?? '' : '',
+    evaluationData?.id,
+  );
 
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
   const hasInitializedExpansion = useRef(false);
@@ -554,6 +561,24 @@ const Evaluation = () => {
         {evaluatorGroups.length === 0 && (
           <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
             표시할 평가 내용이 없습니다.
+          </div>
+        )}
+
+        {!overrideEvaluationId && pastBundles.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 800,
+                color: 'var(--fg-muted)',
+                letterSpacing: 0.4,
+              }}
+            >
+              과거 평가 ({pastBundles.length})
+            </div>
+            {pastBundles.map((bundle) => (
+              <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} />
+            ))}
           </div>
         )}
       </div>
