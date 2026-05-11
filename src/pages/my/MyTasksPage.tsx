@@ -6,8 +6,10 @@ import { IconSparkle, NumBadge, Pill, type PillTone } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { usePastEvaluations } from '@/hooks/usePastEvaluations';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
+import PastEvaluationAccordion from '@/components/Feedback/PastEvaluationAccordion';
 import {
   getMatrixScore,
   getMatrixMethodIndex,
@@ -200,6 +202,10 @@ const MyTasksPage = () => {
     isPeriodEditable,
     periodEditMessage,
   } = useEvaluationDataDB(user?.employeeId || '');
+  const { pastBundles } = usePastEvaluations(
+    user?.employeeId ?? '',
+    evaluationData?.id,
+  );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
@@ -567,6 +573,33 @@ const MyTasksPage = () => {
             {!isLoading && tasks.length === 0 && (
               <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 13 }}>
                 등록된 과업이 없습니다. 과업 추가로 시작하세요.
+              </div>
+            )}
+
+            {pastBundles.length > 0 && (
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  background: 'var(--bg-muted)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: 'var(--fg-muted)',
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  과거 평가자별 이력 ({pastBundles.length})
+                </div>
+                {pastBundles.map((bundle) => (
+                  <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} />
+                ))}
               </div>
             )}
           </div>

@@ -1,203 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { usePastEvaluations } from '@/hooks/usePastEvaluations';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
-  type TaskFeedbackEntry,
 } from '@/components/Feedback/TaskFeedbackCard';
-import { evaluationService, taskService, feedbackService } from '@/lib/services';
-import type { Evaluation } from '@/types';
+import PastEvaluationAccordion from '@/components/Feedback/PastEvaluationAccordion';
 
 type PastTaskCard = TaskFeedbackCardProps & { taskId: string };
-
-type PastEvaluationBundle = {
-  evaluation: Evaluation;
-  cards: PastTaskCard[];
-};
-
-const formatDate = (value?: string | null) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-    .format(date)
-    .replace(/\. /g, '-')
-    .replace('.', '');
-};
-
-const PastEvaluationAccordion = ({ bundle }: { bundle: PastEvaluationBundle }) => {
-  const [open, setOpen] = useState(false);
-  const { evaluation, cards } = bundle;
-  const evaluatorName = evaluation.evaluator_name ?? '이전 평가자';
-  const assignedAt = formatDate(evaluation.evaluator_assigned_at);
-  const taskCount = cards.length;
-  const feedbackCount = cards.reduce((sum, c) => sum + c.entries.length, 0);
-
-  return (
-    <div
-      className="sd-card"
-      style={{
-        padding: 0,
-        overflow: 'hidden',
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          width: '100%',
-          background: 'transparent',
-          border: 'none',
-          padding: '14px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          textAlign: 'left',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: 'var(--bg-muted)',
-              color: 'var(--fg-muted)',
-              fontSize: 13,
-              fontWeight: 800,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {evaluatorName.charAt(0)}
-          </div>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{evaluatorName}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--fg-muted)', marginTop: 2 }}>
-              {assignedAt ? `${assignedAt} 시작` : '기간 정보 없음'}
-              {taskCount > 0 && ` · 과업 ${taskCount}개 · 피드백 ${feedbackCount}건`}
-            </div>
-          </div>
-        </div>
-        <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{open ? '▲' : '▼'}</span>
-      </button>
-
-      {open && (
-        <div
-          style={{
-            padding: '0 18px 18px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-            borderTop: '1px solid var(--border)',
-            paddingTop: 14,
-          }}
-        >
-          {cards.length === 0 ? (
-            <div
-              style={{
-                fontSize: 12.5,
-                color: 'var(--fg-muted)',
-                padding: '14px 0',
-                textAlign: 'center',
-              }}
-            >
-              이 기간에는 등록된 과업이 없습니다.
-            </div>
-          ) : (
-            cards.map((card) => (
-              <TaskFeedbackCard
-                key={card.taskId}
-                taskIndex={card.taskIndex}
-                taskTitle={card.taskTitle}
-                contributionMethod={card.contributionMethod}
-                contributionScope={card.contributionScope}
-                score={card.score}
-                entries={card.entries}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
 
 const MyFeedbackPage = () => {
   const { user } = useAuth();
   const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '');
-  const [pastBundles, setPastBundles] = useState<PastEvaluationBundle[]>([]);
-  const [isLoadingPast, setIsLoadingPast] = useState(false);
-
-  useEffect(() => {
-    if (!user?.employeeId) return;
-    let cancelled = false;
-    (async () => {
-      setIsLoadingPast(true);
-      try {
-        const all = await evaluationService.getEvaluationsByEmployeeId(user.employeeId);
-        const currentId = evaluationData?.id;
-        const past = all.filter(
-          (ev) => ev.evaluation_status === 'completed' && ev.id !== currentId,
-        );
-        const enriched: PastEvaluationBundle[] = await Promise.all(
-          past.map(async (ev) => {
-            let cards: PastTaskCard[] = [];
-            try {
-              const tasks = (await taskService.getTasksByEvaluationId(ev.id)).filter(
-                (t: any) => !t.deleted_at,
-              );
-              cards = await Promise.all(
-                tasks.map(async (task: any, idx: number) => {
-                  let entries: TaskFeedbackEntry[] = [];
-                  try {
-                    const fbs = await feedbackService.getFeedbackHistoryByTaskId(task.task_id);
-                    entries = fbs
-                      .map((fb: any) => ({
-                        id: fb.id,
-                        content: fb.content,
-                        date: fb.created_at,
-                        evaluatorName: fb.evaluator_name ?? null,
-                      }))
-                      .sort(
-                        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-                      );
-                  } catch {
-                    entries = [];
-                  }
-                  return {
-                    taskId: task.task_id,
-                    taskIndex: idx,
-                    taskTitle: task.title,
-                    contributionMethod: task.contribution_method,
-                    contributionScope: task.contribution_scope,
-                    score: task.score ?? null,
-                    entries,
-                  };
-                }),
-              );
-            } catch {
-              cards = [];
-            }
-            return { evaluation: ev, cards };
-          }),
-        );
-        if (!cancelled) setPastBundles(enriched);
-      } catch (error) {
-        console.warn('과거 평가 로드 실패:', error);
-        if (!cancelled) setPastBundles([]);
-      } finally {
-        if (!cancelled) setIsLoadingPast(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.employeeId, evaluationData?.id]);
+  const { pastBundles, isLoadingPast } = usePastEvaluations(
+    user?.employeeId ?? '',
+    evaluationData?.id,
+  );
 
   const tasks = evaluationData?.tasks ?? [];
 
