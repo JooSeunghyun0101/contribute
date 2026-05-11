@@ -3353,11 +3353,18 @@ app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
       `
-        SELECT ev.*
+        SELECT
+          ev.*,
+          assignment.new_evaluator_id AS evaluator_id,
+          assignment.changed_at AS evaluator_assigned_at,
+          ev_emp.name AS evaluator_name,
+          ev_emp.position AS evaluator_position,
+          ev_emp.department AS evaluator_department
         FROM evaluations ev
         LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
         LEFT JOIN evaluator_assignment_history assignment
           ON assignment.id = ev.assignment_history_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = assignment.new_evaluator_id
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.employee_id = ev.evaluatee_id

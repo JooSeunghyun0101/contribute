@@ -220,7 +220,8 @@ const Evaluation = () => {
             ),
           ),
       ) ||
-      Boolean(evaluationData.evaluatorAccess?.isCurrentAssignedEvaluator);
+      Boolean(evaluationData.evaluatorAccess?.isCurrentAssignedEvaluator) ||
+      Boolean(evaluationData.evaluatorAccess?.isFormerEvaluator);
 
     if (shouldShowCurrentGroup) {
       const views = currentEvaluationTasks.map((task) => {

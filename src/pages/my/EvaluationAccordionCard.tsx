@@ -100,11 +100,27 @@ const EvaluationAccordionCard = ({
   const lockedInputStyle = !canEditTasks ? { opacity: 0.68, cursor: 'not-allowed' } : {};
 
   const evaluatorName = evaluationData?.evaluatorName ?? null;
-  const headerLabel = isCurrent
-    ? '현재 평가'
-    : `${evaluatorName ?? '이전 평가자'} 평가 (이전)`;
-  const headerInitial = evaluatorName ? evaluatorName.charAt(0) : (user?.name ?? '?').charAt(0);
+  const headerLabel = isCurrent ? '현재 평가' : '이전 평가';
+  const headerTitle = evaluatorName ?? (isCurrent ? user?.name ?? '평가자' : '이전 평가자');
+  const headerInitial = headerTitle.charAt(0);
   const accentColor = isCurrent ? 'var(--ok-orange)' : 'var(--fg-muted)';
+
+  // 헤더용 점수 요약
+  const summary = useMemo(() => {
+    const total = tasks.reduce((sum, t) => {
+      const score = getMatrixScore(t.contributionMethod, t.contributionScope, matrix) ?? t.score;
+      return sum + (score != null ? (Number(score) * Number(t.weight ?? 0)) / 100 : 0);
+    }, 0);
+    const completed = tasks.filter((t) => {
+      const score = getMatrixScore(t.contributionMethod, t.contributionScope, matrix) ?? t.score;
+      return score != null;
+    }).length;
+    return {
+      exactScore: Math.round(total * 100) / 100,
+      flooredScore: Math.floor(total),
+      completedCount: completed,
+    };
+  }, [tasks, matrix]);
 
   const showTaskEditLockedToast = () => {
     toast({
@@ -328,15 +344,15 @@ const EvaluationAccordionCard = ({
           textAlign: 'left',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
           <div
             style={{
-              width: 36,
-              height: 36,
+              width: 44,
+              height: 44,
               borderRadius: '50%',
               background: accentColor,
               color: '#fff',
-              fontSize: 15,
+              fontSize: 17,
               fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
@@ -347,13 +363,34 @@ const EvaluationAccordionCard = ({
             {headerInitial}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg)' }}>{headerLabel}</div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
-              과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}% · {statusMeta.label}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: accentColor, lineHeight: 1.15 }}>
+                {headerTitle}
+              </h2>
+              <Pill tone={isCurrent ? 'orange' : 'neutral'}>{headerLabel}</Pill>
+              <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
+              과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}%
             </div>
           </div>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>{expanded ? '▲' : '▼'}</span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
+          <div style={{ textAlign: 'right' }}>
+            <div className="sd-label-mini">반영 점수</div>
+            <div className="tnum" style={{ fontSize: 22, fontWeight: 900, color: accentColor }}>
+              {summary.exactScore.toFixed(1)}
+              <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+                {' '} / {summary.flooredScore}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>
+              {summary.completedCount}/{tasks.length} 과업
+            </div>
+          </div>
+          <span style={{ fontSize: 18, color: accentColor }}>{expanded ? '▲' : '▼'}</span>
+        </div>
       </button>
 
       {expanded && (
