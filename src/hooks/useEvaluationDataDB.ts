@@ -173,7 +173,10 @@ const buildEmptyEvaluationData = (employee: Employee): EvaluationData => ({
   tasks: [],
 });
 
-export const useEvaluationDataDB = (employeeId: string) => {
+export const useEvaluationDataDB = (
+  employeeId: string,
+  options?: { evaluationId?: string | null },
+) => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const {
@@ -182,12 +185,16 @@ export const useEvaluationDataDB = (employeeId: string) => {
     isSelectedPeriodEditable,
     selectedPeriodEditMessage,
   } = useEvaluationPeriod();
+  const overrideEvaluationId = options?.evaluationId ?? null;
   const selectedPeriodStatus = selectedPeriod?.status;
   const selectedPeriodYear = selectedPeriod?.evaluation_year;
   const { toast } = useToast();
   const { addNotification } = useNotifications();
   const currentEvaluatorId = getEvaluatorIdentity(user);
-  const draftStorageKey = getDraftStorageKey(employeeId, currentEvaluatorId);
+  const draftStorageKey = getDraftStorageKey(
+    overrideEvaluationId ? `${employeeId}#${overrideEvaluationId}` : employeeId,
+    currentEvaluatorId,
+  );
 
   const [evaluationData, setEvaluationData] = useState<EvaluationData | null>(null);
   const [taskDrafts, setTaskDrafts] = useState<Record<string, TaskDraft>>({});
@@ -214,14 +221,22 @@ export const useEvaluationDataDB = (employeeId: string) => {
       // Holds employee info for possible mock fallback when DB returns nothing
       let loadedEmployee: Employee | null = null;
 
-      // 1. 평가 정보 조회
+      // 1. 평가 정보 조회 — evaluationId 오버라이드가 있으면 해당 평가 우선
       let evaluation = null;
-      try {
-        evaluation = await evaluationService.getEvaluationByEmployeeId(employeeId, {
-          periodId: selectedPeriodId,
-        });
-      } catch (error) {
-        console.warn('평가 레코드 조회 실패, 빈 평가 데이터로 대체합니다:', error);
+      if (overrideEvaluationId) {
+        try {
+          evaluation = await evaluationService.getEvaluationById(overrideEvaluationId);
+        } catch (error) {
+          console.warn('지정 evaluationId 조회 실패:', error);
+        }
+      } else {
+        try {
+          evaluation = await evaluationService.getEvaluationByEmployeeId(employeeId, {
+            periodId: selectedPeriodId,
+          });
+        } catch (error) {
+          console.warn('평가 레코드 조회 실패, 빈 평가 데이터로 대체합니다:', error);
+        }
       }
       // Some back‑ends may return the identifier under a different key (e.g., evaluation_id)
       // Ensure the evaluation object always has an `id` property for downstream usage.
@@ -574,6 +589,7 @@ export const useEvaluationDataDB = (employeeId: string) => {
   }, [
     draftStorageKey,
     employeeId,
+    overrideEvaluationId,
     selectedPeriodStatus,
     selectedPeriodYear,
     selectedPeriodId,

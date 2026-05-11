@@ -120,7 +120,7 @@ const MyFeedbackPage = () => {
                 <div style={{ color: 'var(--fg-muted)', fontSize: 12.5 }}>과거 이력 로딩 중…</div>
               ) : (
                 pastBundles.map((bundle) => (
-                  <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} />
+                  <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} editable />
                 ))
               )}
             </>

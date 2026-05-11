@@ -49,6 +49,19 @@ export const evaluationService = {
     }
   },
 
+  async getEvaluationById(id: string): Promise<Evaluation | null> {
+    if (!id) throw new Error('id is required');
+    try {
+      const evaluation = await apiFetch<Evaluation>(`/api/evaluation/${id}`);
+      if (evaluation && !evaluation.id && (evaluation as any).evaluation_id) {
+        (evaluation as any).id = (evaluation as any).evaluation_id;
+      }
+      return evaluation ?? null;
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   async getEvaluationsByEmployeeId(employeeId: string, query?: EvaluationQuery): Promise<Evaluation[]> {
     if (!employeeId) {
       throw new Error('employeeId is required');

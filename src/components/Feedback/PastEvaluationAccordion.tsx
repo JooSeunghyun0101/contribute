@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Pencil } from 'lucide-react';
 import TaskFeedbackCard, { type TaskFeedbackCardProps } from './TaskFeedbackCard';
 import type { Evaluation } from '@/types';
 
@@ -17,8 +19,15 @@ const formatDate = (value?: string | null) => {
     .replace('.', '');
 };
 
-const PastEvaluationAccordion = ({ bundle }: { bundle: PastEvaluationBundle }) => {
+const PastEvaluationAccordion = ({
+  bundle,
+  editable = false,
+}: {
+  bundle: PastEvaluationBundle;
+  editable?: boolean;
+}) => {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const { evaluation, cards } = bundle;
   const evaluatorName = evaluation.evaluator_name ?? '이전 평가자';
   const assignedAt = formatDate(evaluation.evaluator_assigned_at);
@@ -103,6 +112,33 @@ const PastEvaluationAccordion = ({ bundle }: { bundle: PastEvaluationBundle }) =
                 entries={card.entries}
               />
             ))
+          )}
+
+          {editable && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/my/tasks?evaluationId=${evaluation.id}`);
+              }}
+              style={{
+                marginTop: 4,
+                padding: '8px 12px',
+                background: 'var(--ok-orange-50)',
+                color: 'var(--ok-orange)',
+                border: '1px dashed var(--ok-orange)',
+                borderRadius: 8,
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <Pencil size={13} /> 이 평가 과업 편집
+            </button>
           )}
         </div>
       )}

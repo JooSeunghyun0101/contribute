@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Plus, Save } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
@@ -195,17 +196,22 @@ const MyTasksPage = () => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const overrideEvaluationId = searchParams.get('evaluationId');
   const {
     evaluationData,
     isLoading,
     reloadData,
     isPeriodEditable,
     periodEditMessage,
-  } = useEvaluationDataDB(user?.employeeId || '');
+  } = useEvaluationDataDB(user?.employeeId || '', {
+    evaluationId: overrideEvaluationId,
+  });
   const { pastBundles } = usePastEvaluations(
     user?.employeeId ?? '',
     evaluationData?.id,
   );
+  const isPastMode = Boolean(overrideEvaluationId);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
@@ -233,7 +239,9 @@ const MyTasksPage = () => {
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
   const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
-  const isTaskEditingLocked = EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
+  // 과거 평가 편집 모드(?evaluationId=...)에서는 completed여도 과업 CRUD 허용
+  const isTaskEditingLocked =
+    !isPastMode && EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
   const taskEditMessage = isTaskEditingLocked
     ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 반려를 요청하세요.'
     : periodEditMessage;
@@ -448,8 +456,25 @@ const MyTasksPage = () => {
   return (
     <>
       <PageHeader
-        title="내 과업"
-        subtitle={`${user?.name ?? ''}님의 등록 과업과 제출 상태`}
+        title={isPastMode ? '과거 평가 과업 편집' : '내 과업'}
+        subtitle={
+          isPastMode
+            ? `평가자 ${evaluationData?.evaluatorAccess?.assignedEvaluatorId ?? ''} 구간 · 과업 추가/수정/삭제`
+            : `${user?.name ?? ''}님의 등록 과업과 제출 상태`
+        }
+        actions={
+          isPastMode ? (
+            <button
+              type="button"
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => {
+                window.location.href = '/my/tasks';
+              }}
+            >
+              ← 현재 평가로
+            </button>
+          ) : undefined
+        }
       />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -598,7 +623,11 @@ const MyTasksPage = () => {
                   과거 평가자별 이력 ({pastBundles.length})
                 </div>
                 {pastBundles.map((bundle) => (
-                  <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} />
+                  <PastEvaluationAccordion
+                    key={bundle.evaluation.id}
+                    bundle={bundle}
+                    editable
+                  />
                 ))}
               </div>
             )}
