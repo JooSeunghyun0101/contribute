@@ -351,7 +351,9 @@ export const useEvaluationDataDB = (
 
       let historicalTasks: any[] = [];
       let historicalTaskEvaluationEntries: TaskEvaluationEntry[] = [];
-      if (user?.role === 'evaluator') {
+      // 특정 evaluationId를 지정해서 열었으면 다른 evaluation의 이력은 불러오지 않음.
+      // (예: 평가자가 자기 과거 평가를 열면 그 평가에 속한 task/entry만 노출)
+      if (user?.role === 'evaluator' && !overrideEvaluationId) {
         try {
           const evaluations = await evaluationService.getEvaluationsByEmployeeId(employeeId, {
             periodId: selectedPeriodId,
@@ -422,25 +424,32 @@ export const useEvaluationDataDB = (
         taskEvaluationEntries.some(
           (entry) => !isEntryForEvaluator(entry, currentEvaluatorId, user?.name),
         );
-      // '현재 평가' 라벨은 로드된 평가의 평가자가 현재 사용자인지로 판정.
-      // evaluator_id 정보가 있으면 그걸 우선 사용, 없으면 employees.evaluator_id 폴백.
+      // 로드된 평가의 소유 평가자 정보
       const evaluationOwnerEvaluatorId =
         (evaluation as any)?.evaluator_id ?? null;
+      // 현재 사용자가 로드된 평가의 소유 평가자인가
       const isEvaluatorOfThisEvaluation =
         user?.role === 'evaluator' &&
         Boolean(currentEvaluatorId) &&
         evaluationOwnerEvaluatorId === currentEvaluatorId;
+      // 현재 사용자가 직원의 현재 담당 평가자(employees.evaluator_id)인가
       const isEmployeeCurrentEvaluator =
         user?.role === 'evaluator' &&
         Boolean(currentEvaluatorId) &&
         loadedEmployee?.evaluator_id === currentEvaluatorId;
-      // evaluation에 owner 정보가 있으면 그걸로만 결정; 없으면 employees 기준
+      // 로드된 평가가 직원의 현재 평가인가 (시간상 진행 중)
+      const isLoadedEvaluationCurrent =
+        evaluationOwnerEvaluatorId !== null &&
+        loadedEmployee?.evaluator_id !== undefined &&
+        evaluationOwnerEvaluatorId === loadedEmployee.evaluator_id;
+      // 사용자가 '현재 평가의 담당 평가자' 인지 (라벨/권한용)
       const isCurrentAssignedEvaluator =
-        evaluationOwnerEvaluatorId !== null
-          ? isEvaluatorOfThisEvaluation
-          : isEmployeeCurrentEvaluator;
+        isEvaluatorOfThisEvaluation && isLoadedEvaluationCurrent;
+      // '이전 평가'로 볼지 — 사용자가 이 평가의 소유 평가자지만 현재 평가가 아닌 경우
       const isFormerEvaluator =
-        user?.role === 'evaluator' && !isCurrentAssignedEvaluator && Boolean(hasOwnEvaluationEntries);
+        user?.role === 'evaluator' &&
+        isEvaluatorOfThisEvaluation &&
+        !isLoadedEvaluationCurrent;
       const canEditAsEvaluator =
         user?.role !== 'evaluator' ||
         Boolean(hasOwnEvaluationEntries) ||
