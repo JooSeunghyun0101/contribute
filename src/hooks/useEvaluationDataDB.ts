@@ -890,12 +890,17 @@ export const useEvaluationDataDB = (
         return false;
       }
       
-      const evaluation = await evaluationService.getEvaluationByEmployeeId(employeeId, {
-        periodId: selectedPeriodId,
-      });
-      // Ensure we have a proper `id` field (some back‑ends may use `evaluation_id`)
+      // overrideEvaluationId가 설정되었으면 그 평가를 직접 사용 (과거 평가 편집).
+      // 아니면 직원의 기본(우선순위 0) 평가를 가져옴.
+      let evaluation: any = null;
+      if (overrideEvaluationId) {
+        evaluation = await evaluationService.getEvaluationById(overrideEvaluationId);
+      } else {
+        evaluation = await evaluationService.getEvaluationByEmployeeId(employeeId, {
+          periodId: selectedPeriodId,
+        });
+      }
       if (evaluation && !evaluation.id && (evaluation as any).evaluation_id) {
-        // Map possible evaluation_id to id for consistency
         evaluation.id = (evaluation as any).evaluation_id;
       }
       if (!evaluation) throw new Error('평가 정보를 찾을 수 없습니다.');
