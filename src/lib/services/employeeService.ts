@@ -70,6 +70,8 @@ export type MatchingImportResult = {
   cancelled_feedbacks?: number;
   assignment_history_count?: number;
   baseline_assignment_history_count?: number;
+  historical_tours_created?: number;
+  stale_drafts_cancelled?: number;
 };
 
 export type EmployeeProfileImportRowInput = {

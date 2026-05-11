@@ -1,0 +1,214 @@
+import { useState } from 'react';
+
+export type TaskFeedbackEntry = {
+  id: string;
+  content: string;
+  date: string;
+  evaluatorName: string | null;
+};
+
+export type TaskFeedbackCardProps = {
+  taskIndex?: number;
+  taskTitle: string;
+  contributionMethod?: string | null;
+  contributionScope?: string | null;
+  score: number | null;
+  entries: TaskFeedbackEntry[];
+};
+
+const SCORE_BG: Record<number, string> = { 4: '#F55000', 3: '#D94400', 2: '#FFAA00', 1: '#C2BAB0' };
+const SCORE_FG: Record<number, string> = { 4: '#fff', 3: '#fff', 2: '#4A1A00', 1: '#fff' };
+
+const formatDate = (value?: string) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(date)
+    .replace(/\. /g, '-')
+    .replace('.', '');
+};
+
+const EvaluatorRow = ({
+  name,
+  date,
+  isLatest,
+}: {
+  name: string | null;
+  date: string;
+  isLatest?: boolean;
+}) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: '50%',
+        background: 'var(--ok-orange)',
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: 800,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      {name ? name.charAt(0) : '?'}
+    </div>
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 700 }}>
+        {name ?? '평가자'}
+        {isLatest && (
+          <span style={{ marginLeft: 8, color: 'var(--ok-orange)', fontSize: 11, fontWeight: 700 }}>
+            · 최신
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 1 }}>{formatDate(date)}</div>
+    </div>
+  </div>
+);
+
+const TaskFeedbackCard = ({
+  taskIndex,
+  taskTitle,
+  contributionMethod,
+  contributionScope,
+  score,
+  entries,
+}: TaskFeedbackCardProps) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [latest, ...older] = entries;
+  const scoreBg = score != null ? (SCORE_BG[score] ?? '#C2BAB0') : '#C2BAB0';
+  const scoreFg = score != null ? (SCORE_FG[score] ?? '#fff') : '#fff';
+  const taskBadge = typeof taskIndex === 'number' ? `T${String(taskIndex + 1).padStart(2, '0')}` : null;
+
+  return (
+    <div className="sd-card" style={{ padding: '20px 22px', position: 'relative' }}>
+      {score != null && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 18,
+            right: 20,
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            background: scoreBg,
+            color: scoreFg,
+            fontSize: 13,
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {score}
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'var(--bg-muted)',
+          borderRadius: 8,
+          padding: '8px 12px',
+          marginBottom: 14,
+          marginRight: score != null ? 36 : 0,
+          flexWrap: 'wrap',
+        }}
+      >
+        {taskBadge && (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              color: '#fff',
+              background: 'var(--ok-brown)',
+              borderRadius: 4,
+              padding: '2px 7px',
+            }}
+          >
+            {taskBadge}
+          </span>
+        )}
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{taskTitle}</span>
+        {(contributionMethod || contributionScope) && (
+          <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+            · {[contributionMethod, contributionScope].filter(Boolean).join(' / ')}
+          </span>
+        )}
+      </div>
+
+      {latest ? (
+        <>
+          <EvaluatorRow name={latest.evaluatorName} date={latest.date} isLatest={older.length > 0} />
+          <p style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
+            {latest.content}
+          </p>
+        </>
+      ) : (
+        <p style={{ fontSize: 13, color: 'var(--fg-muted)', margin: 0 }}>
+          등록된 피드백이 없습니다.
+        </p>
+      )}
+
+      {older.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setIsExpanded((v) => !v)}
+            style={{
+              marginTop: 14,
+              padding: '5px 12px',
+              borderRadius: 14,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-muted)',
+              fontSize: 11,
+              fontWeight: 700,
+              color: 'var(--fg-muted)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${older.length}건 펼치기`}
+            <span style={{ fontSize: 9 }}>{isExpanded ? '▲' : '▼'}</span>
+          </button>
+
+          {isExpanded && (
+            <div className="flex flex-col" style={{ marginTop: 14, gap: 14 }}>
+              {older.map((entry) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    paddingTop: 14,
+                    borderTop: '1px dashed var(--border)',
+                  }}
+                >
+                  <EvaluatorRow name={entry.evaluatorName} date={entry.date} />
+                  <p
+                    style={{
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                      color: 'var(--fg-muted)',
+                      margin: 0,
+                    }}
+                  >
+                    {entry.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default TaskFeedbackCard;

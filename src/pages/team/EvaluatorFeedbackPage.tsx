@@ -1,156 +1,141 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
+import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import TaskFeedbackCard, {
+  type TaskFeedbackCardProps,
+} from '@/components/Feedback/TaskFeedbackCard';
+import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
-type FeedbackEntry = {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeeDepartment: string;
-  employeePosition: string;
-  taskId: string;
-  taskTitle: string;
-  score: number | null;
-  content: string;
-  date: string;
-  evaluatorName: string | null;
-};
-
-type TaskFeedbackGroup = {
-  taskId: string;
-  taskTitle: string;
-  score: number | null;
-  latestDate: string;
-  entries: FeedbackEntry[];
-};
-
-type EmployeeFeedbackGroup = {
+type EmployeeTaskCards = {
   employeeId: string;
   employeeName: string;
   employeeDepartment: string;
   employeePosition: string;
   totalFeedbacks: number;
-  tasks: TaskFeedbackGroup[];
+  cards: (TaskFeedbackCardProps & { taskId: string })[];
+  keywords: string[];
 };
 
-const formatShortDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric' }).format(date);
-};
+const buildEmployeeTaskCards = (
+  record: EmployeeEvaluationRecord,
+  authorName: string | null,
+): EmployeeTaskCards => {
+  const cards = record.tasks.map((task, idx) => {
+    const historyEntries =
+      task.feedbackHistory?.map((item) => ({
+        id: item.id,
+        content: item.content,
+        date: item.created_at,
+        evaluatorName: item.evaluator_name,
+      })) ?? [];
 
-const SCORE_BG: Record<number, string> = { 4: '#F55000', 3: '#D94400', 2: '#FFAA00', 1: '#C2BAB0' };
-const SCORE_TEXT: Record<number, string> = { 4: '#fff', 3: '#fff', 2: '#4A1A00', 1: '#fff' };
+    const fallbackEntries =
+      historyEntries.length === 0 && task.feedback && task.feedback_date
+        ? [
+            {
+              id: `${task.task_id}-legacy`,
+              content: task.feedback,
+              date: task.feedback_date,
+              evaluatorName: task.evaluator_name,
+            },
+          ]
+        : [];
+
+    const allEntries = historyEntries.length > 0 ? historyEntries : fallbackEntries;
+    const authoredEntries = authorName
+      ? allEntries.filter((entry) => entry.evaluatorName === authorName)
+      : allEntries;
+    const visible = authoredEntries.length > 0 ? authoredEntries : allEntries;
+    const sorted = [...visible].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+
+    return {
+      taskId: task.task_id,
+      taskIndex: idx,
+      taskTitle: task.title,
+      contributionMethod: task.contribution_method,
+      contributionScope: task.contribution_scope,
+      score: task.score,
+      entries: sorted,
+    };
+  });
+
+  const keywordsSet = new Set<string>();
+  const keywords: string[] = [];
+  for (const task of record.tasks) {
+    if (task.contribution_method && !keywordsSet.has(task.contribution_method)) {
+      keywordsSet.add(task.contribution_method);
+      keywords.push(task.contribution_method);
+    }
+    if (task.contribution_scope && !keywordsSet.has(task.contribution_scope)) {
+      keywordsSet.add(task.contribution_scope);
+      keywords.push(task.contribution_scope);
+    }
+  }
+
+  return {
+    employeeId: record.employee.employee_id,
+    employeeName: record.employee.name,
+    employeeDepartment: record.employee.department,
+    employeePosition: record.employee.position,
+    totalFeedbacks: cards.reduce((sum, c) => sum + c.entries.length, 0),
+    cards,
+    keywords,
+  };
+};
 
 const EvaluatorFeedbackPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('all');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<'all' | string>('all');
   const { records, isLoading, error } = useTeamDashboardRecords(user?.employeeId || '', true);
 
+  const employeeBundles = useMemo(
+    () => records.map((record) => buildEmployeeTaskCards(record, user?.name ?? null)),
+    [records, user?.name],
+  );
+
   const employeeOptions = useMemo(
-    () => records.map((record) => ({ id: record.employee.employee_id, name: record.employee.name })),
-    [records],
+    () => employeeBundles.map((b) => ({ id: b.employeeId, name: b.employeeName })),
+    [employeeBundles],
   );
 
-  const groupedFeedbacks = useMemo<EmployeeFeedbackGroup[]>(() => {
-    return records
-      .map((record) => {
-        const taskGroups = record.tasks
-          .map((task) => {
-            const historyEntries =
-              task.feedbackHistory?.map((item) => ({
-                id: item.id,
-                employeeId: record.employee.employee_id,
-                employeeName: record.employee.name,
-                employeeDepartment: record.employee.department,
-                employeePosition: record.employee.position,
-                taskId: task.task_id,
-                taskTitle: task.title,
-                score: task.score,
-                content: item.content,
-                date: item.created_at,
-                evaluatorName: item.evaluator_name,
-              })) ?? [];
-
-            const entries =
-              historyEntries.length > 0
-                ? historyEntries
-                : task.feedback && task.feedback_date
-                  ? [
-                      {
-                        id: `${task.task_id}-legacy`,
-                        employeeId: record.employee.employee_id,
-                        employeeName: record.employee.name,
-                        employeeDepartment: record.employee.department,
-                        employeePosition: record.employee.position,
-                        taskId: task.task_id,
-                        taskTitle: task.title,
-                        score: task.score,
-                        content: task.feedback,
-                        date: task.feedback_date,
-                        evaluatorName: task.evaluator_name,
-                      },
-                    ]
-                  : [];
-
-            const authoredEntries = user?.name
-              ? entries.filter((entry) => entry.evaluatorName === user.name)
-              : entries;
-            const visibleEntries = authoredEntries.length > 0 ? authoredEntries : entries;
-            const sortedEntries = [...visibleEntries].sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-            );
-
-            return sortedEntries.length > 0
-              ? {
-                  taskId: task.task_id,
-                  taskTitle: task.title,
-                  score: task.score,
-                  latestDate: sortedEntries[0].date,
-                  entries: sortedEntries,
-                }
-              : null;
-          })
-          .filter((group): group is TaskFeedbackGroup => Boolean(group))
-          .sort((a, b) => new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime());
-
-        return {
-          employeeId: record.employee.employee_id,
-          employeeName: record.employee.name,
-          employeeDepartment: record.employee.department,
-          employeePosition: record.employee.position,
-          totalFeedbacks: taskGroups.reduce((sum, task) => sum + task.entries.length, 0),
-          tasks: taskGroups,
-        };
-      })
-      .filter((group) => group.tasks.length > 0)
-      .sort((a, b) => {
-        const aDate = a.tasks[0]?.latestDate ?? '';
-        const bDate = b.tasks[0]?.latestDate ?? '';
-        return new Date(bDate).getTime() - new Date(aDate).getTime();
-      });
-  }, [records, user?.name]);
-
-  const visibleGroups = useMemo(
+  const visibleBundles = useMemo(
     () =>
-      groupedFeedbacks.filter((group) =>
-        selectedEmployeeId === 'all' ? true : group.employeeId === selectedEmployeeId,
+      employeeBundles.filter((b) =>
+        selectedEmployeeId === 'all' ? b.totalFeedbacks > 0 : b.employeeId === selectedEmployeeId,
       ),
-    [groupedFeedbacks, selectedEmployeeId],
+    [employeeBundles, selectedEmployeeId],
   );
+
+  const focusedBundle = selectedEmployeeId === 'all' ? null : visibleBundles[0] ?? null;
+
+  const aggregateStats = useMemo(() => {
+    const employeesWithFeedback = employeeBundles.filter((b) => b.totalFeedbacks > 0);
+    return {
+      employees: employeesWithFeedback.length,
+      tasks: employeesWithFeedback.reduce(
+        (sum, b) => sum + b.cards.filter((c) => c.entries.length > 0).length,
+        0,
+      ),
+      feedbacks: employeesWithFeedback.reduce((sum, b) => sum + b.totalFeedbacks, 0),
+    };
+  }, [employeeBundles]);
+
+  const totalFeedbacks = focusedBundle?.totalFeedbacks ?? aggregateStats.feedbacks;
 
   return (
     <>
       <PageHeader
         title="피드백 내역"
-        subtitle="내가 작성한 피드백 · 최근 3개월"
+        subtitle={`내가 작성한 피드백 ${totalFeedbacks}건 · 과업별 정리`}
       />
 
       <div style={{ padding: '24px 32px 32px' }}>
-        {/* Filter tabs + count */}
         <div
           style={{
             display: 'flex',
@@ -161,7 +146,7 @@ const EvaluatorFeedbackPage = () => {
             flexWrap: 'wrap',
           }}
         >
-          {[{ id: 'all', name: '전체' }, ...employeeOptions].map((opt) => (
+          {[{ id: 'all' as const, name: '전체' }, ...employeeOptions].map((opt) => (
             <button
               key={opt.id}
               onClick={() => setSelectedEmployeeId(opt.id)}
@@ -188,28 +173,104 @@ const EvaluatorFeedbackPage = () => {
         ) : error ? (
           <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {visibleGroups.map((group) => (
-              <section key={group.employeeId} className="sd-card sd-card-lg">
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 16,
-                    marginBottom: 16,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
+            {/* ── Left: task-grouped cards (per employee section) ── */}
+            <div className="flex flex-col gap-5">
+              {visibleBundles.length === 0 ? (
+                <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+                  표시할 피드백 이력이 없습니다.
+                </div>
+              ) : (
+                visibleBundles.map((bundle) => (
+                  <section key={bundle.employeeId} className="flex flex-col gap-3">
+                    {selectedEmployeeId === 'all' && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 16,
+                          padding: '0 4px',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: '50%',
+                              background: 'var(--ok-orange)',
+                              color: '#fff',
+                              fontSize: 15,
+                              fontWeight: 800,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {bundle.employeeName.charAt(0)}
+                          </div>
+                          <div>
+                            <h2 style={{ fontSize: 15, fontWeight: 900, margin: 0 }}>
+                              {bundle.employeeName}{' '}
+                              <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 600 }}>
+                                {bundle.employeePosition}
+                              </span>
+                            </h2>
+                            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+                              {bundle.employeeDepartment}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+                            과업 {bundle.cards.filter((c) => c.entries.length > 0).length}개 · 피드백{' '}
+                            {bundle.totalFeedbacks}건
+                          </span>
+                          <button
+                            className="sd-btn sd-btn-outline sd-btn-sm"
+                            onClick={() => navigate(`/evaluation/${bundle.employeeId}`)}
+                          >
+                            평가 열기
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {bundle.cards
+                      .filter((card) => card.entries.length > 0)
+                      .map((card) => (
+                        <TaskFeedbackCard
+                          key={card.taskId}
+                          taskIndex={card.taskIndex}
+                          taskTitle={card.taskTitle}
+                          contributionMethod={card.contributionMethod}
+                          contributionScope={card.contributionScope}
+                          score={card.score}
+                          entries={card.entries}
+                        />
+                      ))}
+                  </section>
+                ))
+              )}
+            </div>
+
+            {/* ── Right sidebar ── */}
+            <div className="flex flex-col gap-4">
+              <div className="sd-card">
+                <div className="sd-label-mini" style={{ marginBottom: 12 }}>피평가자</div>
+                {focusedBundle ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div
                       style={{
-                        width: 38,
-                        height: 38,
+                        width: 40,
+                        height: 40,
                         borderRadius: '50%',
                         background: 'var(--ok-orange)',
                         color: '#fff',
-                        fontSize: 15,
+                        fontSize: 16,
                         fontWeight: 800,
                         display: 'flex',
                         alignItems: 'center',
@@ -217,172 +278,123 @@ const EvaluatorFeedbackPage = () => {
                         flexShrink: 0,
                       }}
                     >
-                      {group.employeeName.charAt(0)}
+                      {focusedBundle.employeeName.charAt(0)}
                     </div>
                     <div>
-                      <h2 style={{ fontSize: 16, fontWeight: 900, margin: 0 }}>
-                        {group.employeeName}{' '}
-                        <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 600 }}>
-                          {group.employeePosition}
-                        </span>
-                      </h2>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{focusedBundle.employeeName}</div>
                       <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
-                        {group.employeeDepartment}
+                        {focusedBundle.employeePosition} · {focusedBundle.employeeDepartment}
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
-                      과업 {group.tasks.length}개 · 피드백 {group.totalFeedbacks}건
-                    </span>
-                    <button
-                      className="sd-btn sd-btn-outline sd-btn-sm"
-                      onClick={() => navigate(`/evaluation/${group.employeeId}`)}
-                    >
-                      평가 열기
-                    </button>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--fg-muted)', lineHeight: 1.7 }}>
+                    팀 {aggregateStats.employees}명 · 과업 {aggregateStats.tasks}개 · 피드백{' '}
+                    {aggregateStats.feedbacks}건
+                  </div>
+                )}
+              </div>
+
+              {focusedBundle && focusedBundle.keywords.length > 0 && (
+                <div className="sd-card">
+                  <div className="sd-label-mini" style={{ marginBottom: 12 }}>키워드</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {focusedBundle.keywords.map((kw) => (
+                      <span
+                        key={kw}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 20,
+                          background: 'var(--bg-muted)',
+                          border: '1px solid var(--border)',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: 'var(--fg)',
+                        }}
+                      >
+                        {kw}
+                      </span>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                <div className="flex flex-col gap-3">
-                  {group.tasks.map((task) => (
-                    <TaskFeedbackCard key={task.taskId} task={task} />
-                  ))}
+              {focusedBundle && focusedBundle.cards.length > 0 && (
+                <div className="sd-card">
+                  <div className="sd-label-mini" style={{ marginBottom: 12 }}>과업별 피드백 수</div>
+                  <div className="flex flex-col gap-3">
+                    {focusedBundle.cards.map((card) => (
+                      <div
+                        key={card.taskId}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          paddingBottom: 10,
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            T{String((card.taskIndex ?? 0) + 1).padStart(2, '0')} {card.taskTitle}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            background:
+                              card.entries.length > 0 ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
+                            color:
+                              card.entries.length > 0 ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {card.entries.length}건
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </section>
-            ))}
+              )}
 
-            {!visibleGroups.length && (
-              <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
-                표시할 피드백 이력이 없습니다.
+              <div
+                className="sd-card"
+                style={{
+                  background: 'linear-gradient(135deg, var(--ok-orange-50) 0%, var(--bg-card) 100%)',
+                  border: '1px solid var(--ok-orange-100)',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
+                    <IconSparkle width={16} height={16} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
+                    <div style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
+                      {focusedBundle
+                        ? `${focusedBundle.employeeName}님은 최근 작성된 피드백을 기준으로 핵심 과업 수행에서 일관된 강점을 보입니다.`
+                        : '담당 피평가자별 피드백을 한눈에 확인하고 다음 평가에 활용하세요.'}
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
     </>
-  );
-};
-
-const TaskFeedbackCard = ({ task }: { task: TaskFeedbackGroup }) => {
-  const score = task.score;
-  const scoreBg = score != null ? (SCORE_BG[score] ?? '#C2BAB0') : 'var(--bg-muted)';
-  const scoreFg = score != null ? (SCORE_TEXT[score] ?? '#fff') : 'var(--fg-muted)';
-
-  const [latestEntry, ...olderEntries] = task.entries;
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  return (
-    <div
-      style={{
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '14px 16px',
-        background: 'var(--bg-muted)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div className="sd-label-mini">과업</div>
-          <h3 style={{ fontSize: 14, fontWeight: 800, marginTop: 2 }}>{task.taskTitle}</h3>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
-            최근 {formatShortDate(task.latestDate)}
-          </span>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: scoreBg,
-              color: scoreFg,
-              fontSize: 13,
-              fontWeight: 800,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {score ?? '–'}
-          </div>
-        </div>
-      </div>
-
-      {latestEntry && (
-        <div style={{ paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginBottom: 5 }}>
-            {formatShortDate(latestEntry.date)} · {latestEntry.evaluatorName ?? '평가자'}{' '}
-            <span style={{ color: 'var(--ok-orange)', fontWeight: 700 }}>· 최신</span>
-          </div>
-          <p style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
-            {latestEntry.content}
-          </p>
-        </div>
-      )}
-
-      {olderEntries.length > 0 && (
-        <>
-          <button
-            type="button"
-            onClick={() => setIsExpanded((v) => !v)}
-            style={{
-              marginTop: 10,
-              padding: '4px 10px',
-              borderRadius: 14,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-muted)',
-              fontSize: 11,
-              fontWeight: 700,
-              color: 'var(--fg-muted)',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${olderEntries.length}건 펼치기`}
-            <span style={{ fontSize: 9 }}>{isExpanded ? '▲' : '▼'}</span>
-          </button>
-
-          {isExpanded && (
-            <div className="flex flex-col gap-2" style={{ marginTop: 10 }}>
-              {olderEntries.map((entry) => (
-                <div
-                  key={entry.id}
-                  style={{
-                    paddingTop: 10,
-                    borderTop: '1px dashed var(--border)',
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginBottom: 5 }}>
-                    {formatShortDate(entry.date)} · {entry.evaluatorName ?? '평가자'}
-                  </div>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      lineHeight: 1.7,
-                      color: 'var(--fg-muted)',
-                      margin: 0,
-                    }}
-                  >
-                    {entry.content}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </div>
   );
 };
 

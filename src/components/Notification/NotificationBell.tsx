@@ -1,54 +1,89 @@
-
-import React, { useState } from 'react';
-// import { Bell } from 'lucide-react'; // Replaced with custom icon
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import React, { useEffect, useState } from 'react';
 import { useNotifications } from '@/contexts/NotificationContextDB';
 import { useAuth } from '@/contexts/AuthContext';
 import NotificationDropdown from './NotificationDropdown';
-import { notificationService } from '@/lib/services';
 
 const NotificationBell: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { unreadCount, getNotificationsForUser } = useNotifications();
+  const { notifications, unreadCount } = useNotifications();
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen]);
 
   if (!user) return null;
 
-  const userNotifications = getNotificationsForUser(user.employeeId);
-  const userUnreadCount = userNotifications.filter(n => !n.isRead).length;
-
-  const handleBellClick = () => {
-    // 자동 새로고침 제거 - 저장/완료 버튼 클릭 시에만 새로고침
-    setIsOpen(!isOpen);
-  };
-
   return (
-    <div className="relative">
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleBellClick}
-        className="relative"
-      >
-        <img src="/느낌표_orange.png" alt="Notification" className="h-7 w-7" />
-        {userUnreadCount > 0 && (
-          <Badge 
-            variant="destructive" 
-            className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center text-xs p-0"
-          >
-            {userUnreadCount > 99 ? '99+' : userUnreadCount}
-          </Badge>
-        )}
-      </Button>
-
+    <>
       {isOpen && (
-        <NotificationDropdown 
-          notifications={userNotifications}
-          onClose={() => setIsOpen(false)}
+        <div
+          onClick={() => setIsOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.32)',
+            zIndex: 40,
+          }}
         />
       )}
-    </div>
+      <div style={{ position: 'relative', zIndex: isOpen ? 50 : 'auto' }}>
+        <button
+          type="button"
+          onClick={() => setIsOpen((v) => !v)}
+          style={{
+            position: 'relative',
+            width: 36,
+            height: 36,
+            padding: 0,
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 8,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-muted)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          aria-label={`알림 ${unreadCount}건`}
+        >
+          <img src="/느낌표_orange.png" alt="" style={{ height: 24, width: 24 }} />
+          {unreadCount > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                right: 2,
+                minWidth: 18,
+                height: 18,
+                padding: '0 5px',
+                borderRadius: 9,
+                background: 'var(--ok-orange)',
+                color: '#fff',
+                fontSize: 11,
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '2px solid var(--bg-card, #fff)',
+              }}
+            >
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
+
+        {isOpen && (
+          <NotificationDropdown notifications={notifications} onClose={() => setIsOpen(false)} />
+        )}
+      </div>
+    </>
   );
 };
 

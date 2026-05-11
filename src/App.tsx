@@ -13,6 +13,7 @@ import AppLayout from "@/components/Layout/AppLayout";
 import Login from "./pages/Login";
 import Evaluation from "./pages/Evaluation";
 import NotFound from "./pages/NotFound";
+import NotificationsPage from "./pages/NotificationsPage";
 
 import MyHome from "./pages/my/Home";
 import MyTasksPage from "./pages/my/MyTasksPage";
@@ -69,6 +70,7 @@ const App = () => (
               <Route path="/" element={<RoleRedirect />} />
 
               <Route element={<AppShell />}>
+                <Route path="/notifications" element={<NotificationsPage />} />
                 {/* 피평가자 */}
                 <Route
                   path="/my"

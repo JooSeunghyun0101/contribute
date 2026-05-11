@@ -315,20 +315,19 @@ const normalizeMatchingImportRow = (row = {}, index = 0) => {
 };
 
 const compareMatchingImportRows = (a, b) => {
+  // 매칭파일에서 가장 큰 소속순번 = 가장 최근 투어 = 현재 상태
+  // (과거 투어는 빈 end_date, 현재 투어는 평가기간 만료일이 채워져 있어
+  //  end_date 유무로는 현재를 식별할 수 없음)
   const score = (row) => ({
-    hasEvaluator: row.evaluator_id ? 1 : 0,
-    openEnded: row.work_end_date ? 0 : 1,
-    hasStart: row.work_start_date ? 1 : 0,
+    sequence: Number(row.org_sequence) || 0,
     startTime: row.work_start_date ? Date.parse(row.work_start_date) || 0 : 0,
-    sequence: Number(row.org_sequence) || 9999,
+    hasEvaluator: row.evaluator_id ? 1 : 0,
   });
   const left = score(a);
   const right = score(b);
-  if (left.hasEvaluator !== right.hasEvaluator) return left.hasEvaluator - right.hasEvaluator;
-  if (left.openEnded !== right.openEnded) return left.openEnded - right.openEnded;
-  if (left.hasStart !== right.hasStart) return left.hasStart - right.hasStart;
+  if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   if (left.startTime !== right.startTime) return left.startTime - right.startTime;
-  return right.sequence - left.sequence;
+  return left.hasEvaluator - right.hasEvaluator;
 };
 
 const selectPrimaryMatchingRows = (rows) => {
@@ -790,6 +789,185 @@ const insertEvaluatorAssignmentHistory = async (
   );
 
   return rows[0];
+};
+
+const cancelStaleEmptyDraftsForEvaluatorChange = async (
+  client,
+  { employeeId, currentEvaluatorId }
+) => {
+  const { rows } = await client.query(
+    `
+      SELECT ev.id
+        FROM evaluations ev
+        JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+        LEFT JOIN task_evaluation_entries te
+          ON te.evaluation_id = ev.id AND COALESCE(te.status, 'active') = 'active'
+       WHERE ev.evaluatee_id = $1
+         AND COALESCE(ev.evaluation_status, 'draft') = 'draft'
+         AND ev.record_status = 'active'
+         AND COALESCE(h.new_evaluator_id, '') IS DISTINCT FROM COALESCE($2, '')
+       GROUP BY ev.id
+      HAVING COUNT(te.id) = 0
+    `,
+    [employeeId, currentEvaluatorId]
+  );
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  await client.query(
+    `UPDATE evaluations SET record_status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`,
+    [ids]
+  );
+  return ids.length;
+};
+
+const createHistoricalTourEvaluation = async (
+  client,
+  {
+    employee,
+    historicalRow,
+    importedBy,
+    sourceFileName,
+    evaluationPeriodId,
+    evaluationYear,
+  }
+) => {
+  if (!historicalRow?.evaluator_id || !employee?.employee_id) return null;
+
+  const { rows: existingRows } = await client.query(
+    `
+      SELECT h.id AS history_id, ev.id AS evaluation_id
+      FROM evaluator_assignment_history h
+      JOIN evaluations ev ON ev.id = h.evaluation_id
+      WHERE h.employee_id = $1
+        AND h.new_evaluator_id = $2
+        AND h.status = 'applied'
+        AND h.change_type = 'change'
+        AND ev.evaluation_status = 'completed'
+        AND ev.record_status = 'active'
+        AND COALESCE(ev.evaluation_period_id::text, '') = COALESCE($3::text, '')
+      LIMIT 1
+    `,
+    [historicalRow.employee_id, historicalRow.evaluator_id, evaluationPeriodId]
+  );
+  if (existingRows[0]) return null;
+
+  const { rows: evalRows } = await client.query(
+    `
+      INSERT INTO evaluations (
+        evaluatee_id,
+        evaluatee_name,
+        evaluatee_position,
+        evaluatee_department,
+        growth_level,
+        evaluation_status,
+        evaluation_year,
+        evaluation_period_id,
+        record_status
+      )
+      VALUES ($1,$2,$3,$4,$5,'completed',$6,$7,'active')
+      RETURNING *
+    `,
+    [
+      employee.employee_id,
+      employee.name,
+      employee.position ?? '미등록',
+      historicalRow.department_name ?? employee.department ?? '미지정',
+      employee.growth_level ?? 0,
+      evaluationYear,
+      evaluationPeriodId,
+    ]
+  );
+  const newEvaluation = evalRows[0];
+
+  const history = await insertEvaluatorAssignmentHistory(client, {
+    employeeId: historicalRow.employee_id,
+    previousEvaluatorId: null,
+    newEvaluatorId: historicalRow.evaluator_id,
+    changedBy: importedBy,
+    reason: `Matching past tour: ${sourceFileName}`,
+    changeType: 'change',
+    evaluationId: newEvaluation.id,
+    evaluationPeriodId,
+  });
+
+  if (history?.id && historicalRow.work_start_date) {
+    await client.query(
+      'UPDATE evaluator_assignment_history SET changed_at = $2 WHERE id = $1',
+      [history.id, historicalRow.work_start_date]
+    );
+  }
+  if (history?.id) {
+    await client.query(
+      'UPDATE evaluations SET assignment_history_id = $2 WHERE id = $1',
+      [newEvaluation.id, history.id]
+    );
+  }
+
+  return { evaluationId: newEvaluation.id, historyId: history?.id };
+};
+
+const resolveEmployeeName = async (client, employeeId, fallback = null) => {
+  if (!employeeId) return fallback;
+  try {
+    const { rows } = await client.query(
+      'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+      [employeeId]
+    );
+    return rows[0]?.name ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const insertNotificationRow = async (
+  client,
+  {
+    notificationType,
+    title,
+    message,
+    priority = 'medium',
+    senderId,
+    senderName,
+    recipientId,
+    relatedEvaluationId = null,
+    relatedTaskId = null,
+  }
+) => {
+  if (!recipientId || !title || !message || !senderId) return null;
+  const sanitizedMessage = String(message).replace(/[\r\n]+/g, ' ');
+  await client.query('SAVEPOINT notif_insert');
+  try {
+    const { rows } = await client.query(
+      `
+        INSERT INTO notifications (
+          notification_type, title, message, priority,
+          sender_id, sender_name, recipient_id,
+          related_evaluation_id, related_task_id, is_read
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,false)
+        RETURNING *
+      `,
+      [
+        notificationType,
+        title,
+        sanitizedMessage,
+        priority,
+        senderId,
+        senderName ?? '시스템',
+        recipientId,
+        relatedEvaluationId,
+        relatedTaskId,
+      ]
+    );
+    await client.query('RELEASE SAVEPOINT notif_insert');
+    return rows[0] ?? null;
+  } catch (err) {
+    await client.query('ROLLBACK TO SAVEPOINT notif_insert').catch(() => {});
+    if (err.code !== '23503') {
+      console.error('insertNotificationRow failed:', err.message);
+    }
+    return null;
+  }
 };
 
 const insertAdminAuditLog = async (
@@ -2150,6 +2328,23 @@ app.post('/api/employee-profile-imports', async (req, res) => {
       reason: `Employee profile import: ${sourceFileName}`,
     });
 
+    const importerName = await resolveEmployeeName(client, importedBy, 'HR');
+    const { rows: hrRecipients } = await client.query(
+      `SELECT employee_id FROM employees WHERE 'hr' = ANY(available_roles)`
+    );
+    const summaryMessage = `${sourceFileName} · ${mergedRows.length}명 반영 · 평가자 ${evaluatorRefs.size}명 · 경고 ${warningCount}건`;
+    for (const recipient of hrRecipients) {
+      await insertNotificationRow(client, {
+        notificationType: 'profile_imported',
+        title: '평가대상자가 반영되었습니다',
+        message: summaryMessage,
+        priority: 'low',
+        senderId: importedBy,
+        senderName: importerName,
+        recipientId: recipient.employee_id,
+      });
+    }
+
     await client.query('COMMIT');
     res.json({
       batch: updatedBatchRows[0],
@@ -2324,6 +2519,22 @@ app.post('/api/matching-imports', async (req, res) => {
     let cancelledFeedbacks = 0;
     let assignmentHistoryCount = 0;
     let baselineAssignmentHistoryCount = 0;
+    const evaluatorAssignmentChanges = new Map();
+    const evaluatorAssignmentReleases = new Map();
+    const employeeAssignmentChanges = [];
+
+    const recordAssignmentChange = (evaluatorId, employeeName) => {
+      if (!evaluatorId) return;
+      const list = evaluatorAssignmentChanges.get(evaluatorId) ?? [];
+      list.push(employeeName);
+      evaluatorAssignmentChanges.set(evaluatorId, list);
+    };
+    const recordAssignmentRelease = (evaluatorId, employeeName) => {
+      if (!evaluatorId) return;
+      const list = evaluatorAssignmentReleases.get(evaluatorId) ?? [];
+      list.push(employeeName);
+      evaluatorAssignmentReleases.set(evaluatorId, list);
+    };
 
     for (const row of primaryRows) {
       const employeeRoles = evaluatorRefs.has(row.employee_id)
@@ -2412,6 +2623,11 @@ app.post('/api/matching-imports', async (req, res) => {
             ensuredEvaluation = { evaluation: assignmentEvaluation, created: Boolean(assignmentEvaluation) };
             if (assignmentEvaluation) createdEvaluations += 1;
           }
+          recordAssignmentChange(row.evaluator_id, row.employee_name ?? row.employee_id);
+          employeeAssignmentChanges.push({
+            employeeId: row.employee_id,
+            evaluatorName: row.evaluator_name ?? null,
+          });
         } else if ((previousEvaluatorId ?? null) !== null) {
           const cancelled = await cancelActiveEvaluationsForUnassignedEmployee(client, {
             employeeId: row.employee_id,
@@ -2421,6 +2637,9 @@ app.post('/api/matching-imports', async (req, res) => {
           cancelledEvaluations += cancelled.cancelledEvaluations;
           cancelledEntries += cancelled.cancelledEntries;
           cancelledFeedbacks += cancelled.cancelledFeedbacks;
+        }
+        if (previousEvaluatorId && previousEvaluatorId !== (row.evaluator_id ?? null)) {
+          recordAssignmentRelease(previousEvaluatorId, row.employee_name ?? row.employee_id);
         }
 
         const assignmentHistory = await insertEvaluatorAssignmentHistory(client, {
@@ -2483,6 +2702,125 @@ app.post('/api/matching-imports', async (req, res) => {
       }
     }
 
+    let staleDraftsCancelled = 0;
+    for (const row of primaryRows) {
+      const cancelled = await cancelStaleEmptyDraftsForEvaluatorChange(client, {
+        employeeId: row.employee_id,
+        currentEvaluatorId: row.evaluator_id ?? null,
+      });
+      staleDraftsCancelled += cancelled;
+    }
+
+    let historicalToursCreated = 0;
+    const rowsByEmployee = new Map();
+    for (const row of normalizedRows) {
+      if (!row.employee_id || row.validation_status === 'error') continue;
+      if (!rowsByEmployee.has(row.employee_id)) rowsByEmployee.set(row.employee_id, []);
+      rowsByEmployee.get(row.employee_id).push(row);
+    }
+    for (const [employeeId, rows] of rowsByEmployee.entries()) {
+      if (rows.length <= 1) continue;
+      const primary = primaryByEmployee.get(employeeId);
+      if (!primary) continue;
+      const { rows: empRows } = await client.query(
+        'SELECT * FROM employees WHERE employee_id = $1 LIMIT 1',
+        [employeeId]
+      );
+      const employeeRow = empRows[0];
+      if (!employeeRow) continue;
+
+      const { rows: primaryEvalRows } = await client.query(
+        `SELECT id, evaluation_period_id, evaluation_year
+           FROM evaluations
+          WHERE evaluatee_id = $1 AND record_status = 'active'
+          ORDER BY created_at DESC LIMIT 1`,
+        [employeeId]
+      );
+      const periodId = primaryEvalRows[0]?.evaluation_period_id ?? null;
+      const periodYear =
+        primaryEvalRows[0]?.evaluation_year ?? new Date().getFullYear();
+
+      if (primary.evaluator_id) {
+        await client.query(
+          `
+            UPDATE evaluations ev
+               SET record_status = 'cancelled', updated_at = NOW()
+              FROM evaluator_assignment_history h
+             WHERE ev.assignment_history_id = h.id
+               AND ev.evaluatee_id = $1
+               AND ev.evaluation_status = 'completed'
+               AND ev.record_status = 'active'
+               AND COALESCE(ev.evaluation_period_id::text, '') = COALESCE($3::text, '')
+               AND h.new_evaluator_id = $2
+               AND NOT EXISTS (
+                 SELECT 1 FROM task_evaluation_entries te
+                  WHERE te.evaluation_id = ev.id
+                    AND COALESCE(te.status, 'active') = 'active'
+               )
+          `,
+          [employeeId, primary.evaluator_id, periodId]
+        );
+      }
+
+      for (const row of rows) {
+        if (row === primary) continue;
+        if (!row.evaluator_id) continue;
+        if (row.evaluator_id === primary.evaluator_id) continue;
+        const result = await createHistoricalTourEvaluation(client, {
+          employee: employeeRow,
+          historicalRow: row,
+          importedBy,
+          sourceFileName,
+          evaluationPeriodId: periodId,
+          evaluationYear: periodYear,
+        });
+        if (result) historicalToursCreated += 1;
+      }
+    }
+
+    if (importedBy) {
+      const importerName = await resolveEmployeeName(client, importedBy, 'HR');
+      for (const [evaluatorId, employeeNames] of evaluatorAssignmentChanges.entries()) {
+        const sample = employeeNames.slice(0, 3).join(', ');
+        const more = employeeNames.length > 3 ? ` 외 ${employeeNames.length - 3}명` : '';
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_changed',
+          title: '담당 피평가자가 배정되었습니다',
+          message: `${sample}${more} (총 ${employeeNames.length}명)이 회원님의 피평가자로 배정되었습니다.`,
+          priority: 'medium',
+          senderId: importedBy,
+          senderName: importerName,
+          recipientId: evaluatorId,
+        });
+      }
+      for (const [evaluatorId, employeeNames] of evaluatorAssignmentReleases.entries()) {
+        const sample = employeeNames.slice(0, 3).join(', ');
+        const more = employeeNames.length > 3 ? ` 외 ${employeeNames.length - 3}명` : '';
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_unassigned',
+          title: '담당 피평가자가 해제되었습니다',
+          message: `${sample}${more} (총 ${employeeNames.length}명)이 담당에서 해제되었습니다.`,
+          priority: 'low',
+          senderId: importedBy,
+          senderName: importerName,
+          recipientId: evaluatorId,
+        });
+      }
+      for (const change of employeeAssignmentChanges) {
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_changed',
+          title: '평가자가 변경되었습니다',
+          message: change.evaluatorName
+            ? `${change.evaluatorName}님이 새로운 평가자로 배정되었습니다.`
+            : '담당 평가자가 새로 배정되었습니다.',
+          priority: 'medium',
+          senderId: importedBy,
+          senderName: importerName,
+          recipientId: change.employeeId,
+        });
+      }
+    }
+
     const warningCount = normalizedRows.filter((row) => row.validation_status === 'warning').length;
     const errorCount = normalizedRows.filter((row) => row.validation_status === 'error').length;
     const { rows: updatedBatchRows } = await client.query(
@@ -2530,11 +2868,13 @@ app.post('/api/matching-imports', async (req, res) => {
       cancelled_feedbacks: cancelledFeedbacks,
       assignment_history_count: assignmentHistoryCount,
       baseline_assignment_history_count: baselineAssignmentHistoryCount,
+      historical_tours_created: historicalToursCreated,
+      stale_drafts_cancelled: staleDraftsCancelled,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Error importing matching file:', err);
-    res.status(500).json({ error: 'Database error' });
+    console.error('Error importing matching file:', err.message, err.code, err.where ?? '');
+    res.status(500).json({ error: 'Database error', detail: err.message });
   } finally {
     client.release();
   }
@@ -2701,6 +3041,40 @@ app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
       newValue: { evaluator_id: evaluatorId ?? null },
       reason,
     });
+
+    const actorName = await resolveEmployeeName(client, actorId, 'HR');
+    const employeeName = updatedEmployee?.name ?? req.params.id;
+    if (evaluatorId && evaluatorId !== previousEvaluatorId) {
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_changed',
+        title: '담당 피평가자가 배정되었습니다',
+        message: `${employeeName}님의 평가자가 회원님으로 변경되었습니다.`,
+        priority: 'medium',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: evaluatorId,
+      });
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_changed',
+        title: '평가자가 변경되었습니다',
+        message: '담당 평가자가 새로 배정되었습니다.',
+        priority: 'medium',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: req.params.id,
+      });
+    }
+    if (previousEvaluatorId && previousEvaluatorId !== (evaluatorId ?? null)) {
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_unassigned',
+        title: '담당 피평가자가 해제되었습니다',
+        message: `${employeeName}님이 담당에서 해제되었습니다.`,
+        priority: 'low',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: previousEvaluatorId,
+      });
+    }
 
     await client.query('COMMIT');
     res.json({
@@ -3845,10 +4219,59 @@ app.get('/api/feedbacks/task/:taskId', async (req, res) => {
 
 app.get('/api/notifications', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM notifications ORDER BY created_at DESC');
+    const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.query?.recipient_id);
+    const limitParam = Number.parseInt(req.query?.limit, 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
+
+    if (recipientId) {
+      const { rows } = await pool.query(
+        'SELECT * FROM notifications WHERE recipient_id = $1 ORDER BY created_at DESC LIMIT $2',
+        [recipientId, limit]
+      );
+      return res.json(rows);
+    }
+
+    const { rows } = await pool.query(
+      'SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
     res.json(rows);
   } catch (err) {
     console.error('Error fetching notifications:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.put('/api/notifications/read-all', async (req, res) => {
+  const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+  if (!recipientId) {
+    return res.status(400).json({ error: 'recipientId is required' });
+  }
+  try {
+    const { rowCount } = await pool.query(
+      'UPDATE notifications SET is_read = true WHERE recipient_id = $1 AND is_read = false',
+      [recipientId]
+    );
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error('Error marking all notifications read:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.delete('/api/notifications', async (req, res) => {
+  const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+  if (!recipientId) {
+    return res.status(400).json({ error: 'recipientId is required' });
+  }
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM notifications WHERE recipient_id = $1',
+      [recipientId]
+    );
+    res.json({ deleted: rowCount });
+  } catch (err) {
+    console.error('Error bulk deleting notifications:', err);
     res.status(500).json({ error: 'Database error' });
   }
 });

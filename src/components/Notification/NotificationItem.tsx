@@ -1,122 +1,120 @@
-
-import React, { useState } from 'react';
-import { format } from 'date-fns';
-import { CheckCircle, AlertCircle, MessageSquare, Edit, Star } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Notification } from '@/types/notification';
+import React from 'react';
+import {
+  CheckCircle2,
+  MessageSquare,
+  Target,
+  FileText,
+  Calendar,
+  UserPlus,
+  UserMinus,
+  Bell,
+} from 'lucide-react';
+import { Notification, NotificationType } from '@/types/notification';
 
 interface NotificationItemProps {
   notification: Notification;
   onMarkAsRead: (id: string) => void;
-  onDelete: (id: string) => void;
 }
 
-const NotificationItem: React.FC<NotificationItemProps> = ({
-  notification,
-  onMarkAsRead,
-  onDelete
-}) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+const ICON_MAP: Record<NotificationType, React.ComponentType<{ size?: number }>> = {
+  feedback_added: MessageSquare,
+  task_summary: MessageSquare,
+  evaluation_completed: CheckCircle2,
+  evaluation_started: CheckCircle2,
+  score_changed: Target,
+  task_content_changed: FileText,
+  task_updated: FileText,
+  evaluation_updated: Calendar,
+  hr_message: Bell,
+  user_assigned: UserPlus,
+  evaluator_changed: UserPlus,
+  evaluator_unassigned: UserMinus,
+  profile_imported: FileText,
+};
 
-  const getIcon = () => {
-    switch (notification.type) {
-      case 'score_changed':
-        return <Star className="h-4 w-4 text-amber-400" />;
-      case 'task_content_changed':
-        return <Edit className="h-4 w-4 text-primary" />;
-      case 'feedback_added':
-        return <MessageSquare className="h-4 w-4 text-emerald-400" />;
-      case 'task_summary':
-        return <Edit className="h-4 w-4 text-primary" />;
-      case 'evaluation_completed':
-        return <CheckCircle className="h-4 w-4 text-emerald-400" />;
-      case 'evaluation_updated':
-      case 'task_updated':
-        return <AlertCircle className="h-4 w-4 text-primary" />;
-      default:
-        return <img src="/느낌표_orange.png" alt="Notification" className="h-7 w-7" />;
-    }
-  };
+const formatRelativeTime = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return '방금 전';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}분 전`;
+  if (diffSec < 86400) {
+    const h = date.getHours();
+    const m = date.getMinutes();
+    return `오늘 ${h < 12 ? '오전' : '오후'} ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}`;
+  }
+  if (diffSec < 86400 * 2) return '어제';
+  if (diffSec < 86400 * 7) return `${Math.floor(diffSec / 86400)}일 전`;
+  return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric' }).format(date);
+};
 
-  const getPriorityColor = () => {
-    if (notification.isRead) {
-      return 'border-border bg-card';
-    }
-
-    // 모든 읽지 않은 알림을 노란색으로 통일
-    return 'border-primary/20 bg-primary/5';
-  };
-
-  const shouldTruncate = notification.message.length > 300;
-  const displayMessage = shouldTruncate && !isExpanded 
-    ? notification.message.substring(0, 300) + '...' 
-    : notification.message;
+const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMarkAsRead }) => {
+  const Icon = ICON_MAP[notification.type] ?? Bell;
+  const isUnread = !notification.isRead;
 
   return (
-    <div className={`p-4 border rounded-lg ${getPriorityColor()}`}>
-      <div className="flex flex-col gap-3">
-        {/* 상단: 아이콘, 제목, 뱃지 */}
-        <div className="flex items-start gap-3">
-          {getIcon()}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h4 className="font-medium text-sm break-words flex-1 min-w-0">{notification.title}</h4>
-              {!notification.isRead && (
-                <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-primary text-primary-foreground hover:bg-primary/90 flex-shrink-0">new</Badge>
-              )}
-            </div>
-          </div>
+    <button
+      type="button"
+      onClick={() => isUnread && onMarkAsRead(notification.id)}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        background: isUnread ? 'var(--ok-orange-50)' : 'transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--border)',
+        padding: '14px 18px',
+        cursor: isUnread ? 'pointer' : 'default',
+        display: 'flex',
+        gap: 12,
+        alignItems: 'flex-start',
+        transition: 'background 0.12s',
+      }}
+      onMouseEnter={(e) => {
+        if (isUnread) e.currentTarget.style.background = 'var(--ok-orange-100, #FFE4D2)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = isUnread ? 'var(--ok-orange-50)' : 'transparent';
+      }}
+    >
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          background: isUnread ? 'var(--ok-orange)' : 'var(--bg-muted)',
+          color: isUnread ? '#fff' : 'var(--fg-muted)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          marginTop: 2,
+        }}
+      >
+        <Icon size={14} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--fg)', marginBottom: 4 }}>
+          {notification.title}
         </div>
-        
-        {/* 중간: 메시지 내용 - 아이콘 간격만큼 들여쓰기 */}
-        <div className="text-sm text-foreground space-y-1 pl-11">
-          <div className="whitespace-pre-wrap break-words leading-relaxed word-break-break-all">
-            {displayMessage}
-          </div>
-          {shouldTruncate && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="h-auto p-0 text-primary hover:text-primary/80 text-xs"
-            >
-              {isExpanded ? '접기' : '더보기'}
-            </Button>
-          )}
+        <div
+          style={{
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            color: 'var(--fg-muted)',
+            marginBottom: 6,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {notification.message}
         </div>
-        
-        {/* 하단: 메타정보와 액션 버튼들 */}
-        <div className="flex items-center justify-between gap-2 pl-11 flex-wrap">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0 flex-1">
-            <span className="break-words">{notification.senderName}</span>
-            <span>•</span>
-            <span className="whitespace-nowrap">{format(new Date(notification.createdAt), 'MM/dd HH:mm')}</span>
-          </div>
-          
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {!notification.isRead && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onMarkAsRead(notification.id)}
-                className="text-xs px-2 py-1 h-auto whitespace-nowrap"
-              >
-                읽음
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(notification.id)}
-              className="text-xs px-2 py-1 h-auto text-destructive hover:text-destructive/80 whitespace-nowrap"
-            >
-              삭제
-            </Button>
-          </div>
+        <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
+          {notification.senderName} · {formatRelativeTime(notification.createdAt)}
         </div>
       </div>
-    </div>
+    </button>
   );
 };
 

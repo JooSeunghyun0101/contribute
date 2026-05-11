@@ -1,15 +1,18 @@
 
-export type NotificationType = 
+export type NotificationType =
   | 'score_changed'
-  | 'task_content_changed' 
+  | 'task_content_changed'
   | 'feedback_added'
   | 'task_updated'
-  | 'evaluation_updated' 
+  | 'evaluation_updated'
   | 'evaluation_started'
   | 'evaluation_completed'
   | 'hr_message'
   | 'user_assigned'
-  | 'task_summary';
+  | 'task_summary'
+  | 'evaluator_changed'
+  | 'evaluator_unassigned'
+  | 'profile_imported';
 
 export type NotificationPriority = 'low' | 'medium' | 'high';
 
