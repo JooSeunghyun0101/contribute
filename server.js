@@ -800,14 +800,20 @@ const cancelStaleEmptyDraftsForEvaluatorChange = async (
       SELECT ev.id
         FROM evaluations ev
         JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
-        LEFT JOIN task_evaluation_entries te
-          ON te.evaluation_id = ev.id AND COALESCE(te.status, 'active') = 'active'
        WHERE ev.evaluatee_id = $1
          AND COALESCE(ev.evaluation_status, 'draft') = 'draft'
          AND ev.record_status = 'active'
          AND COALESCE(h.new_evaluator_id, '') IS DISTINCT FROM COALESCE($2, '')
-       GROUP BY ev.id
-      HAVING COUNT(te.id) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM task_evaluation_entries te
+            WHERE te.evaluation_id = ev.id
+              AND COALESCE(te.status, 'active') = 'active'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM tasks t
+            WHERE t.evaluation_id = ev.id
+              AND t.deleted_at IS NULL
+         )
     `,
     [employeeId, currentEvaluatorId]
   );
@@ -2756,6 +2762,11 @@ app.post('/api/matching-imports', async (req, res) => {
                  SELECT 1 FROM task_evaluation_entries te
                   WHERE te.evaluation_id = ev.id
                     AND COALESCE(te.status, 'active') = 'active'
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM tasks t
+                  WHERE t.evaluation_id = ev.id
+                    AND t.deleted_at IS NULL
                )
           `,
           [employeeId, primary.evaluator_id, periodId]
