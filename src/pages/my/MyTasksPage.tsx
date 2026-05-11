@@ -216,6 +216,7 @@ const MyTasksPage = () => {
   const [mode, setMode] = useState<'view' | 'create'>('view');
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
+  const [currentExpanded, setCurrentExpanded] = useState(true);
 
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const selectedTask = useMemo(
@@ -481,7 +482,81 @@ const MyTasksPage = () => {
         }
       />
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '20px 24px 28px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        <section
+          style={{
+            border: `1px solid ${currentExpanded ? 'var(--ok-orange)' : 'var(--border)'}`,
+            borderRadius: 10,
+            background: 'var(--bg-card)',
+            overflow: 'hidden',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setCurrentExpanded((v) => !v)}
+            style={{
+              width: '100%',
+              padding: '18px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  background: 'var(--ok-orange)',
+                  color: '#fff',
+                  fontSize: 15,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {(user?.name ?? '?').charAt(0)}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg)' }}>
+                  현재 평가{isPastMode ? ' (과거)' : ''}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+                  과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}% · {statusMeta.label}
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+              {currentExpanded ? '▲' : '▼'}
+            </span>
+          </button>
+
+          {currentExpanded && (
+          <div
+            style={{
+              display: 'flex',
+              borderTop: '1px solid var(--border)',
+              minHeight: 560,
+              height: 720,
+            }}
+          >
         <section
           style={{
             width: 340,
@@ -602,37 +677,6 @@ const MyTasksPage = () => {
             {!isLoading && tasks.length === 0 && (
               <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 13 }}>
                 등록된 과업이 없습니다. 과업 추가로 시작하세요.
-              </div>
-            )}
-
-            {pastBundles.length > 0 && (
-              <div
-                style={{
-                  padding: '14px 16px',
-                  borderTop: '1px solid var(--border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                  background: 'var(--bg-muted)',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 800,
-                    color: 'var(--fg-muted)',
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  과거 평가자별 이력 ({pastBundles.length})
-                </div>
-                {pastBundles.map((bundle) => (
-                  <PastEvaluationAccordion
-                    key={bundle.evaluation.id}
-                    bundle={bundle}
-                    editable
-                  />
-                ))}
               </div>
             )}
           </div>
@@ -1121,6 +1165,32 @@ const MyTasksPage = () => {
             </div>
           )}
         </section>
+          </div>
+          )}
+        </section>
+
+        {pastBundles.length > 0 && (
+          <>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                color: 'var(--fg-muted)',
+                letterSpacing: 0.4,
+                padding: '4px 6px',
+              }}
+            >
+              과거 평가자별 이력 ({pastBundles.length})
+            </div>
+            {pastBundles.map((bundle) => (
+              <PastEvaluationAccordion
+                key={bundle.evaluation.id}
+                bundle={bundle}
+                editable
+              />
+            ))}
+          </>
+        )}
       </div>
     </>
   );
