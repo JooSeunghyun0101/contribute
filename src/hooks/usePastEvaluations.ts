@@ -19,9 +19,9 @@ export const usePastEvaluations = (employeeId: string, currentEvaluationId?: str
       setIsLoadingPast(true);
       try {
         const all = await evaluationService.getEvaluationsByEmployeeId(employeeId);
-        const past = all.filter(
-          (ev) => ev.evaluation_status === 'completed' && ev.id !== currentEvaluationId,
-        );
+        // 현재 evaluation이 아닌 모든 active 평가를 과거로 표시
+        // (completed/submitted/evaluating 등 status 무관)
+        const past = all.filter((ev) => ev.id !== currentEvaluationId);
         const enriched: PastEvaluationBundle[] = await Promise.all(
           past.map(async (ev) => {
             let cards: PastEvaluationBundle['cards'] = [];

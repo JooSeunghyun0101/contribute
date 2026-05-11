@@ -1970,11 +1970,12 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
         FROM employees e
         LEFT JOIN evaluator_assignment_history h
           ON h.employee_id = e.employee_id
-          AND h.previous_evaluator_id = $1
           AND h.status = 'applied'
           AND h.change_type <> 'cancel'
+          AND (h.previous_evaluator_id = $1 OR h.new_evaluator_id = $1)
         LEFT JOIN evaluations ev
           ON ev.evaluatee_id = e.employee_id
+          AND ev.record_status = 'active'
         LEFT JOIN task_evaluation_entries tee
           ON tee.evaluation_id = ev.id
           AND tee.evaluator_id = $1
