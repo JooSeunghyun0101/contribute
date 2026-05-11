@@ -64,14 +64,52 @@ export type MatchingImportResult = {
   changed_evaluator_count: number;
   warning_count: number;
   error_count: number;
-  transferred_entries: number;
-  merged_entries: number;
-  transferred_feedbacks: number;
-  reconciled_histories: number;
   created_evaluations?: number;
   cancelled_evaluations?: number;
   cancelled_entries?: number;
   cancelled_feedbacks?: number;
+  assignment_history_count?: number;
+  baseline_assignment_history_count?: number;
+};
+
+export type EmployeeProfileImportRowInput = {
+  sheet_name: string;
+  row_number: number;
+  evaluation_group?: string | null;
+  employee_id: string;
+  employee_name: string;
+  org_sequence?: string | null;
+  department_id?: string | null;
+  department_name?: string | null;
+  work_start_date?: string | null;
+  work_end_date?: string | null;
+  growth_level_label?: string | null;
+  position?: string | null;
+  job_role?: string | null;
+  evaluator_id?: string | null;
+  evaluator_name?: string | null;
+  evaluator_position?: string | null;
+  target_status?: string | null;
+  available_roles?: string[];
+  raw_data?: Record<string, unknown>;
+};
+
+export type EmployeeProfileImportResult = {
+  batch: {
+    id: string;
+    source_file_name: string;
+    source_sheet_names: string[];
+    row_count: number;
+    applied_count: number;
+    warning_count: number;
+    error_count: number;
+    created_at: string;
+  };
+  row_count: number;
+  applied_count: number;
+  evaluator_count: number;
+  warning_count: number;
+  error_count: number;
 };
 
 export const employeeService = {
@@ -114,6 +152,23 @@ export const employeeService = {
   async getEmployeesByDepartment(department: string): Promise<Employee[]> {
     try {
       return await apiFetch<Employee[]>(`/api/employees/department/${department}`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가대상자 엑셀 업로드 반영
+  async importEmployeeProfiles(payload: {
+    source_file_name: string;
+    changed_by?: string | null;
+    rows: EmployeeProfileImportRowInput[];
+  }): Promise<EmployeeProfileImportResult> {
+    try {
+      return await apiFetch<EmployeeProfileImportResult>('/api/employee-profile-imports', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

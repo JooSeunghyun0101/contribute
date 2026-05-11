@@ -3,7 +3,10 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { IconSearch, Pill } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { employeeService, evaluationService } from '@/lib/services';
-import type { MatchingImportRowInput } from '@/lib/services/employeeService';
+import type {
+  EmployeeProfileImportRowInput,
+  MatchingImportRowInput,
+} from '@/lib/services/employeeService';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -190,7 +193,106 @@ const buildMatchingImportRows = (sheetRows: unknown[][]): MatchingImportRowInput
     })
     .filter((row) => row.employee_id || row.employee_name);
 
+const PROFILE_SHEET1_HEADERS = [
+  '평가그룹',
+  '사번',
+  '성명',
+  '성장레벨(직급)',
+  '부서명',
+  '직책',
+  '권한1',
+  '권한2',
+  '권한3',
+  '직무',
+];
+
+const PROFILE_SHEET2_HEADERS = [
+  '평가그룹',
+  '사번',
+  '성명',
+  '소속순번',
+  '선택',
+  '부서ID',
+  '부서명',
+  '근무시작일',
+  '근무종료일',
+  '성장레벨(직급)',
+  '직책',
+];
+
+const PROFILE_ROLE_LABELS: Record<string, UserRole> = {
+  '피평가자': 'evaluatee',
+  '평가자': 'evaluator',
+  'HR': 'hr',
+};
+
+const parseRolesFromCells = (...cells: unknown[]): UserRole[] => {
+  const roles = new Set<UserRole>();
+  cells.forEach((cell) => {
+    const value = toOptionalCellText(cell);
+    const mapped = value ? PROFILE_ROLE_LABELS[value] : undefined;
+    if (mapped) roles.add(mapped);
+  });
+  return [...roles];
+};
+
+const hasHeaders = (sheetRows: unknown[][], expectedHeaders: string[]) => {
+  const headerRow = sheetRows[0] ?? [];
+  return expectedHeaders.every((header, index) => toCellText(headerRow[index]) === header);
+};
+
+const buildEmployeeProfileRows = (
+  sheetName: string,
+  sheetRows: unknown[][],
+): EmployeeProfileImportRowInput[] => {
+  const isSummarySheet = hasHeaders(sheetRows, PROFILE_SHEET1_HEADERS);
+  const isDetailSheet = hasHeaders(sheetRows, PROFILE_SHEET2_HEADERS);
+  if (!isSummarySheet && !isDetailSheet) return [];
+
+  return sheetRows
+    .slice(1)
+    .map((row, index) => {
+      if (isDetailSheet) {
+        const item = {
+          sheet_name: sheetName,
+          row_number: index + 2,
+          evaluation_group: toOptionalCellText(row[0]),
+          employee_id: toCellText(row[1]),
+          employee_name: toCellText(row[2]),
+          org_sequence: toOptionalCellText(row[3]),
+          department_id: toOptionalCellText(row[5]),
+          department_name: toOptionalCellText(row[6]),
+          work_start_date: toOptionalCellText(row[7]),
+          work_end_date: toOptionalCellText(row[8]),
+          growth_level_label: toOptionalCellText(row[9]),
+          position: toOptionalCellText(row[10]),
+          evaluator_id: toOptionalCellText(row[14]),
+          evaluator_name: toOptionalCellText(row[15]),
+          evaluator_position: toOptionalCellText(row[16]),
+          target_status: toOptionalCellText(row[20]),
+        };
+        return { ...item, raw_data: item };
+      }
+
+      const item = {
+        sheet_name: sheetName,
+        row_number: index + 2,
+        evaluation_group: toOptionalCellText(row[0]),
+        employee_id: toCellText(row[1]),
+        employee_name: toCellText(row[2]),
+        growth_level_label: toOptionalCellText(row[3]),
+        department_name: toOptionalCellText(row[4]),
+        position: toOptionalCellText(row[5]),
+        available_roles: parseRolesFromCells(row[6], row[7], row[8]),
+        job_role: toOptionalCellText(row[9]),
+      };
+      return { ...item, raw_data: item };
+    })
+    .filter((row) => row.employee_id || row.employee_name);
+};
+
 const HrUsersPage = () => {
+  const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
@@ -205,6 +307,7 @@ const HrUsersPage = () => {
   >({});
   const [loadingHistoryEmployeeId, setLoadingHistoryEmployeeId] = useState<string | null>(null);
   const [historyActionId, setHistoryActionId] = useState<string | null>(null);
+  const [isImportingProfiles, setIsImportingProfiles] = useState(false);
   const [isImportingMatching, setIsImportingMatching] = useState(false);
   const { employees, records, isLoading, error, reload } = useAllEmployees();
   const { toast } = useToast();
@@ -510,6 +613,73 @@ const HrUsersPage = () => {
     matchingFileInputRef.current?.click();
   };
 
+  const openProfileFileDialog = () => {
+    if (isImportingProfiles) return;
+    profileFileInputRef.current?.click();
+  };
+
+  const importProfileFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      toast({
+        title: '엑셀 파일을 선택해 주세요.',
+        description: '평가대상자 xlsx/xls 파일만 업로드할 수 있습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsImportingProfiles(true);
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), {
+        type: 'array',
+        cellDates: true,
+      });
+      const rows = workbook.SheetNames.flatMap((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName];
+        if (!worksheet) return [];
+        const sheetRows = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          raw: true,
+          defval: '',
+        }) as unknown[][];
+        if (hasHeaders(sheetRows, PROFILE_SHEET1_HEADERS) || hasHeaders(sheetRows, PROFILE_SHEET2_HEADERS)) {
+          return buildEmployeeProfileRows(sheetName, sheetRows);
+        }
+        return [];
+      });
+
+      if (rows.length === 0) {
+        throw new Error('평가대상자 양식의 시트를 찾을 수 없습니다.');
+      }
+
+      const result = await employeeService.importEmployeeProfiles({
+        source_file_name: file.name,
+        changed_by: actorId,
+        rows,
+      });
+      await reload();
+
+      toast({
+        title: '대상자 업로드가 완료되었습니다.',
+        description: `${result.applied_count}명 등록 · 평가자 ${result.evaluator_count}명 · 경고 ${result.warning_count}건`,
+      });
+    } catch (error) {
+      console.error('평가대상자 엑셀 업로드 실패:', error);
+      toast({
+        title: '대상자 업로드 실패',
+        description: error instanceof Error ? error.message : '대상자 파일을 처리하지 못했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsImportingProfiles(false);
+    }
+  };
+
   const importMatchingFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -559,13 +729,13 @@ const HrUsersPage = () => {
       await reload();
 
       toast({
-        title: '엑셀 업로드가 완료되었습니다.',
-        description: `${result.applied_count}명 반영 · 평가자 ${result.evaluator_count}명 · 경고 ${result.warning_count}건`,
+        title: '매칭 업로드가 완료되었습니다.',
+        description: `${result.applied_count}명 반영 · 이력 ${result.assignment_history_count ?? 0}건 · 경고 ${result.warning_count}건`,
       });
     } catch (error) {
       console.error('매칭 엑셀 업로드 실패:', error);
       toast({
-        title: '엑셀 업로드 실패',
+        title: '매칭 업로드 실패',
         description: error instanceof Error ? error.message : '매칭 파일을 처리하지 못했습니다.',
         variant: 'destructive',
       });
@@ -583,10 +753,24 @@ const HrUsersPage = () => {
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={openProfileFileDialog}
+              disabled={isImportingProfiles}
+            >
+              {isImportingProfiles ? '업로드 중' : '대상자 업로드'}
+            </button>
+            <input
+              ref={profileFileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={importProfileFile}
+              style={{ display: 'none' }}
+            />
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
               onClick={openMatchingFileDialog}
               disabled={isImportingMatching}
             >
-              {isImportingMatching ? '업로드 중' : '엑셀 업로드'}
+              {isImportingMatching ? '업로드 중' : '매칭 업로드'}
             </button>
             <input
               ref={matchingFileInputRef}
@@ -670,6 +854,7 @@ const HrUsersPage = () => {
                   <TableHead>이름</TableHead>
                   <TableHead>직급</TableHead>
                   <TableHead>부서</TableHead>
+                  <TableHead>직무</TableHead>
                   <TableHead>레벨</TableHead>
                   <TableHead>역할</TableHead>
                   <TableHead>평가자</TableHead>
@@ -769,6 +954,9 @@ const HrUsersPage = () => {
                         ) : (
                           employee.department
                         )}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)' }}>
+                        {employee.job_role ?? '-'}
                       </TableCell>
                       <TableCell>
                         {isEditing && editForm ? (
@@ -975,7 +1163,7 @@ const HrUsersPage = () => {
                     </TableRow>
                     {isHistoryExpanded && (
                       <TableRow>
-                        <TableCell colSpan={10} style={{ background: 'var(--bg-muted)', padding: 0 }}>
+                        <TableCell colSpan={11} style={{ background: 'var(--bg-muted)', padding: 0 }}>
                           <div
                             style={{
                               margin: '0 16px 16px',
@@ -1119,7 +1307,7 @@ const HrUsersPage = () => {
 
                 {!filteredEmployees.length && (
                   <TableRow>
-                    <TableCell colSpan={10} style={{ color: 'var(--fg-muted)' }}>
+                    <TableCell colSpan={11} style={{ color: 'var(--fg-muted)' }}>
                       조건에 맞는 사용자가 없습니다.
                     </TableCell>
                   </TableRow>

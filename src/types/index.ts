@@ -42,6 +42,11 @@ export interface Employee {
   confirmer_id?: string | null;
   confirmer_name?: string | null;
   last_matching_batch_id?: string | null;
+  evaluation_group_id?: string | null;
+  evaluation_group_name?: string | null;
+  job_role?: string | null;
+  target_status?: string | null;
+  last_profile_batch_id?: string | null;
   created_at: string;
   updated_at: string;
 }
