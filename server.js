@@ -3735,6 +3735,126 @@ app.delete('/api/evaluation/:id', async (req, res) => {
     res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
   }
 });
+// 피평가자가 평가자에게 평가 반려를 요청 (알림만, status 변경 없음)
+app.post('/api/evaluation/:id/return-request', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const evaluationId = req.params.id;
+  const requestedBy = normalizeOptionalText(req.body?.requestedBy ?? req.body?.requested_by);
+  const reason = normalizeOptionalText(req.body?.reason);
+  if (!requestedBy) {
+    return res.status(400).json({ error: 'requestedBy is required' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `
+        SELECT e.id, e.evaluatee_id, e.evaluatee_name, e.evaluation_status,
+               ah.new_evaluator_id, ev_emp.name AS evaluator_name
+        FROM evaluations e
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = e.assignment_history_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
+        WHERE e.id = $1 AND COALESCE(e.record_status, 'active') = 'active'
+        LIMIT 1
+      `,
+      [evaluationId]
+    );
+    const evaluation = rows[0];
+    if (!evaluation) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Evaluation not found' });
+    }
+    if (!evaluation.new_evaluator_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Evaluation has no assigned evaluator' });
+    }
+    const requesterName = await resolveEmployeeName(client, requestedBy, '피평가자');
+    await insertNotificationRow(client, {
+      notificationType: 'evaluation_return_requested',
+      title: '평가 반려 요청',
+      message: reason
+        ? `${requesterName}님이 평가 반려를 요청했습니다. 사유: ${reason}`
+        : `${requesterName}님이 평가 반려를 요청했습니다.`,
+      priority: 'high',
+      senderId: requestedBy,
+      senderName: requesterName,
+      recipientId: evaluation.new_evaluator_id,
+      relatedEvaluationId: evaluationId,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, recipient_id: evaluation.new_evaluator_id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error sending return request:', err);
+    res.status(500).json({ error: err.message ?? 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 평가자가 자기 완료 평가를 다시 열어 수정 가능 상태(evaluating)로 전환 + 피평가자 알림
+app.post('/api/evaluation/:id/reopen', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const evaluationId = req.params.id;
+  const actorId = normalizeOptionalText(req.body?.actorId ?? req.body?.actor_id);
+  const reason = normalizeOptionalText(req.body?.reason);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `
+        SELECT e.id, e.evaluatee_id, e.evaluatee_name, e.evaluation_status,
+               ah.new_evaluator_id
+        FROM evaluations e
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = e.assignment_history_id
+        WHERE e.id = $1 AND COALESCE(e.record_status, 'active') = 'active'
+        LIMIT 1
+      `,
+      [evaluationId]
+    );
+    const evaluation = rows[0];
+    if (!evaluation) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Evaluation not found' });
+    }
+    if (evaluation.evaluation_status !== 'completed') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Evaluation is not in completed state' });
+    }
+    await client.query(
+      `
+        UPDATE evaluations
+        SET evaluation_status = 'evaluating',
+            last_modified = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [evaluationId]
+    );
+    const actorName = await resolveEmployeeName(client, actorId, '평가자');
+    await insertNotificationRow(client, {
+      notificationType: 'evaluation_reopened',
+      title: '평가가 반려되었습니다',
+      message: reason
+        ? `${actorName}님이 평가를 반려했습니다. 사유: ${reason}`
+        : `${actorName}님이 평가를 반려하여 다시 수정 가능한 상태가 되었습니다.`,
+      priority: 'medium',
+      senderId: actorId,
+      senderName: actorName,
+      recipientId: evaluation.evaluatee_id,
+      relatedEvaluationId: evaluationId,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error reopening evaluation:', err);
+    res.status(500).json({ error: err.message ?? 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Get evaluations by status ('in-progress' or 'completed')
 app.get('/api/evaluations/status/:status', async (req, res) => {
   try {

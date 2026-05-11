@@ -119,5 +119,31 @@ export const evaluationService = {
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }
-  }
+  },
+
+  // 피평가자가 평가자에게 반려 요청 (알림만 발송)
+  async requestReturn(evaluationId: string, payload: { requestedBy: string; reason?: string }): Promise<void> {
+    try {
+      await apiFetch<void>(`/api/evaluation/${evaluationId}/return-request`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가자가 완료 평가를 재오픈 (status → evaluating + 피평가자 알림)
+  async reopenEvaluation(evaluationId: string, payload: { actorId: string; reason?: string }): Promise<void> {
+    try {
+      await apiFetch<void>(`/api/evaluation/${evaluationId}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
 };

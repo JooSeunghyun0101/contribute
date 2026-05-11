@@ -442,24 +442,26 @@ const Evaluation = () => {
       return;
     }
 
-    const ok = window.confirm('완료된 평가를 수정 모드로 전환할까요? 저장하면 다시 완료 상태로 반영됩니다.');
-    if (!ok) return;
+    const reason = window.prompt(
+      '평가를 반려할까요?\n반려 사유를 입력하면 피평가자에게 함께 전달됩니다. (선택)',
+    );
+    if (reason === null) return;
 
     setIsReopening(true);
     try {
-      await evaluationService.updateEvaluation(evaluationData.id, {
-        evaluation_status: 'evaluating',
-        last_modified: new Date().toISOString(),
+      await evaluationService.reopenEvaluation(evaluationData.id, {
+        actorId: user?.employeeId ?? user?.id ?? '',
+        reason: reason.trim() || undefined,
       });
       await reloadData();
       toast({
-        title: '평가 수정 모드로 전환했습니다.',
-        description: '점수와 피드백을 수정한 뒤 평가 저장을 눌러 완료 처리하세요.',
+        title: '평가를 반려했습니다.',
+        description: '피평가자에게 알림을 보냈으며, 점수/피드백을 수정한 뒤 다시 저장하세요.',
       });
     } catch (error) {
-      console.error('평가 수정 모드 전환 실패:', error);
+      console.error('평가 반려 실패:', error);
       toast({
-        title: '평가 수정 모드 전환 실패',
+        title: '평가 반려 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
@@ -482,7 +484,7 @@ const Evaluation = () => {
                 disabled={isReopening}
               >
                 <PencilLine size={14} aria-hidden="true" />
-                {isReopening ? '전환 중...' : '평가 수정'}
+                {isReopening ? '반려 중...' : '평가 반려'}
               </button>
             ) : (
               <>

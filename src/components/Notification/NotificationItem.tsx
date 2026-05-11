@@ -8,6 +8,8 @@ import {
   UserPlus,
   UserMinus,
   Bell,
+  Undo2,
+  AlertCircle,
 } from 'lucide-react';
 import { Notification, NotificationType } from '@/types/notification';
 
@@ -30,6 +32,8 @@ const ICON_MAP: Record<NotificationType, React.ComponentType<{ size?: number }>>
   evaluator_changed: UserPlus,
   evaluator_unassigned: UserMinus,
   profile_imported: FileText,
+  evaluation_return_requested: AlertCircle,
+  evaluation_reopened: Undo2,
 };
 
 const formatRelativeTime = (iso: string): string => {

@@ -12,7 +12,9 @@ export type NotificationType =
   | 'task_summary'
   | 'evaluator_changed'
   | 'evaluator_unassigned'
-  | 'profile_imported';
+  | 'profile_imported'
+  | 'evaluation_return_requested'
+  | 'evaluation_reopened';
 
 export type NotificationPriority = 'low' | 'medium' | 'high';
 

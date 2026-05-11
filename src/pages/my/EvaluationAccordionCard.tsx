@@ -106,6 +106,34 @@ const EvaluationAccordionCard = ({
   const headerTitle = evaluatorName ?? (isCurrent ? user?.name ?? '평가자' : '이전 평가자');
   const headerInitial = headerTitle.charAt(0);
   const accentColor = isCurrent ? 'var(--ok-orange)' : 'var(--fg-muted)';
+  const isCompleted = evaluationStatus === 'completed';
+  const [isRequestingReturn, setIsRequestingReturn] = useState(false);
+
+  const handleRequestReturn = async () => {
+    if (!evaluationData?.id) return;
+    const reason = window.prompt('반려 사유를 입력해 주세요. (선택)') ?? '';
+    if (reason === null) return;
+    setIsRequestingReturn(true);
+    try {
+      await evaluationService.requestReturn(evaluationData.id, {
+        requestedBy: employeeId,
+        reason: reason.trim() || undefined,
+      });
+      toast({
+        title: '반려 요청을 보냈습니다.',
+        description: `${evaluatorName ?? '평가자'}에게 알림이 전달되었습니다.`,
+      });
+    } catch (error) {
+      console.error('반려 요청 실패:', error);
+      toast({
+        title: '반려 요청 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRequestingReturn(false);
+    }
+  };
 
   // 헤더용 점수 요약
   const summary = useMemo(() => {
@@ -480,9 +508,33 @@ const EvaluationAccordionCard = ({
                     fontSize: 12,
                     lineHeight: 1.5,
                     fontWeight: 700,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
                   }}
                 >
-                  {taskEditMessage}
+                  <span>{taskEditMessage}</span>
+                  {isCompleted && (
+                    <button
+                      type="button"
+                      onClick={handleRequestReturn}
+                      disabled={isRequestingReturn}
+                      style={{
+                        alignSelf: 'flex-start',
+                        padding: '5px 10px',
+                        background: 'var(--ok-orange)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: isRequestingReturn ? 'not-allowed' : 'pointer',
+                        opacity: isRequestingReturn ? 0.7 : 1,
+                      }}
+                    >
+                      {isRequestingReturn ? '요청 중…' : '평가자에게 반려 요청'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
