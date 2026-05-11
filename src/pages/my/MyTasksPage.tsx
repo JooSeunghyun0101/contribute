@@ -196,8 +196,15 @@ const MyTasksPage = () => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
-  const [searchParams] = useSearchParams();
-  const overrideEvaluationId = searchParams.get('evaluationId');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlEvaluationId = searchParams.get('evaluationId');
+  const [activeEvaluationId, setActiveEvaluationId] = useState<string | null>(
+    urlEvaluationId,
+  );
+  // URL 파라미터 변경시 활성 평가 동기화
+  useEffect(() => {
+    setActiveEvaluationId(urlEvaluationId);
+  }, [urlEvaluationId]);
   const {
     evaluationData,
     isLoading,
@@ -205,18 +212,31 @@ const MyTasksPage = () => {
     isPeriodEditable,
     periodEditMessage,
   } = useEvaluationDataDB(user?.employeeId || '', {
-    evaluationId: overrideEvaluationId,
+    evaluationId: activeEvaluationId,
   });
   const { pastBundles } = usePastEvaluations(
     user?.employeeId ?? '',
     evaluationData?.id,
   );
-  const isPastMode = Boolean(overrideEvaluationId);
+  const isPastMode = Boolean(activeEvaluationId);
+  const activeEvaluatorName = evaluationData?.evaluatorName ?? null;
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
   const [currentExpanded, setCurrentExpanded] = useState(true);
+
+  const activateEvaluation = (evaluationId: string | null) => {
+    setActiveEvaluationId(evaluationId);
+    setSelectedTaskId(null);
+    setMode('view');
+    setCurrentExpanded(true);
+    if (evaluationId) {
+      setSearchParams({ evaluationId }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
 
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const selectedTask = useMemo(
@@ -461,10 +481,10 @@ const MyTasksPage = () => {
   return (
     <>
       <PageHeader
-        title={isPastMode ? '과거 평가 과업 편집' : '내 과업'}
+        title="내 과업"
         subtitle={
           isPastMode
-            ? `평가자 ${evaluationData?.evaluatorAccess?.assignedEvaluatorId ?? ''} 구간 · 과업 추가/수정/삭제`
+            ? `${activeEvaluatorName ?? '과거 평가자'} 평가 · 과업 추가/수정`
             : `${user?.name ?? ''}님의 등록 과업과 제출 상태`
         }
         actions={
@@ -472,9 +492,7 @@ const MyTasksPage = () => {
             <button
               type="button"
               className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={() => {
-                window.location.href = '/my/tasks';
-              }}
+              onClick={() => activateEvaluation(null)}
             >
               ← 현재 평가로
             </button>
@@ -536,7 +554,9 @@ const MyTasksPage = () => {
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg)' }}>
-                  현재 평가{isPastMode ? ' (과거)' : ''}
+                  {isPastMode
+                    ? `${activeEvaluatorName ?? '과거 평가자'} 평가 (과거)`
+                    : '현재 평가'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
                   과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}% · {statusMeta.label}
@@ -1187,6 +1207,7 @@ const MyTasksPage = () => {
                 key={bundle.evaluation.id}
                 bundle={bundle}
                 editable
+                onActivate={(id) => activateEvaluation(id)}
               />
             ))}
           </>

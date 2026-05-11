@@ -559,6 +559,9 @@ export const useEvaluationDataDB = (
       const evaluationDataResult: EvaluationData = {
         // Include the evaluation UUID for downstream usage (e.g., notifications)
         id: evaluation.id,
+        evaluatorId: (evaluation as any).evaluator_id ?? null,
+        evaluatorName: (evaluation as any).evaluator_name ?? null,
+        evaluatorAssignedAt: (evaluation as any).evaluator_assigned_at ?? null,
         evaluateeId: evaluation.evaluatee_id,
         evaluateeName: evaluation.evaluatee_name,
         evaluateePosition: evaluation.evaluatee_position,

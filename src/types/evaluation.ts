@@ -79,6 +79,9 @@ export interface EvaluationData {
   id?: string;
   // 일부 백엔드에서는 `evaluation_id` 라는 이름으로 제공될 수 있음
   evaluation_id?: string;
+  evaluatorId?: string | null;
+  evaluatorName?: string | null;
+  evaluatorAssignedAt?: string | null;
   evaluateeId: string;
   evaluateeName: string;
   evaluateePosition: string;

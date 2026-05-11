@@ -22,9 +22,12 @@ const formatDate = (value?: string | null) => {
 const PastEvaluationAccordion = ({
   bundle,
   editable = false,
+  onActivate,
 }: {
   bundle: PastEvaluationBundle;
   editable?: boolean;
+  /** 전달되면 '이 평가 과업 편집' 클릭시 URL 이동 대신 호출됨 */
+  onActivate?: (evaluationId: string) => void;
 }) => {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
@@ -119,7 +122,11 @@ const PastEvaluationAccordion = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/my/tasks?evaluationId=${evaluation.id}`);
+                if (onActivate) {
+                  onActivate(evaluation.id);
+                } else {
+                  navigate(`/my/tasks?evaluationId=${evaluation.id}`);
+                }
               }}
               style={{
                 marginTop: 4,
