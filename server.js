@@ -1763,9 +1763,11 @@ const assertTaskEvaluationEntryEditable = async (client, task, payload) => {
       `
         SELECT
           e.evaluatee_id,
-          emp.evaluator_id AS assigned_evaluator_id
+          emp.evaluator_id AS assigned_evaluator_id,
+          ah.new_evaluator_id AS evaluation_evaluator_id
         FROM evaluations e
         LEFT JOIN employees emp ON emp.employee_id = e.evaluatee_id
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = e.assignment_history_id
         WHERE e.id = $1
         LIMIT 1
       `,
@@ -1784,13 +1786,16 @@ const assertTaskEvaluationEntryEditable = async (client, task, payload) => {
 
   const evaluation = evaluationRows[0];
   const isAssignedEvaluator = evaluation?.assigned_evaluator_id === payload.evaluator_id;
+  // 이 평가의 assignment_history가 가리키는 평가자(과거 평가자 포함)이면 본인 평가 편집 허용
+  const isEvaluationOwnerEvaluator =
+    evaluation?.evaluation_evaluator_id === payload.evaluator_id;
   const ownsAnyEntry = entryRows.some(
     (entry) =>
       entry.evaluator_id === payload.evaluator_id ||
       (entry.evaluator_id?.startsWith('legacy:') && entry.evaluator_name === payload.evaluator_name)
   );
 
-  if (ownsAnyEntry || isAssignedEvaluator) {
+  if (ownsAnyEntry || isAssignedEvaluator || isEvaluationOwnerEvaluator) {
     return;
   }
 
