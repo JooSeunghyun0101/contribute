@@ -128,15 +128,15 @@ const HrDepartmentsPage = () => {
                 <div style={{ marginTop: 16, display: 'flex', alignItems: 'baseline', gap: 6 }}>
                   <span
                     className="tnum"
-                    style={{ fontSize: 40, fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
+                    style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
                   >
                     {department.completedMembers}
                   </span>
-                  <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 15 }}>
+                  <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-h4)' }}>
                     / {department.totalMembers}
                   </span>
                 </div>
-                <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 12 }}>평가 완료 인원</div>
+                <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>평가 완료 인원</div>
 
                 <div className="sd-bar" style={{ marginTop: 12, height: 8 }}>
                   <div className="sd-bar-fill" style={{ width: `${department.averageProgress}%` }} />
@@ -208,7 +208,7 @@ const HrDepartmentsPage = () => {
                           />
                         </div>
                         <div className="sd-label-mini">{score}점</div>
-                        <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{ratio}%</div>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{ratio}%</div>
                       </div>
                     );
                   })}

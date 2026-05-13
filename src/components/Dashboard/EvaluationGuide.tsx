@@ -162,7 +162,7 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
                   </div>
                 )}
                 renderScopeLabel={(scope) => (
-                  <div className="text-[11px] sm:text-xs text-center font-semibold text-muted-foreground pt-1">
+                  <div className="text-2xs sm:text-xs text-center font-semibold text-muted-foreground pt-1">
                     {scope}
                   </div>
                 )}

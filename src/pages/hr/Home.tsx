@@ -91,11 +91,11 @@ const HrHome = () => {
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
           {/* Total */}
           <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
               전체 직원
             </div>
-            <div style={{ fontSize: 32, fontWeight: 900, lineHeight: 1 }}>{summary.totalMembers}</div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6 }}>
+            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>{summary.totalMembers}</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>
               완성 평가자 {summary.completedMembers}
             </div>
           </div>
@@ -109,38 +109,38 @@ const HrHome = () => {
               border: 'none',
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.75)', marginBottom: 10 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'rgba(255,255,255,0.75)', marginBottom: 10 }}>
               완료율
             </div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: '#fff', lineHeight: 1 }}>
+            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: '#fff', lineHeight: 1 }}>
               {summary.completionRate}%
             </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
               {summary.completedMembers} / {summary.totalMembers}
             </div>
-            <div style={{ fontSize: 12, color: '#FFD4B8', marginTop: 4, fontWeight: 700 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: '#FFD4B8', marginTop: 4, fontWeight: 700 }}>
               ↑ +8%
             </div>
           </div>
 
           {/* Achievement rate */}
           <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
               달성률
             </div>
-            <div style={{ fontSize: 32, fontWeight: 900, lineHeight: 1 }}>
+            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>
               {summary.achievementRate}%
             </div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6 }}>목표 Lv. 이상</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>목표 Lv. 이상</div>
           </div>
 
           {/* In progress */}
           <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
               진행 중
             </div>
-            <div style={{ fontSize: 32, fontWeight: 900, lineHeight: 1 }}>{summary.inProgress}</div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6 }}>마감 D-7</div>
+            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>{summary.inProgress}</div>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>마감 D-7</div>
           </div>
         </section>
 
@@ -153,10 +153,10 @@ const HrHome = () => {
               {/* Weekly completion trend chart */}
               <div className="sd-card sd-card-lg">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 800 }}>주간 완료율 추이</h3>
+                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>주간 완료율 추이</h3>
                   <span
                     style={{
-                      fontSize: 11,
+                      fontSize: 'var(--fs-xs)',
                       fontWeight: 600,
                       padding: '3px 10px',
                       borderRadius: 12,
@@ -179,12 +179,12 @@ const HrHome = () => {
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                     <XAxis
                       dataKey="label"
-                      tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+                      tick={{ fontSize: 'var(--fs-xs)', fill: 'var(--fg-muted)' }}
                       axisLine={false}
                       tickLine={false}
                     />
                     <YAxis
-                      tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+                      tick={{ fontSize: 'var(--fs-xs)', fill: 'var(--fg-muted)' }}
                       domain={[0, 100]}
                       axisLine={false}
                       tickLine={false}
@@ -195,7 +195,7 @@ const HrHome = () => {
                       contentStyle={{
                         borderRadius: 10,
                         border: '1px solid var(--border)',
-                        fontSize: 13,
+                        fontSize: 'var(--fs-body)',
                         background: 'var(--bg-card)',
                       }}
                     />
@@ -215,7 +215,7 @@ const HrHome = () => {
               {/* Recent activity */}
               <div className="sd-card sd-card-lg">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 800 }}>최근 시스템 활동</h3>
+                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>최근 시스템 활동</h3>
                   <button className="sd-btn sd-btn-ghost sd-btn-sm" style={{ color: 'var(--ok-orange)' }}>
                     전체 보기 →
                   </button>
@@ -244,15 +244,15 @@ const HrHome = () => {
                           }}
                         />
                         <div style={{ flex: 1 }}>
-                          <span style={{ fontSize: 13, color: 'var(--fg)' }}>{act.text}</span>
+                          <span style={{ fontSize: 'var(--fs-body)', color: 'var(--fg)' }}>{act.text}</span>
                         </div>
-                        <span style={{ fontSize: 11, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                           {formatRelativeTime(act.date)}
                         </span>
                       </div>
                     ))
                   ) : (
-                    <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>최근 활동이 없습니다.</div>
+                    <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>최근 활동이 없습니다.</div>
                   )}
                 </div>
               </div>
@@ -260,7 +260,7 @@ const HrHome = () => {
 
             {/* Right: department bar list */}
             <div className="sd-card sd-card-lg">
-              <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 18 }}>부서별 진행률</h3>
+              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 18 }}>부서별 진행률</h3>
               <div className="flex flex-col gap-4">
                 {summary.departments.map((dept) => {
                   const barColor =
@@ -275,8 +275,8 @@ const HrHome = () => {
                           marginBottom: 6,
                         }}
                       >
-                        <span style={{ fontSize: 13, fontWeight: 700 }}>{dept.name}</span>
-                        <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                        <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{dept.name}</span>
+                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                           {dept.completed}/{dept.total} · {dept.rate}%
                         </span>
                       </div>
@@ -303,7 +303,7 @@ const HrHome = () => {
                 })}
 
                 {!summary.departments.length && (
-                  <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>부서 데이터가 없습니다.</div>
+                  <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>부서 데이터가 없습니다.</div>
                 )}
               </div>
             </div>

@@ -73,8 +73,8 @@ const ScoreBucketCell = ({ count, total }: { count: number; total: number }) => 
 
   return (
     <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 16, fontWeight: 900, lineHeight: 1.1 }}>{count}</div>
-      <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>{ratio}%</div>
+      <div style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, lineHeight: 1.1 }}>{count}</div>
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>{ratio}%</div>
     </div>
   );
 };
@@ -116,7 +116,7 @@ const ScoreTablePage = () => {
                       key={col}
                       style={{
                         padding: '10px 14px',
-                        fontSize: 11,
+                        fontSize: 'var(--fs-xs)',
                         fontWeight: 700,
                         letterSpacing: '0.06em',
                         color: 'var(--fg-muted)',
@@ -154,7 +154,7 @@ const ScoreTablePage = () => {
                               borderRadius: '50%',
                               background: 'var(--ok-orange)',
                               color: '#fff',
-                              fontSize: 14,
+                              fontSize: 'var(--fs-body)',
                               fontWeight: 800,
                               display: 'flex',
                               alignItems: 'center',
@@ -165,13 +165,13 @@ const ScoreTablePage = () => {
                             {record.employee.name.charAt(0)}
                           </div>
                           <div>
-                            <div style={{ fontSize: 14, fontWeight: 700 }}>
+                            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
                               {record.employee.name}{' '}
-                              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg-muted)' }}>
+                              <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 500, color: 'var(--fg-muted)' }}>
                                 {record.employee.position}
                               </span>
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>
+                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
                               {record.employee.department} · Lv.{record.employee.growth_level ?? 1}
                             </div>
                           </div>
@@ -191,7 +191,7 @@ const ScoreTablePage = () => {
                           <div>
                             <div
                               style={{
-                                fontSize: 20,
+                                fontSize: 'var(--fs-h3)',
                                 fontWeight: 800,
                                 color: 'var(--ok-orange)',
                                 lineHeight: 1,
@@ -199,12 +199,12 @@ const ScoreTablePage = () => {
                             >
                               {record.weightedScore.toFixed(1)}
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>
+                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
                               절사 {record.flooredScore}
                             </div>
                           </div>
                         ) : (
-                          <span style={{ color: 'var(--fg-muted)', fontSize: 13 }}>-</span>
+                          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>-</span>
                         )}
                       </td>
 
@@ -230,7 +230,7 @@ const ScoreTablePage = () => {
                               }}
                             />
                           </div>
-                          <span style={{ fontSize: 12, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                             {completedCount}/{totalCount} · {record.progress}%
                           </span>
                         </div>
@@ -244,7 +244,7 @@ const ScoreTablePage = () => {
                             alignItems: 'center',
                             padding: '3px 10px',
                             borderRadius: 12,
-                            fontSize: 12,
+                            fontSize: 'var(--fs-sm)',
                             fontWeight: 700,
                             background: reviewAction.background,
                             color: reviewAction.color,
@@ -261,7 +261,7 @@ const ScoreTablePage = () => {
                           style={{
                             padding: '3px 10px',
                             borderRadius: 12,
-                            fontSize: 12,
+                            fontSize: 'var(--fs-sm)',
                             fontWeight: 700,
                             background: record.achieved ? '#DCFCE7' : '#FEF9C3',
                             color: record.achieved ? '#16A34A' : '#A16207',
@@ -312,11 +312,11 @@ const ScoreTablePage = () => {
             >
               <div>
                 <div className="sd-label-mini">점수 분포</div>
-                <h3 style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>
+                <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginTop: 2 }}>
                   팀 전체 과업 점수 분포
                 </h3>
               </div>
-              <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 600 }}>
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
                 평가 완료 {totalScores}건
               </span>
             </div>
@@ -335,13 +335,13 @@ const ScoreTablePage = () => {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 12, fill: 'var(--fg-muted)', fontWeight: 700 }}
+                    tick={{ fontSize: 'var(--fs-sm)', fill: 'var(--fg-muted)', fontWeight: 700 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+                    tick={{ fontSize: 'var(--fs-xs)', fill: 'var(--fg-muted)' }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -350,7 +350,7 @@ const ScoreTablePage = () => {
                     contentStyle={{
                       borderRadius: 10,
                       border: '1px solid var(--border)',
-                      fontSize: 12,
+                      fontSize: 'var(--fs-sm)',
                       background: 'var(--bg-card)',
                     }}
                     formatter={(_value, _name, props: any) => [
@@ -366,7 +366,7 @@ const ScoreTablePage = () => {
                       dataKey="ratio"
                       position="top"
                       formatter={(v: number) => `${v}%`}
-                      style={{ fontSize: 11, fontWeight: 700, fill: 'var(--fg)' }}
+                      style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, fill: 'var(--fg)' }}
                     />
                   </Bar>
                 </BarChart>
@@ -393,7 +393,7 @@ const ScoreTablePage = () => {
                     borderRadius: 12,
                     background: 'var(--bg-muted)',
                     border: '1px solid var(--border)',
-                    fontSize: 12,
+                    fontSize: 'var(--fs-sm)',
                   }}
                 >
                   <span
@@ -403,7 +403,7 @@ const ScoreTablePage = () => {
                       borderRadius: '50%',
                       background: SCORE_BG[score],
                       color: SCORE_TEXT[score],
-                      fontSize: 11,
+                      fontSize: 'var(--fs-xs)',
                       fontWeight: 800,
                       display: 'flex',
                       alignItems: 'center',

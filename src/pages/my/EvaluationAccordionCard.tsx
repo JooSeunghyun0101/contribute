@@ -382,7 +382,7 @@ const EvaluationAccordionCard = ({
               borderRadius: '50%',
               background: accentColor,
               color: '#fff',
-              fontSize: 17,
+              fontSize: 'var(--fs-h4)',
               fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
@@ -394,13 +394,13 @@ const EvaluationAccordionCard = ({
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: accentColor, lineHeight: 1.15 }}>
+              <h2 style={{ margin: 0, fontSize: 'var(--fs-h2)', fontWeight: 900, color: accentColor, lineHeight: 1.15 }}>
                 {headerTitle}
               </h2>
               <Pill tone={isCurrent ? 'orange' : 'neutral'}>{headerLabel}</Pill>
               <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
               과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}%
             </div>
           </div>
@@ -409,17 +409,17 @@ const EvaluationAccordionCard = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
           <div style={{ textAlign: 'right' }}>
             <div className="sd-label-mini">반영 점수</div>
-            <div className="tnum" style={{ fontSize: 22, fontWeight: 900, color: accentColor }}>
+            <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: accentColor }}>
               {summary.exactScore.toFixed(1)}
-              <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                 {' '} / {summary.flooredScore}
               </span>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
               {summary.completedCount}/{tasks.length} 과업
             </div>
           </div>
-          <span style={{ fontSize: 18, color: accentColor }}>{expanded ? '▲' : '▼'}</span>
+          <span style={{ fontSize: 'var(--fs-h3)', color: accentColor }}>{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
 
@@ -446,9 +446,9 @@ const EvaluationAccordionCard = ({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="sd-label-mini">과업 목록</div>
-                  <h3 style={{ marginTop: 2, fontSize: 16 }}>
+                  <h3 style={{ marginTop: 2, fontSize: 'var(--fs-h4)' }}>
                     내 과업{' '}
-                    <span style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 13 }}>
+                    <span style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 'var(--fs-body)' }}>
                       {tasks.length}건
                     </span>
                   </h3>
@@ -476,7 +476,7 @@ const EvaluationAccordionCard = ({
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span style={{ color: 'var(--fg-muted)', fontSize: 11, fontWeight: 700 }}>
+                  <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
                     총 가중치{isDirty ? ' (편집중)' : ''}
                   </span>
                   <Pill tone={weightStatus.tone}>{weightStatus.label}</Pill>
@@ -484,15 +484,15 @@ const EvaluationAccordionCard = ({
                 <div className="flex items-end justify-between gap-3">
                   <span
                     className="tnum"
-                    style={{ fontSize: 24, fontWeight: 900, lineHeight: 1, color: weightStatus.color }}
+                    style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, lineHeight: 1, color: weightStatus.color }}
                   >
                     {draftTotalWeight}%
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: weightStatus.color }}>
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: weightStatus.color }}>
                     {weightStatus.message}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
                   {weightStatus.guide}
                 </div>
               </div>
@@ -505,7 +505,7 @@ const EvaluationAccordionCard = ({
                     background: '#FFF7ED',
                     border: '1px solid #FDBA74',
                     color: '#9A3412',
-                    fontSize: 12,
+                    fontSize: 'var(--fs-sm)',
                     lineHeight: 1.5,
                     fontWeight: 700,
                     display: 'flex',
@@ -526,7 +526,7 @@ const EvaluationAccordionCard = ({
                         color: '#fff',
                         border: 'none',
                         borderRadius: 6,
-                        fontSize: 11,
+                        fontSize: 'var(--fs-xs)',
                         fontWeight: 700,
                         cursor: isRequestingReturn ? 'not-allowed' : 'pointer',
                         opacity: isRequestingReturn ? 0.7 : 1,
@@ -541,7 +541,7 @@ const EvaluationAccordionCard = ({
 
             <div style={{ flex: 1, overflow: 'auto' }}>
               {isLoading && (
-                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 13 }}>
+                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                   과업을 불러오는 중입니다.
                 </div>
               )}
@@ -572,11 +572,11 @@ const EvaluationAccordionCard = ({
                         </Pill>
                         <NumBadge score={taskScore} size={22} />
                       </div>
-                      <div style={{ fontWeight: active ? 700 : 600, fontSize: 13, lineHeight: 1.45 }}>
+                      <div style={{ fontWeight: active ? 700 : 600, fontSize: 'var(--fs-body)', lineHeight: 1.45 }}>
                         {task.title}
                       </div>
                       <div
-                        style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 6, display: 'flex', gap: 8 }}
+                        style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 6, display: 'flex', gap: 8 }}
                       >
                         <span>
                           {task.contributionMethod || '방식 미정'} · {task.contributionScope || '범위 미정'}
@@ -588,7 +588,7 @@ const EvaluationAccordionCard = ({
                   );
                 })}
               {!isLoading && tasks.length === 0 && (
-                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 13 }}>
+                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                   등록된 과업이 없습니다. 과업 추가로 시작하세요.
                 </div>
               )}
@@ -667,7 +667,7 @@ const EvaluationAccordionCard = ({
                     disabled={!canEditTasks}
                     placeholder={mode === 'create' ? '새 과업 제목을 입력하세요' : '과업 제목'}
                     style={{
-                      fontSize: 24,
+                      fontSize: 'var(--fs-h2)',
                       fontWeight: 800,
                       letterSpacing: 0,
                       width: '100%',
@@ -695,7 +695,7 @@ const EvaluationAccordionCard = ({
                           borderRadius: 8,
                           border: '1px solid var(--border)',
                           background: 'var(--bg-card)',
-                          fontSize: 14,
+                          fontSize: 'var(--fs-body)',
                           lineHeight: 1.7,
                           color: 'var(--fg)',
                           resize: 'vertical',
@@ -734,7 +734,7 @@ const EvaluationAccordionCard = ({
                                 isOverWeight ? 'rgba(220,69,69,0.55)' : 'var(--border)'
                               }`,
                               fontWeight: 700,
-                              fontSize: 13,
+                              fontSize: 'var(--fs-body)',
                               color: isOverWeight ? 'var(--danger)' : 'inherit',
                               background: 'var(--bg-card)',
                               ...lockedInputStyle,
@@ -755,13 +755,13 @@ const EvaluationAccordionCard = ({
                                 padding: '4px 4px',
                                 borderRadius: 6,
                                 border: '1px solid var(--border)',
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 background: 'var(--bg-card)',
                                 minWidth: 0,
                                 ...lockedInputStyle,
                               }}
                             />
-                            <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>~</span>
+                            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>~</span>
                             <input
                               type="date"
                               value={draft.endDate}
@@ -773,7 +773,7 @@ const EvaluationAccordionCard = ({
                                 padding: '4px 4px',
                                 borderRadius: 6,
                                 border: '1px solid var(--border)',
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 background: 'var(--bg-card)',
                                 minWidth: 0,
                                 ...lockedInputStyle,
@@ -783,13 +783,13 @@ const EvaluationAccordionCard = ({
                         </div>
                         <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
                           <div className="sd-label-mini">기여 방식</div>
-                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 13 }}>
+                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 'var(--fs-body)' }}>
                             {mode === 'create' ? '평가자 지정' : selectedTask?.contributionMethod || '미정'}
                           </div>
                         </div>
                         <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
                           <div className="sd-label-mini">기여 범위</div>
-                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 13 }}>
+                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 'var(--fs-body)' }}>
                             {mode === 'create' ? '평가자 지정' : selectedTask?.contributionScope || '미정'}
                           </div>
                         </div>
@@ -806,7 +806,7 @@ const EvaluationAccordionCard = ({
                             </h4>
                           </div>
                           {selectedTask.evaluatorName && (
-                            <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                               평가자 ·{' '}
                               <b style={{ color: 'var(--fg)' }}>{selectedTask.evaluatorName}</b>
                             </div>
@@ -844,13 +844,13 @@ const EvaluationAccordionCard = ({
                                 <div className="flex items-center gap-3" style={{ marginBottom: 8 }}>
                                   <div className="sd-avatar sd-avatar-sm">{item.evaluatorName[0]}</div>
                                   <div>
-                                    <div style={{ fontWeight: 700, fontSize: 13 }}>{item.evaluatorName}</div>
-                                    <div className="tnum" style={{ fontSize: 11, color: 'var(--fg-subtle)' }}>
+                                    <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>{item.evaluatorName}</div>
+                                    <div className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
                                       {formatDateTime(item.date)}
                                     </div>
                                   </div>
                                 </div>
-                                <p style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--fg)', margin: 0 }}>
+                                <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.65, color: 'var(--fg)', margin: 0 }}>
                                   {item.content}
                                 </p>
                               </div>
@@ -865,7 +865,7 @@ const EvaluationAccordionCard = ({
                     {mode === 'create' && (
                       <div className="sd-card sd-card-lg" style={{ background: 'var(--bg-muted)' }}>
                         <div className="sd-label-mini">새 과업</div>
-                        <p style={{ marginTop: 10, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+                        <p style={{ marginTop: 10, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
                           과업이 등록되면 평가자가 기여 방식·범위를 지정하고 점수를 매깁니다. 등록 시점에는 점수가 산정되지 않습니다.
                         </p>
                       </div>
@@ -885,7 +885,7 @@ const EvaluationAccordionCard = ({
                             <span
                               className="tnum"
                               style={{
-                                fontSize: 22,
+                                fontSize: 'var(--fs-h2)',
                                 fontWeight: 900,
                                 color: SCORE_BG[selectedScore] ?? 'var(--fg)',
                                 lineHeight: 1,
@@ -908,7 +908,7 @@ const EvaluationAccordionCard = ({
                               renderMethodLabel={(method) => (
                                 <div
                                   style={{
-                                    fontSize: 10,
+                                    fontSize: 'var(--fs-micro)',
                                     fontWeight: 700,
                                     color: 'var(--fg-muted)',
                                     display: 'flex',
@@ -922,7 +922,7 @@ const EvaluationAccordionCard = ({
                                 <div
                                   style={{
                                     textAlign: 'center',
-                                    fontSize: 9,
+                                    fontSize: 'var(--fs-2xs)',
                                     fontWeight: 700,
                                     color: 'var(--fg-muted)',
                                     paddingTop: 4,
@@ -946,7 +946,7 @@ const EvaluationAccordionCard = ({
                                       justifyContent: 'center',
                                       color,
                                       fontWeight: selected ? 900 : 700,
-                                      fontSize: selected ? 16 : 13,
+                                      fontSize: selected ? 'var(--fs-h4)' : 'var(--fs-body)',
                                       boxShadow: selected ? '0 0 0 2px rgba(245,80,0,0.25)' : 'none',
                                       transition: 'all 0.15s',
                                     }}
@@ -971,7 +971,7 @@ const EvaluationAccordionCard = ({
                                   padding: '10px 12px',
                                   background: 'var(--bg-muted)',
                                   borderRadius: 8,
-                                  fontSize: 12,
+                                  fontSize: 'var(--fs-sm)',
                                   color: 'var(--fg-muted)',
                                   textAlign: 'left',
                                   lineHeight: 1.55,
@@ -988,7 +988,7 @@ const EvaluationAccordionCard = ({
                                 padding: '10px 12px',
                                 background: 'var(--ok-orange-50)',
                                 borderRadius: 8,
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 color: 'var(--ok-brown)',
                                 textAlign: 'left',
                                 lineHeight: 1.55,
@@ -1005,7 +1005,7 @@ const EvaluationAccordionCard = ({
                     {mode === 'view' && selectedTask && (
                       <div className="sd-card">
                         <div className="sd-label-mini">일정</div>
-                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 'var(--fs-body)' }}>
                           <div className="flex items-center justify-between">
                             <span style={{ color: 'var(--fg-muted)' }}>시작</span>
                             <b className="tnum">{formatDate(selectedTask.startDate)}</b>
@@ -1037,11 +1037,11 @@ const EvaluationAccordionCard = ({
                             <IconSparkle width={18} height={18} />
                           </div>
                           <div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok-brown)' }}>
+                            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
                               AI 성장 제안
                             </div>
                             <div
-                              style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ok-brown)', marginTop: 4 }}
+                              style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.6, color: 'var(--ok-brown)', marginTop: 4 }}
                             >
                               {getTaskSuggestion(selectedScore)}
                             </div>

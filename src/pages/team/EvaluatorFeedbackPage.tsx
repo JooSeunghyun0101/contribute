@@ -157,7 +157,7 @@ const EvaluatorFeedbackPage = () => {
                 borderColor: selectedEmployeeId === opt.id ? 'var(--ok-orange)' : 'var(--border)',
                 background: selectedEmployeeId === opt.id ? 'var(--ok-orange)' : 'transparent',
                 color: selectedEmployeeId === opt.id ? '#fff' : 'var(--fg)',
-                fontSize: 13,
+                fontSize: 'var(--fs-body)',
                 fontWeight: 600,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
@@ -169,15 +169,15 @@ const EvaluatorFeedbackPage = () => {
         </div>
 
         {isLoading ? (
-          <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>피드백 이력을 불러오는 중입니다.</div>
+          <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백 이력을 불러오는 중입니다.</div>
         ) : error ? (
-          <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+          <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
             {/* ── Left: task-grouped cards (per employee section) ── */}
             <div className="flex flex-col gap-5">
               {visibleBundles.length === 0 ? (
-                <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+                <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                   표시할 피드백 이력이 없습니다.
                 </div>
               ) : (
@@ -202,7 +202,7 @@ const EvaluatorFeedbackPage = () => {
                               borderRadius: '50%',
                               background: 'var(--ok-orange)',
                               color: '#fff',
-                              fontSize: 15,
+                              fontSize: 'var(--fs-h4)',
                               fontWeight: 800,
                               display: 'flex',
                               alignItems: 'center',
@@ -213,19 +213,19 @@ const EvaluatorFeedbackPage = () => {
                             {bundle.employeeName.charAt(0)}
                           </div>
                           <div>
-                            <h2 style={{ fontSize: 15, fontWeight: 900, margin: 0 }}>
+                            <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, margin: 0 }}>
                               {bundle.employeeName}{' '}
-                              <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 600 }}>
+                              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
                                 {bundle.employeePosition}
                               </span>
                             </h2>
-                            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+                            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
                               {bundle.employeeDepartment}
                             </div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+                          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                             과업 {bundle.cards.filter((c) => c.entries.length > 0).length}개 · 피드백{' '}
                             {bundle.totalFeedbacks}건
                           </span>
@@ -270,7 +270,7 @@ const EvaluatorFeedbackPage = () => {
                         borderRadius: '50%',
                         background: 'var(--ok-orange)',
                         color: '#fff',
-                        fontSize: 16,
+                        fontSize: 'var(--fs-h4)',
                         fontWeight: 800,
                         display: 'flex',
                         alignItems: 'center',
@@ -281,14 +281,14 @@ const EvaluatorFeedbackPage = () => {
                       {focusedBundle.employeeName.charAt(0)}
                     </div>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{focusedBundle.employeeName}</div>
-                      <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{focusedBundle.employeeName}</div>
+                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
                         {focusedBundle.employeePosition} · {focusedBundle.employeeDepartment}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div style={{ fontSize: 13, color: 'var(--fg-muted)', lineHeight: 1.7 }}>
+                  <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', lineHeight: 1.7 }}>
                     팀 {aggregateStats.employees}명 · 과업 {aggregateStats.tasks}개 · 피드백{' '}
                     {aggregateStats.feedbacks}건
                   </div>
@@ -307,7 +307,7 @@ const EvaluatorFeedbackPage = () => {
                           borderRadius: 20,
                           background: 'var(--bg-muted)',
                           border: '1px solid var(--border)',
-                          fontSize: 12,
+                          fontSize: 'var(--fs-sm)',
                           fontWeight: 600,
                           color: 'var(--fg)',
                         }}
@@ -337,7 +337,7 @@ const EvaluatorFeedbackPage = () => {
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div
                             style={{
-                              fontSize: 13,
+                              fontSize: 'var(--fs-body)',
                               fontWeight: 600,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -356,7 +356,7 @@ const EvaluatorFeedbackPage = () => {
                               card.entries.length > 0 ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
                             color:
                               card.entries.length > 0 ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                            fontSize: 11,
+                            fontSize: 'var(--fs-xs)',
                             fontWeight: 700,
                             whiteSpace: 'nowrap',
                           }}
@@ -381,8 +381,8 @@ const EvaluatorFeedbackPage = () => {
                     <IconSparkle width={16} height={16} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
-                    <div style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
+                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
+                    <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
                       {focusedBundle
                         ? `${focusedBundle.employeeName}님은 최근 작성된 피드백을 기준으로 핵심 과업 수행에서 일관된 강점을 보입니다.`
                         : '담당 피평가자별 피드백을 한눈에 확인하고 다음 평가에 활용하세요.'}

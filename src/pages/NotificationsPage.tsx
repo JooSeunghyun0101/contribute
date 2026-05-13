@@ -56,7 +56,7 @@ const NotificationsPage = () => {
                   borderColor: filter === f.id ? 'var(--ok-orange)' : 'var(--border)',
                   background: filter === f.id ? 'var(--ok-orange)' : 'transparent',
                   color: filter === f.id ? '#fff' : 'var(--fg)',
-                  fontSize: 13,
+                  fontSize: 'var(--fs-body)',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
@@ -99,7 +99,7 @@ const NotificationsPage = () => {
                 padding: '48px 18px',
                 textAlign: 'center',
                 color: 'var(--fg-muted)',
-                fontSize: 13,
+                fontSize: 'var(--fs-body)',
               }}
             >
               {filter === 'unread' ? '읽지 않은 알림이 없습니다.' : '알림이 없습니다.'}

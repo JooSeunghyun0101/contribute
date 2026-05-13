@@ -36,7 +36,7 @@ export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend 
     <div
       className="tnum"
       style={{
-        fontSize: 30,
+        fontSize: 'var(--fs-h1)',
         fontWeight: 800,
         marginTop: 8,
         letterSpacing: '-0.03em',
@@ -47,7 +47,7 @@ export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend 
     {sub && (
       <div
         style={{
-          fontSize: 12,
+          fontSize: 'var(--fs-sm)',
           color: accent ? 'rgba(255,255,255,0.85)' : 'var(--fg-muted)',
           marginTop: 4,
         }}
@@ -60,7 +60,7 @@ export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend 
         className="flex items-center gap-1"
         style={{
           marginTop: 10,
-          fontSize: 12,
+          fontSize: 'var(--fs-sm)',
           color: accent ? '#fff' : 'var(--success)',
           fontWeight: 700,
         }}

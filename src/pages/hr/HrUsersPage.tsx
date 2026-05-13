@@ -830,7 +830,7 @@ const HrUsersPage = () => {
                     borderColor: selectedRole === filter.id ? 'var(--ok-orange)' : 'var(--border)',
                     background: selectedRole === filter.id ? 'var(--ok-orange)' : 'transparent',
                     color: selectedRole === filter.id ? '#fff' : 'var(--fg)',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-body)',
                     fontWeight: 600,
                     cursor: 'pointer',
                     transition: 'all 0.15s',
@@ -896,7 +896,7 @@ const HrUsersPage = () => {
                     <Fragment key={employee.id}>
                     <TableRow>
                       <TableCell
-                        style={{ fontSize: 12, color: 'var(--fg-muted)', fontFamily: 'monospace' }}
+                        style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}
                       >
                         {employee.employee_id}
                       </TableCell>
@@ -917,7 +917,7 @@ const HrUsersPage = () => {
                                 borderRadius: '50%',
                                 background: 'var(--ok-orange)',
                                 color: '#fff',
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 fontWeight: 800,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -976,7 +976,7 @@ const HrUsersPage = () => {
                               borderRadius: 12,
                               background: 'var(--bg-muted)',
                               border: '1px solid var(--border)',
-                              fontSize: 12,
+                              fontSize: 'var(--fs-sm)',
                               fontWeight: 600,
                             }}
                           >
@@ -996,7 +996,7 @@ const HrUsersPage = () => {
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 6,
-                                  fontSize: 12,
+                                  fontSize: 'var(--fs-sm)',
                                   fontWeight: 700,
                                   color: 'var(--fg-muted)',
                                   whiteSpace: 'nowrap',
@@ -1022,7 +1022,7 @@ const HrUsersPage = () => {
                                   background: ROLE_BG[role] ?? 'var(--bg-muted)',
                                   color: ROLE_COLOR[role] ?? 'var(--fg)',
                                   border: `1px solid ${ROLE_BORDER[role] ?? 'var(--border)'}`,
-                                  fontSize: 12,
+                                  fontSize: 'var(--fs-sm)',
                                   fontWeight: 600,
                                 }}
                               >
@@ -1044,7 +1044,7 @@ const HrUsersPage = () => {
                               border: '1px solid var(--border)',
                               background: 'var(--bg-card)',
                               color: 'var(--fg)',
-                              fontSize: 12,
+                              fontSize: 'var(--fs-sm)',
                               fontWeight: 700,
                             }}
                           >
@@ -1086,7 +1086,7 @@ const HrUsersPage = () => {
                               border: '1px solid var(--border)',
                               background: 'var(--bg-card)',
                               color: 'var(--fg)',
-                              fontSize: 12,
+                              fontSize: 'var(--fs-sm)',
                               fontWeight: 700,
                               opacity: canChangeStatus && !isEditing ? 1 : 0.55,
                             }}
@@ -1183,8 +1183,8 @@ const HrUsersPage = () => {
                               }}
                             >
                               <div>
-                                <div style={{ fontSize: 13, fontWeight: 800 }}>평가자 변경 이력</div>
-                                <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+                                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>평가자 변경 이력</div>
+                                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
                                   현재 평가자: {evaluatorName}
                                 </div>
                               </div>
@@ -1198,11 +1198,11 @@ const HrUsersPage = () => {
                             </div>
 
                             {isHistoryLoading && historyItems.length === 0 ? (
-                              <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+                              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                                 이력을 불러오는 중입니다.
                               </div>
                             ) : historyItems.length === 0 ? (
-                              <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+                              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                                 평가자 변경 이력이 없습니다.
                               </div>
                             ) : (
@@ -1240,13 +1240,13 @@ const HrUsersPage = () => {
                                             : 'var(--bg-card)',
                                       }}
                                     >
-                                      <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                                         {formatAssignmentDate(history.changed_at)}
                                       </div>
                                       <div style={{ minWidth: 0 }}>
                                         <div
                                           style={{
-                                            fontSize: 13,
+                                            fontSize: 'var(--fs-body)',
                                             fontWeight: 800,
                                             whiteSpace: 'nowrap',
                                             overflow: 'hidden',
@@ -1258,7 +1258,7 @@ const HrUsersPage = () => {
                                         {history.reason && (
                                           <div
                                             style={{
-                                              fontSize: 12,
+                                              fontSize: 'var(--fs-sm)',
                                               color: 'var(--fg-muted)',
                                               marginTop: 2,
                                               whiteSpace: 'nowrap',

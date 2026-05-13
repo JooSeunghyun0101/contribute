@@ -90,7 +90,7 @@ export const Sidebar = () => {
                   gap: 11,
                   padding: '10px 12px',
                   borderRadius: 8,
-                  fontSize: 14,
+                  fontSize: 'var(--fs-body)',
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? 'var(--ok-orange)' : 'var(--fg)',
                   background: isActive ? 'var(--ok-orange-50)' : 'transparent',

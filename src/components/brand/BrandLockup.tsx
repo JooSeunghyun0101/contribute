@@ -7,10 +7,10 @@ export const BrandLockup = ({ compact = false }: Props) => (
     <OkMark size={compact ? 24 : 28} />
     {!compact && (
       <div className="leading-tight">
-        <div className="text-[15px] font-extrabold tracking-tight">
+        <div className="text-h4 font-extrabold tracking-tight">
           OK<span className="text-ok-orange">!</span>Contribute
         </div>
-        <div className="text-[10px] font-semibold tracking-[0.08em] text-[var(--fg-subtle)]">
+        <div className="text-micro font-semibold tracking-[0.08em] text-[var(--fg-subtle)]">
           기여도평가시스템
         </div>
       </div>

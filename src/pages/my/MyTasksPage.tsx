@@ -72,13 +72,13 @@ const MyTasksPage = () => {
         }}
       >
         {isLoading && (
-          <div style={{ color: 'var(--fg-muted)', fontSize: 13, padding: '20px 6px' }}>
+          <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)', padding: '20px 6px' }}>
             평가 목록을 불러오는 중입니다.
           </div>
         )}
 
         {!isLoading && evaluations.length === 0 && (
-          <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+          <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
             아직 등록된 평가가 없습니다.
           </div>
         )}

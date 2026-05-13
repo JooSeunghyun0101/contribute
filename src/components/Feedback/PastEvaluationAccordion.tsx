@@ -70,7 +70,7 @@ const PastEvaluationAccordion = ({
               borderRadius: '50%',
               background: 'var(--bg-muted)',
               color: 'var(--fg-muted)',
-              fontSize: 14,
+              fontSize: 'var(--fs-body)',
               fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
@@ -80,16 +80,16 @@ const PastEvaluationAccordion = ({
             {evaluatorName.charAt(0)}
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--fg)' }}>
+            <div style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--fg)' }}>
               {evaluatorName} 평가 (과거)
             </div>
-            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
               {assignedAt ? `${assignedAt} 시작` : '기간 정보 없음'}
               {' · '}과업 {taskCount}개{taskCount > 0 ? ` · 피드백 ${feedbackCount}건` : ''}
             </div>
           </div>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
           {activatableMode ? '편집 →' : open ? '▲' : '▼'}
         </span>
       </button>
@@ -107,7 +107,7 @@ const PastEvaluationAccordion = ({
           {cards.length === 0 ? (
             <div
               style={{
-                fontSize: 12.5,
+                fontSize: 'var(--fs-sm)',
                 color: 'var(--fg-muted)',
                 padding: '14px 0',
                 textAlign: 'center',
@@ -143,7 +143,7 @@ const PastEvaluationAccordion = ({
                 color: 'var(--ok-orange)',
                 border: '1px dashed var(--ok-orange)',
                 borderRadius: 8,
-                fontSize: 12.5,
+                fontSize: 'var(--fs-sm)',
                 fontWeight: 700,
                 cursor: 'pointer',
                 display: 'inline-flex',

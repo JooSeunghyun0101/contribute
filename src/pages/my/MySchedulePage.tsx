@@ -57,12 +57,12 @@ const MySchedulePage = () => {
         <section className="sd-card sd-card-lg">
           <div className="sd-label-mini">Schedule</div>
           <h2 style={{ marginTop: 4 }}>과업 타임라인</h2>
-          <p style={{ color: 'var(--fg-muted)', fontSize: 13, marginTop: 4 }}>
+          <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)', marginTop: 4 }}>
             연간 기준 시작일과 종료일을 월 단위로 정리했습니다.
           </p>
 
           {isLoading ? (
-            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 13 }}>일정 데이터를 불러오는 중입니다.</div>
+            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>일정 데이터를 불러오는 중입니다.</div>
           ) : (
             <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative' }}>
               {/* Header row */}
@@ -74,7 +74,7 @@ const MySchedulePage = () => {
                   alignItems: 'center',
                   paddingBottom: 10,
                   borderBottom: '1px solid var(--border)',
-                  fontSize: 11,
+                  fontSize: 'var(--fs-xs)',
                   color: 'var(--fg-muted)',
                   fontWeight: 700,
                   letterSpacing: '0.06em',
@@ -113,7 +113,7 @@ const MySchedulePage = () => {
                       <div style={{ minWidth: 0 }}>
                         <div
                           style={{
-                            fontSize: 13,
+                            fontSize: 'var(--fs-body)',
                             fontWeight: 700,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -122,7 +122,7 @@ const MySchedulePage = () => {
                         >
                           {task.title}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>
+                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
                           {formatDate(task.startDate)} – {formatDate(task.endDate)}
                         </div>
                       </div>
@@ -169,7 +169,7 @@ const MySchedulePage = () => {
                           alignItems: 'center',
                           padding: '0 8px',
                           color: '#fff',
-                          fontSize: 11,
+                          fontSize: 'var(--fs-xs)',
                           fontWeight: 700,
                           overflow: 'hidden',
                           whiteSpace: 'nowrap',
@@ -187,7 +187,7 @@ const MySchedulePage = () => {
               })}
 
               {!tasks.length && (
-                <div style={{ padding: 18, color: 'var(--fg-muted)', fontSize: 13 }}>일정이 있는 과업이 없습니다.</div>
+                <div style={{ padding: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>일정이 있는 과업이 없습니다.</div>
               )}
             </div>
           )}

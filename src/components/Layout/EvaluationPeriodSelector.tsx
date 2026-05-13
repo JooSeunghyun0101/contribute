@@ -34,7 +34,7 @@ export const EvaluationPeriodSelector = () => {
           alignItems: 'center',
           gap: 8,
           padding: '0 12px',
-          fontSize: 13,
+          fontSize: 'var(--fs-body)',
           fontWeight: 700,
         }}
       >
@@ -74,7 +74,7 @@ export const EvaluationPeriodSelector = () => {
           height: 36,
           paddingLeft: 36,
           paddingRight: 28,
-          fontSize: 13,
+          fontSize: 'var(--fs-body)',
           fontWeight: 700,
         }}
       >

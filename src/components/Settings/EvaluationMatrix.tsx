@@ -123,7 +123,7 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
                     height: 46,
                     display: 'flex',
                     alignItems: 'center',
-                    fontSize: 13,
+                    fontSize: 'var(--fs-body)',
                     fontWeight: 700,
                     color: 'var(--fg)',
                   }}
@@ -135,7 +135,7 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
                 <div
                   style={{
                     textAlign: 'center',
-                    fontSize: 12,
+                    fontSize: 'var(--fs-sm)',
                     fontWeight: 700,
                     color: 'var(--fg-muted)',
                     paddingTop: 4,

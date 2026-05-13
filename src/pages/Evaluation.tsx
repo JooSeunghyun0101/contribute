@@ -559,7 +559,7 @@ const Evaluation = () => {
             background: '#FFF7ED',
             borderBottom: '1px solid #FDBA74',
             color: '#9A3412',
-            fontSize: 13,
+            fontSize: 'var(--fs-body)',
             fontWeight: 700,
           }}
         >
@@ -669,7 +669,7 @@ const EvaluatorAccordion = ({
           <h2
             style={{
               margin: 0,
-              fontSize: 30,
+              fontSize: 'var(--fs-h1)',
               fontWeight: 900,
               color: group.accent,
               lineHeight: 1.15,
@@ -682,7 +682,7 @@ const EvaluatorAccordion = ({
           </Pill>
           {!group.canEdit && <Pill tone="neutral">읽기 전용</Pill>}
         </div>
-        <p style={{ margin: '12px 0 0', fontSize: 14, color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+        <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
           {group.description}
         </p>
       </div>
@@ -690,14 +690,14 @@ const EvaluatorAccordion = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
         <div style={{ textAlign: 'right' }}>
           <div className="sd-label-mini">반영 점수</div>
-          <div className="tnum" style={{ fontSize: 22, fontWeight: 900, color: group.accent }}>
+          <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
             {group.exactScore.toFixed(1)}
-            <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
               {' '}
               / {group.flooredScore}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 3 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
             {group.completedCount}/{group.tasks.length} 과업
           </div>
         </div>
@@ -718,7 +718,7 @@ const EvaluatorAccordion = ({
           alignItems: 'center',
           justifyContent: 'center',
           color: 'var(--fg-muted)',
-          fontSize: 14,
+          fontSize: 'var(--fs-body)',
           fontWeight: 700,
           background: 'var(--bg-muted)',
         }}
@@ -792,14 +792,14 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
             cursor: 'pointer',
           }}
         >
-          <div style={{ fontSize: 12, fontWeight: 900, color: active ? group.accent : 'var(--fg-muted)' }}>
+          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 900, color: active ? group.accent : 'var(--fg-muted)' }}>
             T{String(index + 1).padStart(2, '0')}
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
               <div
                 style={{
-                  fontSize: 13,
+                  fontSize: 'var(--fs-body)',
                   fontWeight: 800,
                   lineHeight: 1.4,
                   overflow: 'hidden',
@@ -819,7 +819,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
                     borderRadius: '50%',
                     background: scoreBg,
                     color: '#fff',
-                    fontSize: 12,
+                    fontSize: 'var(--fs-sm)',
                     fontWeight: 900,
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -831,7 +831,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
                 </span>
               )}
             </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)' }}>
               <span>{item.displayTask.contributionMethod || '방식 미정'}</span>
               <span>·</span>
               <span>{item.displayTask.contributionScope || '범위 미정'}</span>
@@ -885,18 +885,18 @@ const TaskDetail = ({
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Clock3 size={14} color="var(--fg-muted)" aria-hidden="true" />
-          <span style={{ fontSize: 13, fontWeight: 800 }}>
+          <span style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
             {formatDate(task.startDate)}~{formatDate(task.endDate)}
           </span>
           <Pill tone="neutral">가중치 {task.weight}%</Pill>
           {item.hasDraft && <Pill tone="orange">임시저장</Pill>}
         </div>
 
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, lineHeight: 1.25 }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--fs-h1)', fontWeight: 900, lineHeight: 1.25 }}>
           {task.title}
         </h1>
         {task.description && (
-          <p style={{ marginTop: 16, fontSize: 14, lineHeight: 1.8, color: 'var(--fg-muted)' }}>
+          <p style={{ marginTop: 16, fontSize: 'var(--fs-body)', lineHeight: 1.8, color: 'var(--fg-muted)' }}>
             {task.description}
           </p>
         )}
@@ -905,7 +905,7 @@ const TaskDetail = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
               <div className="sd-label-mini">스코어링 매트릭스</div>
-              <h3 style={{ margin: '2px 0 0', fontSize: 14, fontWeight: 900 }}>
+              <h3 style={{ margin: '2px 0 0', fontSize: 'var(--fs-body)', fontWeight: 900 }}>
                 {group.canEdit ? '셀을 클릭해 점수 선택' : '평가자가 선택한 점수'}
               </h3>
             </div>
@@ -920,7 +920,7 @@ const TaskDetail = ({
                 borderColor: noContribSelected ? 'var(--danger)' : 'var(--border)',
                 background: noContribSelected ? 'var(--danger)' : 'transparent',
                 color: noContribSelected ? '#fff' : 'var(--fg)',
-                fontSize: 12,
+                fontSize: 'var(--fs-sm)',
                 fontWeight: 800,
                 cursor: group.canEdit ? 'pointer' : 'not-allowed',
                 opacity: group.canEdit ? 1 : 0.55,
@@ -952,7 +952,7 @@ const TaskDetail = ({
                     background: cellBg,
                     color: cellColor,
                     fontWeight: isSelected ? 900 : 700,
-                    fontSize: isSelected ? 22 : 16,
+                    fontSize: isSelected ? 'var(--fs-h2)' : 'var(--fs-h4)',
                     cursor: group.canEdit ? 'pointer' : 'not-allowed',
                     opacity: group.canEdit || isSelected ? 1 : 0.48,
                   }}
@@ -979,7 +979,7 @@ const TaskDetail = ({
               borderRadius: 8,
               border: '1px solid var(--border)',
               background: group.canEdit ? 'var(--bg-card)' : 'var(--bg-muted)',
-              fontSize: 14,
+              fontSize: 'var(--fs-body)',
               lineHeight: 1.7,
               color: 'var(--fg)',
               resize: 'vertical',
@@ -1010,7 +1010,7 @@ const TaskDetail = ({
                   borderRadius: 16,
                   background: SCORE_BG[item.score] ?? group.accent,
                   color: '#fff',
-                  fontSize: 36,
+                  fontSize: 'var(--fs-display)',
                   fontWeight: 900,
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -1020,12 +1020,12 @@ const TaskDetail = ({
               >
                 {item.score}
               </div>
-              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--fg-muted)' }}>
+              <div style={{ marginTop: 10, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                 {displayTask.contributionMethod || '미정'} × {displayTask.contributionScope || '미정'}
               </div>
             </>
           ) : (
-            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 13 }}>
+            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
               아직 평가되지 않았습니다.
             </div>
           )}
@@ -1040,10 +1040,10 @@ const TaskDetail = ({
           }}
         >
           <div className="sd-label-mini">가중치 반영</div>
-          <div className="tnum" style={{ marginTop: 8, fontSize: 24, fontWeight: 900, color: group.accent }}>
+          <div className="tnum" style={{ marginTop: 8, fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
             {item.score != null ? ((item.score * task.weight) / 100).toFixed(2) : '–'}
           </div>
-          <div style={{ marginTop: 5, fontSize: 11, color: 'var(--fg-muted)' }}>
+          <div style={{ marginTop: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
             점수 {item.score ?? '–'} × 가중치 {task.weight}%
           </div>
         </div>
@@ -1056,7 +1056,7 @@ const TaskDetail = ({
               background: '#F8FAFC',
               border: '1px solid var(--border)',
               color: 'var(--fg-muted)',
-              fontSize: 12,
+              fontSize: 'var(--fs-sm)',
               lineHeight: 1.6,
             }}
           >

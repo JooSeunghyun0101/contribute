@@ -33,9 +33,9 @@ const EvaluatorSchedulePage = () => {
       <div style={{ padding: '24px 32px 32px' }}>
         <div className="sd-card sd-card-lg">
           {isLoading ? (
-            <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>팀 일정 데이터를 불러오는 중입니다.</div>
+            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>팀 일정 데이터를 불러오는 중입니다.</div>
           ) : error ? (
-            <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+            <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
           ) : (
             <div>
               {/* Column headers */}
@@ -46,7 +46,7 @@ const EvaluatorSchedulePage = () => {
                   gap: 0,
                   paddingBottom: 12,
                   borderBottom: '1px solid var(--border)',
-                  fontSize: 11,
+                  fontSize: 'var(--fs-xs)',
                   fontWeight: 700,
                   letterSpacing: '0.06em',
                   color: 'var(--fg-muted)',
@@ -85,7 +85,7 @@ const EvaluatorSchedulePage = () => {
                           borderRadius: '50%',
                           background: 'var(--ok-orange)',
                           color: '#fff',
-                          fontSize: 13,
+                          fontSize: 'var(--fs-body)',
                           fontWeight: 800,
                           display: 'flex',
                           alignItems: 'center',
@@ -95,8 +95,8 @@ const EvaluatorSchedulePage = () => {
                       >
                         {record.employee.name.charAt(0)}
                       </div>
-                      <span style={{ fontSize: 15, fontWeight: 800 }}>{record.employee.name}</span>
-                      <span style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
+                      <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>{record.employee.name}</span>
+                      <span style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>
                         {record.employee.position} · {record.employee.department}
                       </span>
                       <span
@@ -105,7 +105,7 @@ const EvaluatorSchedulePage = () => {
                           borderRadius: 12,
                           background: record.progress >= 100 ? '#DCFCE7' : 'var(--ok-orange-50)',
                           color: record.progress >= 100 ? '#16A34A' : 'var(--ok-orange)',
-                          fontSize: 12,
+                          fontSize: 'var(--fs-sm)',
                           fontWeight: 700,
                         }}
                       >
@@ -135,7 +135,7 @@ const EvaluatorSchedulePage = () => {
                             <div
                               style={{
                                 paddingLeft: 42,
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 color: 'var(--fg-muted)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -204,7 +204,7 @@ const EvaluatorSchedulePage = () => {
                       })}
 
                       {!record.tasks.length && (
-                        <div style={{ paddingLeft: 42, fontSize: 12, color: 'var(--fg-muted)' }}>
+                        <div style={{ paddingLeft: 42, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                           등록된 과업이 없습니다.
                         </div>
                       )}
@@ -213,7 +213,7 @@ const EvaluatorSchedulePage = () => {
                 ))}
 
                 {!totalMembers && (
-                  <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>표시할 팀 일정이 없습니다.</div>
+                  <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>표시할 팀 일정이 없습니다.</div>
                 )}
               </div>
             </div>

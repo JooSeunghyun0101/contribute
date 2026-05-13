@@ -21,8 +21,8 @@ export const CountdownCard = ({
     <div className="sd-label-mini" style={{ marginBottom: 8 }}>
       {label}
     </div>
-    <div style={{ fontSize: 13, fontWeight: 700 }}>{cycle}</div>
-    <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>{remaining}</div>
+    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{cycle}</div>
+    <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>{remaining}</div>
     <div className="sd-bar" style={{ marginTop: 10, height: 4 }}>
       <div className="sd-bar-fill" style={{ width: `${progress}%` }} />
     </div>

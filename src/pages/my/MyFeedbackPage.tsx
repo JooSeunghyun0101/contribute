@@ -87,14 +87,14 @@ const MyFeedbackPage = () => {
       <div style={{ padding: '28px 32px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
         <div className="flex flex-col gap-4">
           {isLoading ? (
-            <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>피드백을 불러오는 중입니다.</div>
+            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백을 불러오는 중입니다.</div>
           ) : taskCards.length === 0 ? (
-            <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+            <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
               아직 등록된 과업이 없습니다.
             </div>
           ) : (
             <>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4 }}>
+              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4 }}>
                 현재 평가
               </div>
               {taskCards.map((card) => (
@@ -113,11 +113,11 @@ const MyFeedbackPage = () => {
 
           {(pastBundles.length > 0 || isLoadingPast) && (
             <>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4, marginTop: 8 }}>
+              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4, marginTop: 8 }}>
                 과거 평가자별 이력
               </div>
               {isLoadingPast && pastBundles.length === 0 ? (
-                <div style={{ color: 'var(--fg-muted)', fontSize: 12.5 }}>과거 이력 로딩 중…</div>
+                <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>과거 이력 로딩 중…</div>
               ) : (
                 pastBundles.map((bundle) => (
                   <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} editable />
@@ -139,7 +139,7 @@ const MyFeedbackPage = () => {
                     borderRadius: '50%',
                     background: 'var(--ok-orange)',
                     color: '#fff',
-                    fontSize: 16,
+                    fontSize: 'var(--fs-h4)',
                     fontWeight: 800,
                     display: 'flex',
                     alignItems: 'center',
@@ -150,12 +150,12 @@ const MyFeedbackPage = () => {
                   {latestEvaluatorInitial}
                 </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{latestEvaluator}</div>
-                  <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>최근 평가자</div>
+                  <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{latestEvaluator}</div>
+                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>최근 평가자</div>
                 </div>
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>평가자 정보 없음</div>
+              <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>평가자 정보 없음</div>
             )}
           </div>
 
@@ -171,7 +171,7 @@ const MyFeedbackPage = () => {
                       borderRadius: 20,
                       background: 'var(--bg-muted)',
                       border: '1px solid var(--border)',
-                      fontSize: 12,
+                      fontSize: 'var(--fs-sm)',
                       fontWeight: 600,
                       color: 'var(--fg)',
                     }}
@@ -200,7 +200,7 @@ const MyFeedbackPage = () => {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div
                       style={{
-                        fontSize: 13,
+                        fontSize: 'var(--fs-body)',
                         fontWeight: 600,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -219,7 +219,7 @@ const MyFeedbackPage = () => {
                         card.entries.length > 0 ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
                       color:
                         card.entries.length > 0 ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                      fontSize: 11,
+                      fontSize: 'var(--fs-xs)',
                       fontWeight: 700,
                       whiteSpace: 'nowrap',
                     }}
@@ -243,8 +243,8 @@ const MyFeedbackPage = () => {
                 <IconSparkle width={16} height={16} />
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
-                <div style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
+                <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
                   최근 피드백을 기준으로 주도성과 실행력이 강점으로 평가되고 있습니다. 다음 라운드에서 협업과 공유 관점의 활동을 추가하면 더 높은 점수에 근접할 수 있습니다.
                 </div>
               </div>

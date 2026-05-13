@@ -27,11 +27,11 @@ const HrSettingsPage = () => {
       <div className="flex flex-col gap-6" style={{ padding: '24px 32px 32px' }}>
         {/* 평가 주기 */}
         <section className="sd-card sd-card-lg">
-          <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 20 }}>평가 주기</h3>
+          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>평가 주기</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
             <div>
               <label
-                style={{ fontSize: 12, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
+                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
               >
                 평가 주기
               </label>
@@ -47,7 +47,7 @@ const HrSettingsPage = () => {
             </div>
             <div>
               <label
-                style={{ fontSize: 12, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
+                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
               >
                 현재 라운드
               </label>
@@ -59,7 +59,7 @@ const HrSettingsPage = () => {
             </div>
             <div>
               <label
-                style={{ fontSize: 12, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
+                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
               >
                 마감일
               </label>
@@ -75,13 +75,13 @@ const HrSettingsPage = () => {
 
         {/* 알림 설정 */}
         <section className="sd-card sd-card-lg">
-          <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
+          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
           <NotificationSettings onClose={() => {}} />
         </section>
 
         {/* 권한 & 역할 */}
         <section className="sd-card sd-card-lg">
-          <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 20 }}>권한 &amp; 역할</h3>
+          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>권한 &amp; 역할</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
             {ROLE_CARDS.map((card) => {
               const count = counts[card.id as keyof typeof counts];
@@ -97,7 +97,7 @@ const HrSettingsPage = () => {
                 >
                   <div
                     style={{
-                      fontSize: 11,
+                      fontSize: 'var(--fs-xs)',
                       fontWeight: 800,
                       letterSpacing: '0.06em',
                       color: card.borderColor,
@@ -108,16 +108,16 @@ const HrSettingsPage = () => {
                   </div>
                   <div
                     style={{
-                      fontSize: 32,
+                      fontSize: 'var(--fs-display)',
                       fontWeight: 900,
                       color: card.borderColor,
                       lineHeight: 1,
                     }}
                   >
                     {count}
-                    <span style={{ fontSize: 16, fontWeight: 600, marginLeft: 4 }}>명</span>
+                    <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 600, marginLeft: 4 }}>명</span>
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fg-muted)' }}>{card.desc}</div>
+                  <div style={{ marginTop: 8, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{card.desc}</div>
                 </div>
               );
             })}

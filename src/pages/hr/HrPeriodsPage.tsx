@@ -58,7 +58,7 @@ const StatusBadge = ({ status }: { status: EvaluationPeriodStatus }) => {
         border: `1px solid ${style.border}`,
         background: style.bg,
         color: style.fg,
-        fontSize: 12,
+        fontSize: 'var(--fs-sm)',
         fontWeight: 800,
       }}
     >
@@ -77,8 +77,8 @@ const SummaryBox = ({ label, value }: { label: string; value: string | number })
       minHeight: 82,
     }}
   >
-    <div style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>{label}</div>
-    <div style={{ marginTop: 8, fontSize: 24, lineHeight: 1.1, fontWeight: 900 }}>{value}</div>
+    <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>{label}</div>
+    <div style={{ marginTop: 8, fontSize: 'var(--fs-h2)', lineHeight: 1.1, fontWeight: 900 }}>{value}</div>
   </div>
 );
 
@@ -255,7 +255,7 @@ const HrPeriodsPage = () => {
           <section className="sd-card sd-card-lg">
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <CalendarDays size={18} color="var(--ok-orange)" />
-              <h2 style={{ fontSize: 16, fontWeight: 900 }}>새 평가기간</h2>
+              <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900 }}>새 평가기간</h2>
             </div>
 
             <div
@@ -265,7 +265,7 @@ const HrPeriodsPage = () => {
                 gap: 14,
               }}
             >
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 연도
                 <input
                   className="sd-input"
@@ -274,7 +274,7 @@ const HrPeriodsPage = () => {
                   inputMode="numeric"
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 코드
                 <input
                   className="sd-input"
@@ -282,7 +282,7 @@ const HrPeriodsPage = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 평가기간명
                 <input
                   className="sd-input"
@@ -290,7 +290,7 @@ const HrPeriodsPage = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 시작일
                 <input
                   className="sd-input"
@@ -299,7 +299,7 @@ const HrPeriodsPage = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, starts_on: event.target.value }))}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 종료일
                 <input
                   className="sd-input"
@@ -308,7 +308,7 @@ const HrPeriodsPage = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, ends_on: event.target.value }))}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, fontWeight: 800 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
                 초기 상태
                 <select
                   className="sd-input"
@@ -360,11 +360,11 @@ const HrPeriodsPage = () => {
                     <TableRow key={period.id}>
                       <TableCell>
                         <strong>{period.name}</strong>
-                        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--fg-muted)' }}>
+                        <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                           생성 {formatDate(period.created_at)}
                         </div>
                       </TableCell>
-                      <TableCell style={{ fontFamily: 'monospace', fontSize: 12 }}>{period.code}</TableCell>
+                      <TableCell style={{ fontFamily: 'monospace', fontSize: 'var(--fs-sm)' }}>{period.code}</TableCell>
                       <TableCell>{period.evaluation_year}</TableCell>
                       <TableCell>{formatDate(period.starts_on)}</TableCell>
                       <TableCell>{formatDate(period.ends_on)}</TableCell>

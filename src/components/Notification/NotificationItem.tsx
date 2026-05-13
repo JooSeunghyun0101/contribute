@@ -97,12 +97,12 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMar
         <Icon size={14} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--fg)', marginBottom: 4 }}>
+        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)', marginBottom: 4 }}>
           {notification.title}
         </div>
         <div
           style={{
-            fontSize: 12.5,
+            fontSize: 'var(--fs-sm)',
             lineHeight: 1.55,
             color: 'var(--fg-muted)',
             marginBottom: 6,
@@ -114,7 +114,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMar
         >
           {notification.message}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>
+        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
           {notification.senderName} · {formatRelativeTime(notification.createdAt)}
         </div>
       </div>

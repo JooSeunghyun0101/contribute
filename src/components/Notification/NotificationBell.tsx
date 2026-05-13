@@ -66,7 +66,7 @@ const NotificationBell: React.FC = () => {
                 borderRadius: 9,
                 background: 'var(--ok-orange)',
                 color: '#fff',
-                fontSize: 11,
+                fontSize: 'var(--fs-xs)',
                 fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',

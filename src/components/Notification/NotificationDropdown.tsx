@@ -45,11 +45,11 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ notificatio
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--fg)' }}>알림</span>
+          <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--fg)' }}>알림</span>
           {unreadCount > 0 && (
             <span
               style={{
-                fontSize: 11,
+                fontSize: 'var(--fs-xs)',
                 fontWeight: 700,
                 color: 'var(--ok-orange)',
                 background: 'var(--ok-orange-50)',
@@ -68,7 +68,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ notificatio
             style={{
               background: 'transparent',
               border: 'none',
-              fontSize: 12,
+              fontSize: 'var(--fs-sm)',
               fontWeight: 600,
               color: 'var(--fg-muted)',
               cursor: 'pointer',
@@ -87,7 +87,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ notificatio
               padding: '40px 18px',
               textAlign: 'center',
               color: 'var(--fg-muted)',
-              fontSize: 13,
+              fontSize: 'var(--fs-body)',
             }}
           >
             새로운 알림이 없습니다.
@@ -108,7 +108,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ notificatio
           background: 'transparent',
           border: 'none',
           borderTop: '1px solid var(--border)',
-          fontSize: 12.5,
+          fontSize: 'var(--fs-sm)',
           fontWeight: 700,
           color: 'var(--ok-orange)',
           cursor: 'pointer',

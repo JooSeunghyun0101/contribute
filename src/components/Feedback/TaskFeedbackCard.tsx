@@ -46,7 +46,7 @@ const EvaluatorRow = ({
         borderRadius: '50%',
         background: 'var(--ok-orange)',
         color: '#fff',
-        fontSize: 13,
+        fontSize: 'var(--fs-body)',
         fontWeight: 800,
         display: 'flex',
         alignItems: 'center',
@@ -57,15 +57,15 @@ const EvaluatorRow = ({
       {name ? name.charAt(0) : '?'}
     </div>
     <div>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>
+      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
         {name ?? '평가자'}
         {isLatest && (
-          <span style={{ marginLeft: 8, color: 'var(--ok-orange)', fontSize: 11, fontWeight: 700 }}>
+          <span style={{ marginLeft: 8, color: 'var(--ok-orange)', fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
             · 최신
           </span>
         )}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 1 }}>{formatDate(date)}</div>
+      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 1 }}>{formatDate(date)}</div>
     </div>
   </div>
 );
@@ -97,7 +97,7 @@ const TaskFeedbackCard = ({
             borderRadius: '50%',
             background: scoreBg,
             color: scoreFg,
-            fontSize: 13,
+            fontSize: 'var(--fs-body)',
             fontWeight: 800,
             display: 'flex',
             alignItems: 'center',
@@ -124,7 +124,7 @@ const TaskFeedbackCard = ({
         {taskBadge && (
           <span
             style={{
-              fontSize: 11,
+              fontSize: 'var(--fs-xs)',
               fontWeight: 800,
               color: '#fff',
               background: 'var(--ok-brown)',
@@ -135,9 +135,9 @@ const TaskFeedbackCard = ({
             {taskBadge}
           </span>
         )}
-        <span style={{ fontSize: 13, fontWeight: 600 }}>{taskTitle}</span>
+        <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{taskTitle}</span>
         {(contributionMethod || contributionScope) && (
-          <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
             · {[contributionMethod, contributionScope].filter(Boolean).join(' / ')}
           </span>
         )}
@@ -146,12 +146,12 @@ const TaskFeedbackCard = ({
       {latest ? (
         <>
           <EvaluatorRow name={latest.evaluatorName} date={latest.date} isLatest={older.length > 0} />
-          <p style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
+          <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
             {latest.content}
           </p>
         </>
       ) : (
-        <p style={{ fontSize: 13, color: 'var(--fg-muted)', margin: 0 }}>
+        <p style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', margin: 0 }}>
           등록된 피드백이 없습니다.
         </p>
       )}
@@ -167,7 +167,7 @@ const TaskFeedbackCard = ({
               borderRadius: 14,
               border: '1px solid var(--border)',
               background: 'var(--bg-muted)',
-              fontSize: 11,
+              fontSize: 'var(--fs-xs)',
               fontWeight: 700,
               color: 'var(--fg-muted)',
               cursor: 'pointer',
@@ -177,7 +177,7 @@ const TaskFeedbackCard = ({
             }}
           >
             {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${older.length}건 펼치기`}
-            <span style={{ fontSize: 9 }}>{isExpanded ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
           </button>
 
           {isExpanded && (
@@ -193,7 +193,7 @@ const TaskFeedbackCard = ({
                   <EvaluatorRow name={entry.evaluatorName} date={entry.date} />
                   <p
                     style={{
-                      fontSize: 13,
+                      fontSize: 'var(--fs-body)',
                       lineHeight: 1.7,
                       color: 'var(--fg-muted)',
                       margin: 0,

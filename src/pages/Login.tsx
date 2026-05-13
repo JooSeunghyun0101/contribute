@@ -108,7 +108,7 @@ const Login = () => {
           <div
             style={{
               marginTop: 100,
-              fontSize: 15,
+              fontSize: 'var(--fs-h4)',
               color: 'var(--ok-yellow-300)',
               fontWeight: 700,
               letterSpacing: '0.12em',
@@ -118,7 +118,7 @@ const Login = () => {
           </div>
           <h1
             style={{
-              fontSize: 56,
+              fontSize: 'var(--fs-display)',
               fontWeight: 900,
               letterSpacing: '-0.04em',
               lineHeight: 1.05,
@@ -141,7 +141,7 @@ const Login = () => {
               </span>
             </span>
           </h1>
-          <p style={{ color: textSoft, marginTop: 20, fontSize: 15, lineHeight: 1.6, maxWidth: 480 }}>
+          <p style={{ color: textSoft, marginTop: 20, fontSize: 'var(--fs-h4)', lineHeight: 1.6, maxWidth: 480 }}>
             과업 × 기여방식 × 기여범위의 정량 매트릭스.
             <br />
             2026년, OK금융그룹의 새로운 평가 체계가 시작됩니다.
@@ -151,21 +151,21 @@ const Login = () => {
           style={{
             display: 'flex',
             gap: 40,
-            fontSize: 12,
+            fontSize: 'var(--fs-sm)',
             color: textSubtle,
             position: 'relative',
           }}
         >
           <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>342</div>
+            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>342</div>
             평가 대상자
           </div>
           <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>48</div>
+            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>48</div>
             평가자
           </div>
           <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 16 }}>4×4</div>
+            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>4×4</div>
             매트릭스
           </div>
         </div>
@@ -186,7 +186,7 @@ const Login = () => {
       >
         <div
           style={{
-            fontSize: 12,
+            fontSize: 'var(--fs-sm)',
             fontWeight: 700,
             letterSpacing: '0.14em',
             color: 'var(--ok-yellow-300)',
@@ -194,7 +194,7 @@ const Login = () => {
         >
           {step === 'credentials' ? 'LOGIN' : 'SELECT ROLE'}
         </div>
-        <h2 style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>
+        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>
           {step === 'credentials' ? 'Welcome back.' : '역할 선택'}
         </h2>
 
@@ -207,7 +207,7 @@ const Login = () => {
               border: '1px solid rgba(220, 69, 69, 0.4)',
               borderRadius: 10,
               color: '#FFB4B4',
-              fontSize: 13,
+              fontSize: 'var(--fs-body)',
             }}
           >
             {error}
@@ -263,7 +263,7 @@ const Login = () => {
             >
               {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
             </button>
-            <div style={{ fontSize: 11, color: textSubtle, textAlign: 'center', marginTop: 6 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: textSubtle, textAlign: 'center', marginTop: 6 }}>
               SSO · OK금융그룹 통합인증
             </div>
           </form>
@@ -326,7 +326,7 @@ const Login = () => {
                 background: 'transparent',
                 color: textSoft,
                 border: 'none',
-                fontSize: 13,
+                fontSize: 'var(--fs-body)',
                 cursor: 'pointer',
                 marginTop: 4,
               }}
@@ -347,7 +347,7 @@ const Login = () => {
         >
           <div
             style={{
-              fontSize: 11,
+              fontSize: 'var(--fs-xs)',
               color: 'var(--ok-yellow-300)',
               fontWeight: 700,
               letterSpacing: '0.1em',
@@ -355,7 +355,7 @@ const Login = () => {
           >
             TIP
           </div>
-          <div style={{ fontSize: 12, marginTop: 4, color: textSoft, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--fs-sm)', marginTop: 4, color: textSoft, lineHeight: 1.5 }}>
             로그인 후 상단바의 역할 스위처에서 피평가자 / 평가자 / HR을 전환할 수 있습니다.
           </div>
         </div>

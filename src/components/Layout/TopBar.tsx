@@ -67,7 +67,7 @@ export const TopBar = () => {
                   style={{
                     padding: '5px 12px',
                     borderRadius: 6,
-                    fontSize: 13,
+                    fontSize: 'var(--fs-body)',
                     fontWeight: 600,
                     color: active ? '#fff' : 'var(--fg-muted)',
                     background: active ? 'var(--ok-orange)' : 'transparent',
@@ -85,7 +85,7 @@ export const TopBar = () => {
             style={{
               padding: '5px 12px',
               borderRadius: 6,
-              fontSize: 13,
+              fontSize: 'var(--fs-body)',
               fontWeight: 600,
               color: '#fff',
               background: 'var(--ok-orange)',
@@ -127,13 +127,13 @@ export const TopBar = () => {
         >
           <div className="sd-avatar">{user.name[0]}</div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>
               {user.name}{' '}
               <span style={{ color: 'var(--fg-muted)', fontWeight: 500 }}>
                 {user.position}
               </span>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--fg-subtle)' }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
               {user.department} · Lv.{user.growthLevel ?? 1}
             </div>
           </div>

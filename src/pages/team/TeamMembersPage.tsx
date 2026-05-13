@@ -137,10 +137,10 @@ const MemberCarousel = ({ level, items, onOpen }: MemberCarouselProps) => {
       >
         <div>
           <div className="sd-label-mini">성장 레벨</div>
-          <h2 style={{ fontSize: 18, fontWeight: 900, marginTop: 2 }}>Lv.{level}</h2>
+          <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, marginTop: 2 }}>Lv.{level}</h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
             {items.length}명
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -199,7 +199,7 @@ const carouselNavStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
   background: 'var(--bg-card)',
   color: 'var(--fg)',
-  fontSize: 16,
+  fontSize: 'var(--fs-h4)',
   fontWeight: 800,
   cursor: 'pointer',
   display: 'inline-flex',
@@ -238,7 +238,7 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
             position: 'absolute',
             top: 16,
             right: 16,
-            fontSize: 11,
+            fontSize: 'var(--fs-xs)',
             fontWeight: 700,
             color: '#16A34A',
             background: '#DCFCE7',
@@ -261,7 +261,7 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
             borderRadius: '50%',
             background: 'var(--ok-orange)',
             color: '#fff',
-            fontSize: 20,
+            fontSize: 'var(--fs-h3)',
             fontWeight: 800,
             display: 'flex',
             alignItems: 'center',
@@ -272,13 +272,13 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
           {record.employee.name.charAt(0)}
         </div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>
+          <div style={{ fontSize: 'var(--fs-h4)', fontWeight: 700 }}>
             {record.employee.name}{' '}
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg-muted)' }}>
+            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {record.employee.position}
             </span>
           </div>
-          <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
             {record.employee.department} · Lv.{record.employee.growth_level ?? 1}
           </div>
         </div>
@@ -286,12 +286,12 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 4 }}>
             현재 점수
           </div>
           <div
             style={{
-              fontSize: 28,
+              fontSize: 'var(--fs-h1)',
               fontWeight: 900,
               color: 'var(--ok-orange)',
               lineHeight: 1,
@@ -302,7 +302,7 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
         </div>
 
         <div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 8 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 8 }}>
             평가 진행률
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -324,7 +324,7 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
                 }}
               />
             </div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
               {completedCount}/{totalCount}
             </span>
           </div>
@@ -339,7 +339,7 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
           marginTop: 'auto',
         }}
       >
-        <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
           {recentDate ? `최근 활동 · ${recentDate}` : '활동 기록 없음'}
         </div>
         <button

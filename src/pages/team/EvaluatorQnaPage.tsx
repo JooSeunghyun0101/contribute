@@ -212,7 +212,7 @@ const EvaluatorQnaPage = () => {
                   borderRadius: 10,
                   border: '1px solid var(--border)',
                   background: 'var(--bg-card)',
-                  fontSize: 14,
+                  fontSize: 'var(--fs-body)',
                   lineHeight: 1.6,
                   color: 'var(--fg)',
                   fontFamily: 'inherit',
@@ -243,7 +243,7 @@ const EvaluatorQnaPage = () => {
           <div className="sd-card sd-card-lg">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
               <IconSparkle size={16} style={{ color: 'var(--ok-orange)' }} />
-              <h3 style={{ fontSize: 14, fontWeight: 800 }}>추천 질문</h3>
+              <h3 style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>추천 질문</h3>
             </div>
             <div className="flex flex-col gap-2">
               {STARTERS.map((q) => (
@@ -258,7 +258,7 @@ const EvaluatorQnaPage = () => {
                     borderRadius: 10,
                     border: '1px solid var(--border)',
                     background: 'var(--bg-muted)',
-                    fontSize: 12,
+                    fontSize: 'var(--fs-sm)',
                     lineHeight: 1.55,
                     cursor: isSending ? 'not-allowed' : 'pointer',
                     color: 'var(--fg)',
@@ -283,14 +283,14 @@ const EvaluatorQnaPage = () => {
             <p
               style={{
                 marginTop: 8,
-                fontSize: 12,
+                fontSize: 'var(--fs-sm)',
                 lineHeight: 1.65,
                 color: 'var(--ok-brown)',
               }}
             >
               AI 응답은 평가 의사결정의 참고 자료이며, 최종 점수와 평가 결정은 평가자 본인이 내려야 합니다.
               프롬프트는 HR 관리자 화면(<b>AI 프롬프트</b> ·{' '}
-              <code style={{ fontSize: 11 }}>evaluator_qna_assistant</code>)에서 확인·수정할 수 있습니다.
+              <code style={{ fontSize: 'var(--fs-xs)' }}>evaluator_qna_assistant</code>)에서 확인·수정할 수 있습니다.
             </p>
           </div>
         </div>
@@ -328,7 +328,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
               alignItems: 'center',
               gap: 6,
               marginBottom: 4,
-              fontSize: 11,
+              fontSize: 'var(--fs-xs)',
               color: 'var(--fg-muted)',
               fontWeight: 700,
             }}
@@ -343,7 +343,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
             background: bg,
             color,
             border,
-            fontSize: 13,
+            fontSize: 'var(--fs-body)',
             lineHeight: 1.7,
             whiteSpace: 'pre-wrap',
             boxShadow: !isUser && !message.error ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
@@ -354,7 +354,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
         </div>
         <div
           style={{
-            fontSize: 10,
+            fontSize: 'var(--fs-micro)',
             color: 'var(--fg-subtle)',
             marginTop: 4,
             textAlign: isUser ? 'right' : 'left',

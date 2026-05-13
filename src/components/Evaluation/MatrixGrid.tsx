@@ -22,7 +22,7 @@ type MatrixGridProps = {
 const defaultMethodLabel = (method: string) => (
   <div
     style={{
-      fontSize: 11,
+      fontSize: 'var(--fs-xs)',
       fontWeight: 700,
       color: 'var(--fg-muted)',
       display: 'flex',
@@ -38,7 +38,7 @@ const defaultScopeLabel = (scope: string) => (
   <div
     style={{
       textAlign: 'center',
-      fontSize: 11,
+      fontSize: 'var(--fs-xs)',
       fontWeight: 700,
       color: 'var(--fg-muted)',
       paddingTop: 4,

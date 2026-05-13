@@ -141,7 +141,7 @@ const MyHome = () => {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 32, color: 'var(--fg-muted)', fontSize: 14 }}>
+      <div style={{ padding: 32, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
         평가 데이터를 불러오는 중입니다…
       </div>
     );
@@ -162,7 +162,7 @@ const MyHome = () => {
       <div>
         <div
           style={{
-            fontSize: 11,
+            fontSize: 'var(--fs-xs)',
             fontWeight: 700,
             color: 'var(--fg-subtle)',
             letterSpacing: '0.08em',
@@ -180,9 +180,9 @@ const MyHome = () => {
             gap: 16,
           }}
         >
-          <h1 style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
+          <h1 style={{ fontSize: 'var(--fs-h1)', fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
             {user?.name}{' '}
-            <span style={{ fontSize: 18, fontWeight: 500, color: 'var(--fg-muted)' }}>
+            <span style={{ fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {user?.position} · {user?.department}
             </span>
           </h1>
@@ -190,7 +190,7 @@ const MyHome = () => {
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 'var(--fs-micro)',
                   fontWeight: 700,
                   color: 'var(--fg-subtle)',
                   letterSpacing: '0.06em',
@@ -201,7 +201,7 @@ const MyHome = () => {
               </div>
               <div
                 className="tnum"
-                style={{ fontSize: 34, fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
+                style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
               >
                 {exactScore.toFixed(1)}
               </div>
@@ -209,7 +209,7 @@ const MyHome = () => {
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 'var(--fs-micro)',
                   fontWeight: 700,
                   color: 'var(--fg-subtle)',
                   letterSpacing: '0.06em',
@@ -220,7 +220,7 @@ const MyHome = () => {
               </div>
               <div
                 className="tnum"
-                style={{ fontSize: 34, fontWeight: 900, lineHeight: 1 }}
+                style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}
               >
                 Lv.{evaluationData?.growthLevel ?? '-'}
               </div>
@@ -228,7 +228,7 @@ const MyHome = () => {
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 'var(--fs-micro)',
                   fontWeight: 700,
                   color: 'var(--fg-subtle)',
                   letterSpacing: '0.06em',
@@ -240,7 +240,7 @@ const MyHome = () => {
               <div
                 style={{
                   marginTop: 6,
-                  fontSize: 13,
+                  fontSize: 'var(--fs-body)',
                   fontWeight: 700,
                   color: achieved ? 'var(--ok-orange)' : 'var(--fg-muted)',
                 }}
@@ -253,7 +253,7 @@ const MyHome = () => {
       </div>
 
       {!evaluationData ? (
-        <div className="sd-card" style={{ padding: 24, color: 'var(--fg-muted)', fontSize: 14 }}>
+        <div className="sd-card" style={{ padding: 24, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
           평가 데이터가 없습니다.
         </div>
       ) : (
@@ -270,8 +270,8 @@ const MyHome = () => {
                   marginBottom: 14,
                 }}
               >
-                <h3 style={{ fontSize: 15, fontWeight: 800 }}>기여 분포</h3>
-                <span style={{ fontSize: 11, color: 'var(--fg-subtle)', fontWeight: 600 }}>
+                <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>기여 분포</h3>
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)', fontWeight: 600 }}>
                   방식 × 범위
                 </span>
               </div>
@@ -285,7 +285,7 @@ const MyHome = () => {
                   <div
                     style={{
                       textAlign: 'center',
-                      fontSize: 10,
+                      fontSize: 'var(--fs-micro)',
                       fontWeight: 700,
                       color: 'var(--fg-muted)',
                       paddingTop: 4,
@@ -310,7 +310,7 @@ const MyHome = () => {
                           justifyContent: 'center',
                           color: 'var(--fg-subtle)',
                           fontWeight: 700,
-                          fontSize: 15,
+                          fontSize: 'var(--fs-h4)',
                         }}
                       >
                         {baseScore}
@@ -342,7 +342,7 @@ const MyHome = () => {
                       >
                         <span
                           style={{
-                            fontSize: 10,
+                            fontSize: 'var(--fs-micro)',
                             fontWeight: 800,
                             opacity: 0.85,
                             letterSpacing: '0.04em',
@@ -353,7 +353,7 @@ const MyHome = () => {
                         <span
                           className="tnum"
                           style={{
-                            fontSize: hasScore ? 18 : 11,
+                            fontSize: hasScore ? 'var(--fs-h3)' : 'var(--fs-xs)',
                             fontWeight: 900,
                           }}
                         >
@@ -399,13 +399,13 @@ const MyHome = () => {
                               justifyContent: 'space-between',
                               padding: '0 6px',
                               color: '#fff',
-                              fontSize: 10,
+                              fontSize: 'var(--fs-micro)',
                               fontWeight: 800,
                               lineHeight: 1,
                             }}
                           >
                             <span style={{ opacity: 0.9, letterSpacing: '0.02em' }}>{lab}</span>
-                            <span className="tnum" style={{ fontSize: 11, fontWeight: 900 }}>
+                            <span className="tnum" style={{ fontSize: 'var(--fs-xs)', fontWeight: 900 }}>
                               {hasScore ? c.score : '–'}
                             </span>
                           </div>
@@ -430,14 +430,14 @@ const MyHome = () => {
                 {([4, 3, 2, 1] as const).filter((s) => dist[String(s)] > 0).map((s) => (
                   <div
                     key={s}
-                    style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}
+                    style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-body)' }}
                   >
                     <span style={{ color: 'var(--fg-muted)' }}>{s}점 과업</span>
                     <span style={{ fontWeight: 700 }}>{dist[String(s)]}</span>
                   </div>
                 ))}
                 {dist.none > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-body)' }}>
                     <span style={{ color: 'var(--fg-muted)' }}>미평가</span>
                     <span style={{ fontWeight: 700 }}>{dist.none}</span>
                   </div>
@@ -455,7 +455,7 @@ const MyHome = () => {
                   marginBottom: 12,
                 }}
               >
-                <h3 style={{ fontSize: 15, fontWeight: 800 }}>과업 일정 (간트)</h3>
+                <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>과업 일정 (간트)</h3>
                 {/* month labels */}
                 <div style={{ display: 'flex', gap: 0, flex: 1, marginLeft: 16 }}>
                   {GANTT_LABELS.map((m) => (
@@ -464,7 +464,7 @@ const MyHome = () => {
                       style={{
                         flex: 1,
                         textAlign: 'center',
-                        fontSize: 10,
+                        fontSize: 'var(--fs-micro)',
                         fontWeight: 700,
                         color: 'var(--fg-muted)',
                       }}
@@ -547,7 +547,7 @@ const MyHome = () => {
                             alignItems: 'center',
                             padding: '0 8px',
                             color: '#fff',
-                            fontSize: 11,
+                            fontSize: 'var(--fs-xs)',
                             fontWeight: 700,
                             overflow: 'hidden',
                             whiteSpace: 'nowrap',
@@ -569,7 +569,7 @@ const MyHome = () => {
                                 background: SCORE_BG[taskScore] ?? 'var(--bg-muted)',
                                 color: '#fff',
                                 fontWeight: 900,
-                                fontSize: 12,
+                                fontSize: 'var(--fs-sm)',
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -579,7 +579,7 @@ const MyHome = () => {
                             </div>
                             <span
                               className="tnum"
-                              style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)' }}
+                              style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}
                             >
                               {taskScore.toFixed(1)}
                             </span>
@@ -587,7 +587,7 @@ const MyHome = () => {
                         ) : (
                           <span
                             style={{
-                              fontSize: 10,
+                              fontSize: 'var(--fs-micro)',
                               fontWeight: 600,
                               color: 'var(--fg-subtle)',
                               whiteSpace: 'nowrap',
@@ -602,7 +602,7 @@ const MyHome = () => {
                 })}
 
                 {!tasks.length && (
-                  <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
+                  <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                     등록된 과업이 없습니다.
                   </div>
                 )}
@@ -620,8 +620,8 @@ const MyHome = () => {
                 marginBottom: 14,
               }}
             >
-              <h3 style={{ fontSize: 15, fontWeight: 800 }}>과업 비율</h3>
-              <span style={{ fontSize: 11, color: 'var(--fg-subtle)', fontWeight: 600 }}>
+              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>과업 비율</h3>
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)', fontWeight: 600 }}>
                 가중치 기준 · 총 {totalWeight}%
               </span>
             </div>
@@ -637,7 +637,7 @@ const MyHome = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: 'var(--fg-muted)',
-                      fontSize: 13,
+                      fontSize: 'var(--fs-body)',
                     }}
                   >
                     표시할 과업이 없습니다.
@@ -675,7 +675,7 @@ const MyHome = () => {
                                 textAnchor={anchor}
                                 dominantBaseline="central"
                                 style={{
-                                  fontSize: 11,
+                                  fontSize: 'var(--fs-xs)',
                                   fontWeight: 700,
                                   fill: 'var(--fg)',
                                 }}
@@ -707,7 +707,7 @@ const MyHome = () => {
                           contentStyle={{
                             borderRadius: 10,
                             border: '1px solid var(--border)',
-                            fontSize: 12,
+                            fontSize: 'var(--fs-sm)',
                             background: 'var(--bg-card)',
                           }}
                         />
@@ -727,7 +727,7 @@ const MyHome = () => {
                     >
                       <div
                         style={{
-                          fontSize: 11,
+                          fontSize: 'var(--fs-xs)',
                           fontWeight: 700,
                           color: 'var(--fg-muted)',
                           letterSpacing: '0.04em',
@@ -738,14 +738,14 @@ const MyHome = () => {
                       <div
                         className="tnum"
                         style={{
-                          fontSize: 28,
+                          fontSize: 'var(--fs-h1)',
                           fontWeight: 900,
                           color: 'var(--fg)',
                           lineHeight: 1.1,
                         }}
                       >
                         {weightDonutData.length}
-                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg-muted)', marginLeft: 2 }}>
+                        <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--fg-muted)', marginLeft: 2 }}>
                           개
                         </span>
                       </div>
@@ -785,7 +785,7 @@ const MyHome = () => {
                       />
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 'var(--fs-micro)',
                           fontWeight: 800,
                           color: 'var(--fg-muted)',
                           minWidth: 28,
@@ -795,7 +795,7 @@ const MyHome = () => {
                       </span>
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: 'var(--fs-sm)',
                           fontWeight: 600,
                           flex: 1,
                           overflow: 'hidden',
@@ -808,7 +808,7 @@ const MyHome = () => {
                       </span>
                       <span
                         className="tnum"
-                        style={{ fontSize: 12, fontWeight: 800, color: 'var(--fg)' }}
+                        style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg)' }}
                       >
                         {item.weight}%
                       </span>
@@ -820,7 +820,7 @@ const MyHome = () => {
                             borderRadius: '50%',
                             background: SCORE_BG[item.score],
                             color: '#fff',
-                            fontSize: 10,
+                            fontSize: 'var(--fs-micro)',
                             fontWeight: 800,
                             display: 'flex',
                             alignItems: 'center',
@@ -833,7 +833,7 @@ const MyHome = () => {
                       ) : (
                         <span
                           style={{
-                            fontSize: 9,
+                            fontSize: 'var(--fs-2xs)',
                             fontWeight: 700,
                             color: 'var(--fg-subtle)',
                             padding: '1px 5px',
@@ -862,9 +862,9 @@ const MyHome = () => {
                 marginBottom: 14,
               }}
             >
-              <h3 style={{ fontSize: 15, fontWeight: 800 }}>최근 피드백</h3>
+              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>최근 피드백</h3>
               {newCount > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--ok-orange)', fontWeight: 700 }}>
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--ok-orange)', fontWeight: 700 }}>
                   신규 {newCount}건
                 </span>
               )}
@@ -889,7 +889,7 @@ const MyHome = () => {
                     <div
                       style={{
                         fontWeight: 800,
-                        fontSize: 14,
+                        fontSize: 'var(--fs-body)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
@@ -911,7 +911,7 @@ const MyHome = () => {
                               : 'var(--bg-muted)',
                           color: fb.taskScore != null ? '#fff' : 'var(--fg-muted)',
                           fontWeight: 900,
-                          fontSize: 12,
+                          fontSize: 'var(--fs-sm)',
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -919,21 +919,21 @@ const MyHome = () => {
                       >
                         {fb.taskScore ?? '-'}
                       </div>
-                      <span className="tnum" style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 700 }}>
+                      <span className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                         {fb.taskScore != null ? `${fb.taskScore.toFixed(1)}` : '-'}
                       </span>
                     </div>
                   </div>
-                  <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--fg)', margin: 0 }}>
+                  <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.7, color: 'var(--fg)', margin: 0 }}>
                     {fb.content}
                   </p>
-                  <div style={{ marginTop: 10, fontSize: 11, color: 'var(--fg-muted)' }}>
+                  <div style={{ marginTop: 10, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
                     {fb.evaluatorName} · {formatDate(fb.date)}
                   </div>
                 </div>
               ))}
               {recentFeedbacks.length === 0 && (
-                <div className="sd-card" style={{ padding: 18, color: 'var(--fg-muted)', fontSize: 13 }}>
+                <div className="sd-card" style={{ padding: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
                   아직 받은 피드백이 없습니다.
                 </div>
               )}

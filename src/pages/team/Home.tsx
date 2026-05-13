@@ -293,15 +293,15 @@ const TeamHome = () => {
                           }}
                         />
                         <div>
-                          <div style={{ fontSize: 14, fontWeight: 800 }}>{def.label}</div>
-                          <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>
+                          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>{def.label}</div>
+                          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
                             {def.description}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Icon size={15} color={def.dot} aria-hidden="true" />
-                        <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 700 }}>
+                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                           {items.length}건
                         </span>
                       </div>
@@ -312,7 +312,7 @@ const TeamHome = () => {
                         <div
                           style={{
                             color: 'var(--fg-subtle)',
-                            fontSize: 13,
+                            fontSize: 'var(--fs-body)',
                             textAlign: 'center',
                             padding: '24px 0',
                           }}
@@ -357,19 +357,19 @@ const TeamHome = () => {
                     <div className="sd-label-mini" style={{ color: 'var(--ok-orange-700)' }}>
                       이전 담당
                     </div>
-                    <h2 style={{ fontSize: 16, fontWeight: 900, marginTop: 2, color: 'var(--fg)' }}>
+                    <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, marginTop: 2, color: 'var(--fg)' }}>
                       이전 담당 피평가자
                     </h2>
                   </div>
-                  <span style={{ fontSize: 12, color: 'var(--fg-muted)', fontWeight: 800 }}>
+                  <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 800 }}>
                     {formerCards.length}명
                   </span>
                 </div>
 
                 {isFormerLoading ? (
-                  <div style={{ color: 'var(--fg-muted)', fontSize: 13 }}>이전 담당 목록을 불러오는 중입니다.</div>
+                  <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>이전 담당 목록을 불러오는 중입니다.</div>
                 ) : formerError ? (
-                  <div style={{ color: 'var(--danger)', fontSize: 13 }}>{formerError}</div>
+                  <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{formerError}</div>
                 ) : (
                   <div
                     style={{
@@ -453,7 +453,7 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
             borderRadius: '50%',
             background: disabled ? '#9CA3AF' : 'var(--ok-orange)',
             color: '#fff',
-            fontSize: 13,
+            fontSize: 'var(--fs-body)',
             fontWeight: 800,
             display: 'flex',
             alignItems: 'center',
@@ -464,13 +464,13 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
           {record.employee.name.charAt(0)}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
             {record.employee.name}{' '}
-            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg-muted)' }}>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {record.employee.position}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
             {record.totalTasks}개 과업
           </div>
         </div>
@@ -481,7 +481,7 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
 
       <div
         style={{
-          fontSize: 13,
+          fontSize: 'var(--fs-body)',
           color: 'var(--fg)',
           lineHeight: 1.4,
           overflow: 'hidden',
@@ -514,10 +514,10 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="tnum" style={{ fontSize: 16, fontWeight: 900, color: accentColor }}>
+        <span className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: accentColor }}>
           {scoreText}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{dateText}</span>
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
       </div>
     </button>
   );
@@ -557,7 +557,7 @@ const FormerBoardCard = ({ card, onClick }: BoardCardProps) => {
             borderRadius: '50%',
             background: 'var(--ok-orange-600)',
             color: '#fff',
-            fontSize: 13,
+            fontSize: 'var(--fs-body)',
             fontWeight: 800,
             display: 'flex',
             alignItems: 'center',
@@ -568,20 +568,20 @@ const FormerBoardCard = ({ card, onClick }: BoardCardProps) => {
           {record.employee.name.charAt(0)}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
             {record.employee.name}{' '}
-            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--fg-muted)' }}>
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {record.employee.position}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
             현재 담당 변경됨 · {record.totalTasks}개 과업
           </div>
         </div>
         <Pill tone="neutral">이전 담당</Pill>
       </div>
 
-      <div style={{ fontSize: 13, color: 'var(--fg)', lineHeight: 1.4 }}>{caption}</div>
+      <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg)', lineHeight: 1.4 }}>{caption}</div>
 
       <div style={{ height: 4, background: 'var(--ok-orange-50)', borderRadius: 4, overflow: 'hidden' }}>
         <div
@@ -595,13 +595,13 @@ const FormerBoardCard = ({ card, onClick }: BoardCardProps) => {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="tnum" style={{ fontSize: 16, fontWeight: 900, color: 'var(--ok-orange-700)' }}>
+        <span className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: 'var(--ok-orange-700)' }}>
           {scoreText}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{dateText}</span>
+        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok-orange-700)' }}>
+      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-orange-700)' }}>
         {actionText === '제출 전' ? '이전 평가 보기' : '이전 평가 수정'}
       </div>
     </button>
@@ -627,7 +627,7 @@ const StatTile = ({ label, value, sub, accent }: StatTileProps) => (
   >
     <div
       style={{
-        fontSize: 12,
+        fontSize: 'var(--fs-sm)',
         fontWeight: 700,
         color: accent ? 'rgba(255,255,255,0.86)' : 'var(--fg-muted)',
         marginBottom: 8,
@@ -638,7 +638,7 @@ const StatTile = ({ label, value, sub, accent }: StatTileProps) => (
     <div
       className="tnum"
       style={{
-        fontSize: 28,
+        fontSize: 'var(--fs-h1)',
         fontWeight: 900,
         lineHeight: 1.05,
         color: accent ? '#fff' : 'var(--fg)',
@@ -649,7 +649,7 @@ const StatTile = ({ label, value, sub, accent }: StatTileProps) => (
     {sub && (
       <div
         style={{
-          fontSize: 12,
+          fontSize: 'var(--fs-sm)',
           color: accent ? 'rgba(255,255,255,0.86)' : 'var(--fg-muted)',
           marginTop: 6,
         }}

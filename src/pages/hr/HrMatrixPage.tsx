@@ -40,15 +40,15 @@ const HrMatrixPage = () => {
             <div className="sd-label-mini" style={{ marginBottom: 14 }}>매트릭스 정보</div>
             <div className="flex flex-col gap-4">
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>버전</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>버전</label>
                 <input className="sd-input" defaultValue="v2.1 — 2026 연간" style={{ width: '100%' }} />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>적용 기간</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>적용 기간</label>
                 <input className="sd-input" defaultValue="2026-01-01 ~ 2026-12-31" style={{ width: '100%' }} />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>적용 대상</label>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}>적용 대상</label>
                 <select className="sd-input" defaultValue="전사" style={{ width: '100%' }}>
                   <option value="전사">전사 ({records.length}명)</option>
                 </select>
@@ -80,7 +80,7 @@ const HrMatrixPage = () => {
                       borderRadius: 8,
                       background: item.bg,
                       color: item.score === 2 ? '#4A1A00' : '#fff',
-                      fontSize: 14,
+                      fontSize: 'var(--fs-body)',
                       fontWeight: 900,
                       display: 'flex',
                       alignItems: 'center',
@@ -91,10 +91,10 @@ const HrMatrixPage = () => {
                     {item.score}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
                       {item.label} · {item.grade}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--fg-muted)', marginTop: 1 }}>{item.desc}</div>
+                    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 1 }}>{item.desc}</div>
                   </div>
                 </div>
               ))}
@@ -109,7 +109,7 @@ const HrMatrixPage = () => {
                 borderRadius: 12,
                 background: '#FFF7ED',
                 border: '1px solid #FDBA74',
-                fontSize: 12,
+                fontSize: 'var(--fs-sm)',
                 color: '#9A3412',
                 lineHeight: 1.6,
               }}
