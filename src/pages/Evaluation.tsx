@@ -7,10 +7,8 @@ import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
-import { usePastEvaluations } from '@/hooks/usePastEvaluations';
 import { useToast } from '@/hooks/use-toast';
 import { evaluationService } from '@/lib/services';
-import PastEvaluationAccordion from '@/components/Feedback/PastEvaluationAccordion';
 import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import {
   MATRIX_METHODS,
@@ -56,7 +54,7 @@ const getEvaluatorStatusMessage = (status?: string) => {
     case 'evaluating':
       return '';
     case 'completed':
-      return '평가가 완료된 건입니다. 수정이 필요하면 평가 수정으로 다시 열 수 있습니다.';
+      return '평가가 완료된 건입니다. 수정이 필요하면 피평가자에게 돌려보내 다시 작성하도록 할 수 있습니다.';
     case 'locked':
       return '평가가 잠겨 있어 수정할 수 없습니다.';
     case 'not-started':
@@ -150,11 +148,6 @@ const Evaluation = () => {
     periodEditMessage,
     reloadData,
   } = useEvaluationDataDB(id || '', { evaluationId: overrideEvaluationId });
-  // override 없는 기본 진입(=현재 평가자)일 때만 과거 평가 데이터 로드
-  const { pastBundles } = usePastEvaluations(
-    !overrideEvaluationId ? id ?? '' : '',
-    evaluationData?.id,
-  );
 
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
   const hasInitializedExpansion = useRef(false);
@@ -410,7 +403,39 @@ const Evaluation = () => {
     }
   };
 
-  const onTemporarySaveClick = () => {
+  const onTemporarySaveClick = async () => {
+    // completed 상태: 평가 단계를 evaluating으로 되돌려 평가자가 다시 수정 가능하게
+    if (evaluationStatus === 'completed') {
+      if (!canEditEvaluation) {
+        toast({
+          title: '평가를 수정할 수 없습니다.',
+          description: evaluatorAccessMessage ?? '권한이 없습니다.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!evaluationData?.id) return;
+      setIsDraftSaving(true);
+      try {
+        await evaluationService.reopenForEvaluator(evaluationData.id);
+        await reloadData();
+        toast({
+          title: '평가 단계를 임시저장으로 되돌렸습니다.',
+          description: '점수와 피드백을 수정한 뒤 다시 평가 저장하세요.',
+        });
+      } catch (error) {
+        console.error('단계 되돌리기 실패:', error);
+        toast({
+          title: '단계 되돌리기 실패',
+          description: '서버와 통신 중 오류가 발생했습니다.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsDraftSaving(false);
+      }
+      return;
+    }
+    // 작성 중 상태: 기존 임시저장 동작 (drafts → DB)
     if (!canEvaluate) {
       toast({
         title: '임시저장할 수 없습니다.',
@@ -443,7 +468,7 @@ const Evaluation = () => {
     }
 
     const reason = window.prompt(
-      '평가를 반려할까요?\n반려 사유를 입력하면 피평가자에게 함께 전달됩니다. (선택)',
+      '피평가자에게 돌려보내 다시 수정하도록 할까요?\n사유를 입력하면 피평가자에게 함께 전달됩니다. (선택)',
     );
     if (reason === null) return;
 
@@ -455,13 +480,13 @@ const Evaluation = () => {
       });
       await reloadData();
       toast({
-        title: '평가를 반려했습니다.',
-        description: '피평가자에게 알림을 보냈으며, 점수/피드백을 수정한 뒤 다시 저장하세요.',
+        title: '피평가자에게 돌려보냈습니다.',
+        description: '피평가자가 과업을 수정한 뒤 다시 최종제출할 때까지 평가는 잠시 잠깁니다.',
       });
     } catch (error) {
-      console.error('평가 반려 실패:', error);
+      console.error('돌려보내기 실패:', error);
       toast({
-        title: '평가 반려 실패',
+        title: '돌려보내기 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
@@ -477,35 +502,52 @@ const Evaluation = () => {
         subtitle={`${evaluationData.evaluateeName} · ${evaluationData.evaluateePosition} · ${evaluationData.evaluateeDepartment ?? ''}`}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            {canReopenCompleted ? (
-              <button
-                className="sd-btn sd-btn-primary sd-btn-sm"
-                onClick={onReopenEvaluationClick}
-                disabled={isReopening}
-              >
-                <PencilLine size={14} aria-hidden="true" />
-                {isReopening ? '반려 중...' : '평가 반려'}
-              </button>
-            ) : (
-              <>
-                <button
-                  className="sd-btn sd-btn-outline sd-btn-sm"
-                  onClick={onTemporarySaveClick}
-                  disabled={!hasDrafts || isDraftSaving || !canEvaluate}
-                  title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
-                >
-                  {isDraftSaving ? '임시저장 중…' : '임시저장'}
-                </button>
-                <button
-                  className="sd-btn sd-btn-primary sd-btn-sm"
-                  onClick={onSaveClick}
-                  disabled={isSaving || !canEvaluate}
-                  title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
-                >
-                  {isSaving ? 'AI 검토 중…' : '평가 저장'}
-                </button>
-              </>
-            )}
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={onReopenEvaluationClick}
+              disabled={!canReopenCompleted || isReopening}
+              title={
+                canReopenCompleted
+                  ? '피평가자가 다시 수정할 수 있도록 돌려보냅니다.'
+                  : '평가가 완료된 상태에서만 돌려보낼 수 있습니다.'
+              }
+            >
+              <PencilLine size={14} aria-hidden="true" />
+              {isReopening ? '처리 중...' : '피평가자에게 돌려보내기'}
+            </button>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={onTemporarySaveClick}
+              disabled={
+                isDraftSaving ||
+                (evaluationStatus === 'completed'
+                  ? !canEditEvaluation
+                  : !canEvaluate || !hasDrafts)
+              }
+              title={
+                evaluationStatus === 'completed'
+                  ? '평가 단계를 임시저장 단계로 되돌려 점수/피드백을 수정할 수 있게 합니다.'
+                  : !canEvaluate
+                    ? evaluatorEditMessage ?? undefined
+                    : !hasDrafts
+                      ? '저장할 임시 내용이 없습니다.'
+                      : undefined
+              }
+            >
+              {isDraftSaving
+                ? '처리 중…'
+                : evaluationStatus === 'completed'
+                  ? '임시저장'
+                  : '임시저장'}
+            </button>
+            <button
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              onClick={onSaveClick}
+              disabled={isSaving || !canEvaluate}
+              title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
+            >
+              {isSaving ? 'AI 검토 중…' : '평가 저장'}
+            </button>
           </div>
         }
       />
@@ -563,24 +605,6 @@ const Evaluation = () => {
         {evaluatorGroups.length === 0 && (
           <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
             표시할 평가 내용이 없습니다.
-          </div>
-        )}
-
-        {!overrideEvaluationId && pastBundles.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 800,
-                color: 'var(--fg-muted)',
-                letterSpacing: 0.4,
-              }}
-            >
-              과거 평가 ({pastBundles.length})
-            </div>
-            {pastBundles.map((bundle) => (
-              <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} />
-            ))}
           </div>
         )}
       </div>

@@ -3771,10 +3771,10 @@ app.post('/api/evaluation/:id/return-request', async (req, res) => {
     const requesterName = await resolveEmployeeName(client, requestedBy, '피평가자');
     await insertNotificationRow(client, {
       notificationType: 'evaluation_return_requested',
-      title: '평가 반려 요청',
+      title: '피평가자가 수정을 요청했습니다',
       message: reason
-        ? `${requesterName}님이 평가 반려를 요청했습니다. 사유: ${reason}`
-        : `${requesterName}님이 평가 반려를 요청했습니다.`,
+        ? `${requesterName}님이 과업 수정을 요청했습니다. 사유: ${reason}`
+        : `${requesterName}님이 과업 수정을 요청했습니다.`,
       priority: 'high',
       senderId: requestedBy,
       senderName: requesterName,
@@ -3792,7 +3792,8 @@ app.post('/api/evaluation/:id/return-request', async (req, res) => {
   }
 });
 
-// 평가자가 자기 완료 평가를 다시 열어 수정 가능 상태(evaluating)로 전환 + 피평가자 알림
+// 평가자가 완료 평가를 피평가자에게 돌려보냄 → in-progress 로 전환해 피평가자 측 잠금 해제
+// 피평가자 재제출 시 자동으로 submitted → evaluating 흐름으로 복귀
 app.post('/api/evaluation/:id/reopen', async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
@@ -3824,7 +3825,7 @@ app.post('/api/evaluation/:id/reopen', async (req, res) => {
     await client.query(
       `
         UPDATE evaluations
-        SET evaluation_status = 'evaluating',
+        SET evaluation_status = 'in-progress',
             last_modified = NOW(),
             updated_at = NOW()
         WHERE id = $1
@@ -3834,10 +3835,10 @@ app.post('/api/evaluation/:id/reopen', async (req, res) => {
     const actorName = await resolveEmployeeName(client, actorId, '평가자');
     await insertNotificationRow(client, {
       notificationType: 'evaluation_reopened',
-      title: '평가가 반려되었습니다',
+      title: '평가자가 수정을 허용했습니다',
       message: reason
-        ? `${actorName}님이 평가를 반려했습니다. 사유: ${reason}`
-        : `${actorName}님이 평가를 반려하여 다시 수정 가능한 상태가 되었습니다.`,
+        ? `${actorName}님이 평가를 돌려보냈습니다. 과업을 수정한 뒤 다시 최종제출해 주세요. 사유: ${reason}`
+        : `${actorName}님이 평가를 돌려보냈습니다. 과업을 수정한 뒤 다시 최종제출해 주세요.`,
       priority: 'medium',
       senderId: actorId,
       senderName: actorName,
@@ -3849,6 +3850,53 @@ app.post('/api/evaluation/:id/reopen', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error reopening evaluation:', err);
+    res.status(500).json({ error: err.message ?? 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 평가자가 자기 완료 평가를 다시 열어 점수/피드백을 수정할 수 있는 단계(evaluating)로 되돌림
+// 피평가자에게 알림 발송 없음 (평가자 자신만의 액션)
+app.post('/api/evaluation/:id/reopen-for-evaluator', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const evaluationId = req.params.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `
+        SELECT id, evaluation_status
+        FROM evaluations
+        WHERE id = $1 AND COALESCE(record_status, 'active') = 'active'
+        LIMIT 1
+      `,
+      [evaluationId]
+    );
+    const evaluation = rows[0];
+    if (!evaluation) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Evaluation not found' });
+    }
+    if (evaluation.evaluation_status !== 'completed') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Evaluation is not in completed state' });
+    }
+    await client.query(
+      `
+        UPDATE evaluations
+        SET evaluation_status = 'evaluating',
+            last_modified = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [evaluationId]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error reopening evaluation for evaluator:', err);
     res.status(500).json({ error: err.message ?? 'Database error' });
   } finally {
     client.release();

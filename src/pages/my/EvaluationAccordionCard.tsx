@@ -89,13 +89,13 @@ const EvaluationAccordionCard = ({
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
   const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
-  // 'completed'는 어떤 경우(현재/과거)든 항상 잠금 — 평가 수정(반려)을 통해서만 편집.
+  // 'completed'는 어떤 경우(현재/과거)든 항상 잠금 — 평가자가 돌려보내야만 다시 편집 가능.
   // 현재 평가는 submitted/evaluating 등도 잠금. 과거 평가는 completed가 아닌 한 편집 허용.
   const isTaskEditingLocked = isCurrent
     ? EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus)
     : evaluationStatus === 'completed';
   const taskEditMessage = isTaskEditingLocked
-    ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 반려를 요청하세요.'
+    ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 수정을 요청하세요.'
     : periodEditMessage;
   const canEditTasks = isPeriodEditable && !isTaskEditingLocked;
   const hasTitle = draft.title.trim().length > 0;
@@ -111,7 +111,7 @@ const EvaluationAccordionCard = ({
 
   const handleRequestReturn = async () => {
     if (!evaluationData?.id) return;
-    const reason = window.prompt('반려 사유를 입력해 주세요. (선택)') ?? '';
+    const reason = window.prompt('수정이 필요한 사유를 입력해 주세요. (선택)') ?? '';
     if (reason === null) return;
     setIsRequestingReturn(true);
     try {
@@ -120,13 +120,13 @@ const EvaluationAccordionCard = ({
         reason: reason.trim() || undefined,
       });
       toast({
-        title: '반려 요청을 보냈습니다.',
+        title: '수정 요청을 보냈습니다.',
         description: `${evaluatorName ?? '평가자'}에게 알림이 전달되었습니다.`,
       });
     } catch (error) {
-      console.error('반려 요청 실패:', error);
+      console.error('수정 요청 실패:', error);
       toast({
-        title: '반려 요청 실패',
+        title: '수정 요청 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
@@ -532,7 +532,7 @@ const EvaluationAccordionCard = ({
                         opacity: isRequestingReturn ? 0.7 : 1,
                       }}
                     >
-                      {isRequestingReturn ? '요청 중…' : '평가자에게 반려 요청'}
+                      {isRequestingReturn ? '요청 중…' : '평가자에게 수정 요청'}
                     </button>
                   )}
                 </div>

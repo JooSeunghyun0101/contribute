@@ -17,6 +17,7 @@ dist-ssr
 .mcp.json
 database_connect_information.yml
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Editor directories and files
 .vscode/*
