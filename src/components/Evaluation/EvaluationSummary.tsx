@@ -105,7 +105,7 @@ const EvaluationSummary: React.FC<EvaluationSummaryProps> = ({
                       🎉
                     </span>
                   </div>
-                  <span className={`text-sm sm:text-lg font-semibold transition-colors duration-300 ${
+                  <span className={`text-lg sm:text-2xl font-bold transition-colors duration-300 ${
                     isHovered ? 'text-emerald-300' : 'text-emerald-400 group-hover:text-emerald-300'
                   }`}>달성</span>
                 </>
@@ -118,7 +118,7 @@ const EvaluationSummary: React.FC<EvaluationSummaryProps> = ({
                       😢
                     </span>
                   </div>
-                  <span className={`text-sm sm:text-lg font-semibold transition-colors duration-300 ${
+                  <span className={`text-lg sm:text-2xl font-bold transition-colors duration-300 ${
                     isHovered ? 'text-destructive/80' : 'text-destructive group-hover:text-destructive/80'
                   }`}>미달성</span>
                 </>

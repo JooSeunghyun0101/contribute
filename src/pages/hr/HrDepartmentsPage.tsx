@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Pill } from '@/components/brand';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import { getScoreColor } from '@/lib/evaluationMatrix';
 
 const scoreBands = [4, 3, 2, 1] as const;
 
@@ -196,14 +197,7 @@ const HrDepartmentsPage = () => {
                               width: '100%',
                               height: `${Math.max(6, Math.round(ratio * 0.44))}px`,
                               borderRadius: 4,
-                              background:
-                                score === 4
-                                  ? '#F55000'
-                                  : score === 3
-                                  ? '#D94400'
-                                  : score === 2
-                                  ? '#FFAA00'
-                                  : '#C2BAB0',
+                              background: getScoreColor(score),
                             }}
                           />
                         </div>

@@ -29,6 +29,16 @@ type EvaluatorEditPayload = {
   reason?: string | null;
 };
 
+type EvaluatorCorrectPayload = {
+  new_evaluator_id?: string | null;
+  newEvaluatorId?: string | null;
+  changed_by?: string | null;
+  changedBy?: string | null;
+  actor_id?: string | null;
+  actorId?: string | null;
+  reason?: string | null;
+};
+
 export type MatchingImportRowInput = {
   row_number: number;
   employee_id: string;
@@ -256,6 +266,38 @@ export const employeeService = {
         employee: Employee | null;
         cancelled_entries: number;
       }>(`/api/evaluator-assignment-history/${historyId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 임의의 applied 변경 이력을 "정정" — 원본을 cancelled 처리하고
+  // supersedes_history_id 로 원본을 가리키는 새 change 행을 만든다.
+  // 대상이 현재 반영된 배정일 때만 employee.evaluator_id + 하위 데이터가 함께 정합화된다.
+  async correctEvaluatorAssignment(
+    historyId: string,
+    payload: EvaluatorCorrectPayload,
+  ): Promise<{
+    correction: EvaluatorAssignmentHistory;
+    employee: Employee | null;
+    is_current_assignment: boolean;
+    transferred_entries: number;
+    merged_entries: number;
+    transferred_feedbacks: number;
+  }> {
+    try {
+      return await apiFetch<{
+        correction: EvaluatorAssignmentHistory;
+        employee: Employee | null;
+        is_current_assignment: boolean;
+        transferred_entries: number;
+        merged_entries: number;
+        transferred_feedbacks: number;
+      }>(`/api/evaluator-assignment-history/${historyId}/correct`, {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'application/json' },

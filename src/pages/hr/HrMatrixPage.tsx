@@ -1,12 +1,13 @@
 import PageHeader from '@/components/Layout/PageHeader';
 import { EvaluationMatrix } from '@/components/Settings/EvaluationMatrix';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
 
 const GRADE_ITEMS = [
-  { score: 4, bg: '#F55000', label: '탁월', grade: 'S급', desc: '4점 · 매트릭스 기여도' },
-  { score: 3, bg: '#D94400', label: '우수', grade: 'A급', desc: '3점 · 매트릭스 기여도' },
-  { score: 2, bg: '#FFAA00', label: '양호', grade: 'B급', desc: '2점 · 매트릭스 기여도' },
-  { score: 1, bg: '#C2BAB0', label: '기대 미달', grade: 'C급', desc: '1점 · 매트릭스 기여도' },
+  { score: 4, label: '탁월', grade: 'S급', desc: '4점 · 매트릭스 기여도' },
+  { score: 3, label: '우수', grade: 'A급', desc: '3점 · 매트릭스 기여도' },
+  { score: 2, label: '양호', grade: 'B급', desc: '2점 · 매트릭스 기여도' },
+  { score: 1, label: '기대 미달', grade: 'C급', desc: '1점 · 매트릭스 기여도' },
 ];
 
 const HrMatrixPage = () => {
@@ -78,8 +79,8 @@ const HrMatrixPage = () => {
                       width: 30,
                       height: 30,
                       borderRadius: 8,
-                      background: item.bg,
-                      color: item.score === 2 ? '#4A1A00' : '#fff',
+                      background: getScoreColor(item.score),
+                      color: getScoreTextColor(item.score),
                       fontSize: 'var(--fs-body)',
                       fontWeight: 900,
                       display: 'flex',

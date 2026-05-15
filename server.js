@@ -3212,6 +3212,9 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
       return res.status(400).json({ error: 'Cancellation events cannot be cancelled' });
     }
 
+    // 순차 취소 제약 제거 — 임의의 applied 행을 취소할 수 있다.
+    // 단 employees.evaluator_id revert는 "현재 반영된 배정"일 때만 수행한다:
+    // employees.evaluator_id 가 이 행의 new_evaluator_id 와 같고, 동시에 최신 applied·non-cancel 행.
     const { rows: latestRows } = await client.query(
       `
         SELECT id
@@ -3224,10 +3227,9 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
       `,
       [history.employee_id]
     );
-    if (latestRows[0]?.id !== history.id) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Only the latest applied assignment can be cancelled' });
-    }
+    const isCurrentAssignment =
+      (history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null) &&
+      latestRows[0]?.id === history.id;
 
     const cancelledBy = getAssignmentActor(req.body);
     const cancelReason = getAssignmentCancellationReason(req.body);
@@ -3260,7 +3262,7 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
     }
 
     let updatedEmployee = null;
-    if ((history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null)) {
+    if (isCurrentAssignment) {
       const { rows: employeeRows } = await client.query(
         `
           UPDATE employees
@@ -3363,6 +3365,209 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
     client.release();
   }
 });
+
+// 임의의 applied 변경 이력을 "정정" — 원본을 cancelled 처리하고
+// supersedes_history_id 로 원본을 가리키는 새 change 행을 삽입한다.
+// 대상이 현재 반영된 배정(employees.evaluator_id 와 일치 + 최신 applied)일 때만
+// employees.evaluator_id 와 하위 평가 데이터를 함께 정합화한다.
+app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+
+  const newEvaluatorId = normalizeOptionalText(
+    req.body?.new_evaluator_id ?? req.body?.newEvaluatorId
+  );
+  const actorId = getAssignmentActor(req.body);
+  const reason = getAssignmentReason(req.body) || 'HR assignment correction';
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `
+        SELECT h.*, e.evaluator_id AS current_evaluator_id
+        FROM evaluator_assignment_history h
+        INNER JOIN employees e ON e.employee_id = h.employee_id
+        WHERE h.id = $1
+        FOR UPDATE OF h, e
+      `,
+      [req.params.id]
+    );
+    const history = rows[0];
+    if (!history) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Assignment history not found' });
+    }
+    if (history.status !== 'applied') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Only applied assignments can be corrected' });
+    }
+    if (history.change_type !== 'change') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cancellation events cannot be corrected' });
+    }
+    if (newEvaluatorId === history.employee_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Employee cannot evaluate themselves' });
+    }
+    if ((newEvaluatorId ?? null) === (history.new_evaluator_id ?? null)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'New evaluator is identical to the current entry' });
+    }
+    if (newEvaluatorId) {
+      const { rows: evaluatorRows } = await client.query(
+        'SELECT employee_id FROM employees WHERE employee_id = $1 LIMIT 1',
+        [newEvaluatorId]
+      );
+      if (!evaluatorRows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Evaluator not found' });
+      }
+    }
+
+    // 대상 행이 "현재 반영된 배정"인지 판정:
+    // employees.evaluator_id 가 이 행의 new_evaluator_id 와 같고, 동시에 최신 applied·non-cancel 행.
+    const { rows: latestRows } = await client.query(
+      `
+        SELECT id
+        FROM evaluator_assignment_history
+        WHERE employee_id = $1
+          AND status = 'applied'
+          AND change_type <> 'cancel'
+        ORDER BY changed_at DESC, id DESC
+        LIMIT 1
+      `,
+      [history.employee_id]
+    );
+    const isCurrentAssignment =
+      (history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null) &&
+      latestRows[0]?.id === history.id;
+
+    // 1) superseding 정정 행 삽입
+    const correctionRow = await insertEvaluatorAssignmentHistory(client, {
+      employeeId: history.employee_id,
+      previousEvaluatorId: history.new_evaluator_id ?? null,
+      newEvaluatorId: newEvaluatorId ?? null,
+      changedBy: actorId,
+      reason,
+      changeType: 'change',
+      status: 'applied',
+      supersedesHistoryId: history.id,
+      evaluationId: history.evaluation_id ?? null,
+      evaluationPeriodId: history.evaluation_period_id ?? null,
+    });
+
+    // 2) 원본 행을 cancelled 처리
+    await client.query(
+      `
+        UPDATE evaluator_assignment_history
+        SET
+          status = 'cancelled',
+          cancelled_at = NOW(),
+          cancelled_by = $2,
+          cancel_reason = 'Superseded by correction'
+        WHERE id = $1
+      `,
+      [history.id, actorId]
+    );
+
+    // 3) 현재 반영된 배정일 때만 employees.evaluator_id + 하위 데이터 정합화
+    let updatedEmployee = null;
+    let correctionResult = { transferredEntries: [], mergedEntries: [], transferredFeedbackCount: 0 };
+    if (isCurrentAssignment) {
+      const { rows: employeeRows } = await client.query(
+        `
+          UPDATE employees
+          SET evaluator_id = $2, updated_at = NOW()
+          WHERE employee_id = $1
+          RETURNING *
+        `,
+        [history.employee_id, newEvaluatorId ?? null]
+      );
+      updatedEmployee = employeeRows[0] ?? null;
+
+      correctionResult = await transferEvaluatorEntriesForCorrection(client, {
+        employeeId: history.employee_id,
+        previousEvaluatorId: history.new_evaluator_id ?? null,
+        newEvaluatorId: newEvaluatorId ?? null,
+        actorId,
+        reason,
+      });
+    }
+
+    // 4) 감사 로그
+    await insertAdminAuditLog(client, {
+      actionType: 'evaluator_correct',
+      actorId,
+      targetEmployeeId: history.employee_id,
+      previousValue: { history_id: history.id, evaluator_id: history.new_evaluator_id ?? null },
+      newValue: { history_id: correctionRow.id, evaluator_id: newEvaluatorId ?? null },
+      reason,
+    });
+
+    // 5) 알림 — 현재 반영된 배정일 때만 (과거 행 정정은 실제 담당에 영향 없음)
+    if (isCurrentAssignment) {
+      const actorName = await resolveEmployeeName(client, actorId, 'HR');
+      const { rows: employeeNameRows } = await client.query(
+        'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+        [history.employee_id]
+      );
+      const employeeName = employeeNameRows[0]?.name ?? history.employee_id;
+      const prevEvaluatorId = history.new_evaluator_id ?? null;
+      if (newEvaluatorId && newEvaluatorId !== prevEvaluatorId) {
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_changed',
+          title: '담당 피평가자가 배정되었습니다',
+          message: `${employeeName}님의 평가자가 회원님으로 변경되었습니다.`,
+          priority: 'medium',
+          senderId: actorId,
+          senderName: actorName,
+          recipientId: newEvaluatorId,
+        });
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_changed',
+          title: '평가자가 변경되었습니다',
+          message: '담당 평가자가 새로 배정되었습니다.',
+          priority: 'medium',
+          senderId: actorId,
+          senderName: actorName,
+          recipientId: history.employee_id,
+        });
+      }
+      if (prevEvaluatorId && prevEvaluatorId !== (newEvaluatorId ?? null)) {
+        await insertNotificationRow(client, {
+          notificationType: 'evaluator_unassigned',
+          title: '담당 피평가자가 해제되었습니다',
+          message: `${employeeName}님이 담당에서 해제되었습니다.`,
+          priority: 'low',
+          senderId: actorId,
+          senderName: actorName,
+          recipientId: prevEvaluatorId,
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      correction: correctionRow,
+      employee: updatedEmployee,
+      is_current_assignment: isCurrentAssignment,
+      transferred_entries: correctionResult.transferredEntries.length,
+      merged_entries: correctionResult.mergedEntries.length,
+      transferred_feedbacks: correctionResult.transferredFeedbackCount,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error correcting evaluator assignment:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Get evaluation by employee ID (latest)
 app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
   if (!isDbAvailable) {

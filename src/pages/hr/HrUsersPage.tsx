@@ -10,12 +10,12 @@ import type {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import EvaluatorHistoryModal from '@/components/hr/EvaluatorHistoryModal';
+import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import type {
   Employee,
   EvaluationStatus,
-  EvaluatorAssignmentChangeType,
   EvaluatorAssignmentHistory,
-  EvaluatorAssignmentStatus,
   UserRole,
 } from '@/types';
 
@@ -75,29 +75,6 @@ const statusTone = (status?: EvaluationStatus | null) => {
   if (status === 'locked') return 'neutral';
   if (status === 'draft' || status === 'in-progress') return 'warning';
   return 'neutral';
-};
-
-const assignmentTypeLabel = (type: EvaluatorAssignmentChangeType) => {
-  if (type === 'cancel') return '취소';
-  return '변경';
-};
-
-const assignmentStatusLabel = (status: EvaluatorAssignmentStatus) =>
-  status === 'cancelled' ? '취소됨' : '적용됨';
-
-const assignmentStatusTone = (status: EvaluatorAssignmentStatus) =>
-  status === 'cancelled' ? 'neutral' : 'success';
-
-const formatAssignmentDate = (value?: string | null) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return new Intl.DateTimeFormat('ko-KR', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 };
 
 type EmployeeEditForm = {
@@ -301,7 +278,8 @@ const HrUsersPage = () => {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EmployeeEditForm | null>(null);
-  const [expandedHistoryEmployeeId, setExpandedHistoryEmployeeId] = useState<string | null>(null);
+  // 평가자 변경 이력 모달 대상 직원 id (null = 모달 닫힘)
+  const [historyModalEmployeeId, setHistoryModalEmployeeId] = useState<string | null>(null);
   const [assignmentHistoryByEmployee, setAssignmentHistoryByEmployee] = useState<
     Record<string, EvaluatorAssignmentHistory[]>
   >({});
@@ -374,14 +352,13 @@ const HrUsersPage = () => {
     }
   };
 
-  const toggleAssignmentHistory = async (employeeId: string) => {
-    if (expandedHistoryEmployeeId === employeeId) {
-      setExpandedHistoryEmployeeId(null);
-      return;
-    }
-
-    setExpandedHistoryEmployeeId(employeeId);
+  const openAssignmentHistory = async (employeeId: string) => {
+    setHistoryModalEmployeeId(employeeId);
     await loadAssignmentHistory(employeeId);
+  };
+
+  const closeAssignmentHistory = () => {
+    setHistoryModalEmployeeId(null);
   };
 
   const startEditing = (employee: Employee) => {
@@ -539,7 +516,7 @@ const HrUsersPage = () => {
       history.previous_evaluator_name,
     );
     const ok = window.confirm(
-      `${employee.name}님의 최근 평가자 변경을 취소하고 "${previousEvaluator}"(으)로 되돌릴까요?`,
+      `${employee.name}님의 평가자 변경을 취소하고 "${previousEvaluator}"(으)로 되돌릴까요?`,
     );
     if (!ok) return;
 
@@ -559,7 +536,82 @@ const HrUsersPage = () => {
       console.error('평가자 변경 취소 실패:', error);
       toast({
         title: '평가자 변경 취소 실패',
-        description: '최근 적용된 변경만 취소할 수 있습니다.',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setHistoryActionId(null);
+    }
+  };
+
+  const addAssignmentChange = async (employee: Employee, newEvaluatorId: string) => {
+    if ((employee.evaluator_id ?? '') === newEvaluatorId) return;
+    const toEvaluator = getEvaluatorLabel(newEvaluatorId);
+    const ok = window.confirm(
+      `${employee.name}님의 평가자를 "${toEvaluator}"(으)로 변경하고 이력을 추가할까요?`,
+    );
+    if (!ok) return;
+
+    setHistoryActionId('add');
+    try {
+      await employeeService.updateEmployee(employee.employee_id, {
+        evaluator_id: newEvaluatorId,
+        changed_by: actorId,
+        reason: 'HR assignment add',
+      });
+      await reload();
+      await loadAssignmentHistory(employee.employee_id, true);
+      toast({
+        title: '평가자 변경 이력이 추가되었습니다.',
+        description: `${employee.name}: ${toEvaluator}`,
+      });
+    } catch (error) {
+      console.error('평가자 변경 이력 추가 실패:', error);
+      toast({
+        title: '평가자 변경 이력 추가 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setHistoryActionId(null);
+    }
+  };
+
+  const correctAssignmentChange = async (
+    employee: Employee,
+    history: EvaluatorAssignmentHistory,
+    newEvaluatorId: string,
+  ) => {
+    const fromEvaluator = getEvaluatorLabel(
+      history.new_evaluator_id,
+      history.new_evaluator_name,
+    );
+    const toEvaluator = getEvaluatorLabel(newEvaluatorId);
+    const ok = window.confirm(
+      `${employee.name}님의 평가자 변경 항목을 "${fromEvaluator}" → "${toEvaluator}"(으)로 정정할까요?\n\n원본 항목은 취소 처리되고, 정정 기록이 새로 남습니다.`,
+    );
+    if (!ok) return;
+
+    setHistoryActionId(history.id);
+    try {
+      const result = await employeeService.correctEvaluatorAssignment(history.id, {
+        new_evaluator_id: newEvaluatorId,
+        changed_by: actorId,
+        reason: 'HR assignment correction',
+      });
+      await reload();
+      await loadAssignmentHistory(employee.employee_id, true);
+      toast({
+        title: '평가자 변경이 정정되었습니다.',
+        description: result.is_current_assignment
+          ? `${employee.name}: 현재 평가자가 "${toEvaluator}"(으)로 갱신되었습니다.`
+          : `${employee.name}: 과거 이력만 정정되어 현재 평가자는 그대로입니다.`,
+      });
+    } catch (error) {
+      console.error('평가자 변경 정정 실패:', error);
+      toast({
+        title: '평가자 변경 정정 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
     } finally {
@@ -884,14 +936,6 @@ const HrUsersPage = () => {
                     isEditing &&
                     Boolean(editForm) &&
                     (employee.evaluator_id ?? '') !== editForm.evaluatorId;
-                  const isHistoryExpanded = expandedHistoryEmployeeId === employee.employee_id;
-                  const isHistoryLoading = loadingHistoryEmployeeId === employee.employee_id;
-                  const historyItems = assignmentHistoryByEmployee[employee.employee_id] ?? [];
-                  const latestActionableHistory =
-                    historyItems.find(
-                      (history) => history.status === 'applied' && history.change_type !== 'cancel',
-                    ) ?? null;
-
                   return (
                     <Fragment key={employee.id}>
                     <TableRow>
@@ -1034,29 +1078,17 @@ const HrUsersPage = () => {
                       </TableCell>
                       <TableCell style={{ color: isEditing ? 'var(--fg)' : 'var(--fg-muted)' }}>
                         {isEditing && editForm ? (
-                          <select
+                          <EvaluatorPicker
+                            options={evaluatorOptions.filter(
+                              (option) => option.employee_id !== employee.employee_id,
+                            )}
                             value={editForm.evaluatorId}
-                            onChange={(event) => updateEditForm('evaluatorId', event.target.value)}
-                            style={{
-                              minWidth: 128,
-                              padding: '6px 8px',
-                              borderRadius: 8,
-                              border: '1px solid var(--border)',
-                              background: 'var(--bg-card)',
-                              color: 'var(--fg)',
-                              fontSize: 'var(--fs-sm)',
-                              fontWeight: 700,
-                            }}
-                          >
-                            <option value="">평가자 없음</option>
-                            {evaluatorOptions
-                              .filter((option) => option.employee_id !== employee.employee_id)
-                              .map((option) => (
-                                <option key={option.employee_id} value={option.employee_id}>
-                                  {option.name} · {option.department}
-                                </option>
-                              ))}
-                          </select>
+                            onChange={(id) => updateEditForm('evaluatorId', id)}
+                            placeholder="이름·부서·사번으로 검색…"
+                            allowEmpty
+                            emptyLabel="평가자 없음"
+                            minWidth={180}
+                          />
                         ) : (
                           evaluatorName
                         )}
@@ -1147,9 +1179,9 @@ const HrUsersPage = () => {
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
-                              onClick={() => toggleAssignmentHistory(employee.employee_id)}
+                              onClick={() => openAssignmentHistory(employee.employee_id)}
                             >
-                              {isHistoryExpanded ? '닫기' : '이력'}
+                              이력
                             </button>
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
@@ -1161,146 +1193,6 @@ const HrUsersPage = () => {
                         )}
                       </TableCell>
                     </TableRow>
-                    {isHistoryExpanded && (
-                      <TableRow>
-                        <TableCell colSpan={11} style={{ background: 'var(--bg-muted)', padding: 0 }}>
-                          <div
-                            style={{
-                              margin: '0 16px 16px',
-                              padding: 16,
-                              border: '1px solid var(--border)',
-                              borderRadius: 8,
-                              background: 'var(--bg-card)',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 12,
-                                marginBottom: 12,
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>평가자 변경 이력</div>
-                                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
-                                  현재 평가자: {evaluatorName}
-                                </div>
-                              </div>
-                              <button
-                                className="sd-btn sd-btn-outline sd-btn-xs"
-                                onClick={() => loadAssignmentHistory(employee.employee_id, true)}
-                                disabled={isHistoryLoading}
-                              >
-                                {isHistoryLoading ? '조회 중' : '새로고침'}
-                              </button>
-                            </div>
-
-                            {isHistoryLoading && historyItems.length === 0 ? (
-                              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                                이력을 불러오는 중입니다.
-                              </div>
-                            ) : historyItems.length === 0 ? (
-                              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                                평가자 변경 이력이 없습니다.
-                              </div>
-                            ) : (
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                {historyItems.map((history) => {
-                                  const previousEvaluator = getEvaluatorLabel(
-                                    history.previous_evaluator_id,
-                                    history.previous_evaluator_name,
-                                  );
-                                  const newEvaluator = getEvaluatorLabel(
-                                    history.new_evaluator_id,
-                                    history.new_evaluator_name,
-                                  );
-                                  const isLatestAction =
-                                    latestActionableHistory?.id === history.id &&
-                                    history.status === 'applied' &&
-                                    history.change_type !== 'cancel';
-                                  const canCancel = isLatestAction;
-                                  const isRowActionRunning = historyActionId === history.id;
-
-                                  return (
-                                    <div
-                                      key={history.id}
-                                      style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '112px minmax(220px, 1fr) 82px 82px 88px',
-                                        alignItems: 'center',
-                                        gap: 10,
-                                        padding: '10px 12px',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: 8,
-                                        background:
-                                          history.status === 'cancelled'
-                                            ? 'var(--bg-muted)'
-                                            : 'var(--bg-card)',
-                                      }}
-                                    >
-                                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-                                        {formatAssignmentDate(history.changed_at)}
-                                      </div>
-                                      <div style={{ minWidth: 0 }}>
-                                        <div
-                                          style={{
-                                            fontSize: 'var(--fs-body)',
-                                            fontWeight: 800,
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                          }}
-                                        >
-                                          {previousEvaluator} → {newEvaluator}
-                                        </div>
-                                        {history.reason && (
-                                          <div
-                                            style={{
-                                              fontSize: 'var(--fs-sm)',
-                                              color: 'var(--fg-muted)',
-                                              marginTop: 2,
-                                              whiteSpace: 'nowrap',
-                                              overflow: 'hidden',
-                                              textOverflow: 'ellipsis',
-                                            }}
-                                          >
-                                            {history.reason}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <Pill tone={history.change_type === 'cancel' ? 'neutral' : 'orange'}>
-                                        {assignmentTypeLabel(history.change_type)}
-                                      </Pill>
-                                      <Pill tone={assignmentStatusTone(history.status)}>
-                                        {assignmentStatusLabel(history.status)}
-                                      </Pill>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          justifyContent: 'flex-end',
-                                          gap: 6,
-                                        }}
-                                      >
-                                        <button
-                                          className="sd-btn sd-btn-ghost sd-btn-xs"
-                                          disabled={!canCancel || isRowActionRunning}
-                                          title={!canCancel ? '최신 적용 이력만 취소할 수 있습니다.' : undefined}
-                                          onClick={() => cancelAssignmentChange(employee, history)}
-                                        >
-                                          취소
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
                     </Fragment>
                   );
                 })}
@@ -1317,6 +1209,21 @@ const HrUsersPage = () => {
           )}
         </div>
       </div>
+
+      {historyModalEmployeeId && employeeMap.get(historyModalEmployeeId) && (
+        <EvaluatorHistoryModal
+          employee={employeeMap.get(historyModalEmployeeId)!}
+          historyItems={assignmentHistoryByEmployee[historyModalEmployeeId] ?? []}
+          evaluatorOptions={evaluatorOptions}
+          isLoading={loadingHistoryEmployeeId === historyModalEmployeeId}
+          actionId={historyActionId}
+          onAddChange={addAssignmentChange}
+          onCorrect={correctAssignmentChange}
+          onCancelChange={cancelAssignmentChange}
+          onRefresh={() => loadAssignmentHistory(historyModalEmployeeId, true)}
+          onClose={closeAssignmentHistory}
+        />
+      )}
     </>
   );
 };

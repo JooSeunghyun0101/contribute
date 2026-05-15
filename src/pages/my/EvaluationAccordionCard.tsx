@@ -14,7 +14,8 @@ import {
   getMatrixScopeIndex,
   MATRIX_METHODS,
   MATRIX_SCOPES,
-  MATRIX_SCORE_COLORS,
+  getScoreColor,
+  getScoreTextColor,
 } from '@/lib/evaluationMatrix';
 import {
   EMPTY_DRAFT,
@@ -30,7 +31,6 @@ import {
 
 const METHODS = MATRIX_METHODS;
 const SCOPES = MATRIX_SCOPES;
-const SCORE_BG = MATRIX_SCORE_COLORS;
 
 const getMatrixCoords = (method?: string, scope?: string): { row: number; col: number } | null => {
   const row = getMatrixMethodIndex(method);
@@ -887,7 +887,7 @@ const EvaluationAccordionCard = ({
                               style={{
                                 fontSize: 'var(--fs-h2)',
                                 fontWeight: 900,
-                                color: SCORE_BG[selectedScore] ?? 'var(--fg)',
+                                color: getScoreColor(selectedScore),
                                 lineHeight: 1,
                               }}
                             >
@@ -933,8 +933,8 @@ const EvaluationAccordionCard = ({
                               )}
                               renderCell={(_, __, mi, si, baseScore) => {
                                 const selected = coords?.row === mi && coords?.col === si;
-                                const bg = selected ? SCORE_BG[baseScore] ?? '#78716C' : 'var(--bg-muted)';
-                                const color = selected ? '#fff' : 'var(--fg-subtle)';
+                                const bg = selected ? getScoreColor(baseScore) : 'var(--bg-muted)';
+                                const color = selected ? getScoreTextColor(baseScore) : 'var(--fg-subtle)';
                                 return (
                                   <div
                                     style={{

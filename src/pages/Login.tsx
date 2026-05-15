@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrandLockup, IconArrowRight } from '@/components/brand';
+
+// three.js 기반 셰이더는 로그인 화면에서만 쓰이므로 lazy load — 메인 번들 분리.
+const ShaderAnimation = lazy(() =>
+  import('@/components/ui/shader-animation').then((m) => ({ default: m.ShaderAnimation })),
+);
 
 const roleLabel: Record<string, string> = {
   hr: 'HR 관리자',
@@ -61,112 +66,93 @@ const Login = () => {
     else navigate('/');
   };
 
-  const bgL = '#1F1428';
-  const panelL = '#2A1D35';
-  const inputL = '#3A2A48';
-  const borderL = '#4A3A58';
-  const textSoft = '#C9B8D4';
-  const textSubtle = '#8A7A96';
+  // OK 브랜드 다크 톤 — 셰이더의 검정 배경과 자연스럽게 이어지는 웜 브라운 계열
+  const bgL = '#161210';
+  const panelL = '#211B17';
+  const inputL = '#2C2420';
+  const borderL = '#3D332C';
+  const textSoft = '#D6C9BC';
+  const textSubtle = '#9B8C7D';
 
   return (
     <div
       style={{
         width: '100%',
         minHeight: '100vh',
-        background: `radial-gradient(1200px 600px at 15% 20%, rgba(217,98,60,0.18), transparent 60%), radial-gradient(900px 500px at 85% 100%, rgba(217,154,78,0.12), transparent 60%), ${bgL}`,
+        background: `radial-gradient(1200px 600px at 15% 20%, rgba(245,80,0,0.16), transparent 60%), radial-gradient(900px 500px at 85% 100%, rgba(255,170,0,0.10), transparent 60%), ${bgL}`,
         color: '#F4EDE3',
         display: 'flex',
       }}
     >
-      {/* Left — brand story */}
+      {/* Left — brand */}
       <div
         style={{
           flex: 1,
           padding: '70px 72px',
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'space-between',
           position: 'relative',
+          overflow: 'hidden',
         }}
         className="hidden lg:flex"
       >
+        {/* Shader animation background */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: '#000' }}>
+          <Suspense fallback={null}>
+            <ShaderAnimation />
+          </Suspense>
+          {/* 셰이더 위 가독성용 — 균일하게 옅은 톤 */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(22,18,16,0.5)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+
+        {/* 담백한 브랜드 메시지 */}
         <div
           style={{
-            position: 'absolute',
-            bottom: -120,
-            left: -80,
-            width: 360,
-            height: 360,
-            borderRadius: '50%',
-            background:
-              'radial-gradient(circle, rgba(232,122,82,0.35) 0%, rgba(217,154,78,0.15) 40%, transparent 70%)',
-            pointerEvents: 'none',
+            position: 'relative',
+            zIndex: 1,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
           }}
-        />
-        <div style={{ position: 'relative' }}>
+        >
           <BrandLockup />
           <div
             style={{
-              marginTop: 100,
-              fontSize: 'var(--fs-h4)',
-              color: 'var(--ok-yellow-300)',
-              fontWeight: 700,
-              letterSpacing: '0.12em',
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
             }}
           >
-            CONTRIBUTION EVALUATION
-          </div>
-          <h1
-            style={{
-              fontSize: 'var(--fs-display)',
-              fontWeight: 900,
-              letterSpacing: '-0.04em',
-              lineHeight: 1.05,
-              marginTop: 12,
-            }}
-          >
-            기여를
-            <br />
-            <span
+            <h1
               style={{
-                background: 'linear-gradient(90deg, #E87A52 0%, #E8BC82 100%)',
-                WebkitBackgroundClip: 'text',
-                backgroundClip: 'text',
-                color: 'transparent',
+                fontSize: 'var(--fs-display)',
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                lineHeight: 1.1,
+                textShadow: '0 2px 24px rgba(0,0,0,0.65)',
               }}
             >
-              측정하다
-              <span style={{ color: 'var(--ok-yellow)', WebkitTextFillColor: 'var(--ok-yellow)' }}>
-                !
-              </span>
-            </span>
-          </h1>
-          <p style={{ color: textSoft, marginTop: 20, fontSize: 'var(--fs-h4)', lineHeight: 1.6, maxWidth: 480 }}>
-            과업 × 기여방식 × 기여범위의 정량 매트릭스.
-            <br />
-            2026년, OK금융그룹의 새로운 평가 체계가 시작됩니다.
-          </p>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 40,
-            fontSize: 'var(--fs-sm)',
-            color: textSubtle,
-            position: 'relative',
-          }}
-        >
-          <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>342</div>
-            평가 대상자
-          </div>
-          <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>48</div>
-            평가자
-          </div>
-          <div>
-            <div style={{ color: textSoft, fontWeight: 700, fontSize: 'var(--fs-h4)' }}>4×4</div>
-            매트릭스
+              기여도 평가
+            </h1>
+            <p
+              style={{
+                color: textSoft,
+                marginTop: 14,
+                fontSize: 'var(--fs-h4)',
+                lineHeight: 1.6,
+                textShadow: '0 1px 16px rgba(0,0,0,0.6)',
+              }}
+            >
+              OK금융그룹의 새로운 성과 평가 체계
+            </p>
           </div>
         </div>
       </div>
@@ -252,7 +238,7 @@ const Login = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                background: 'linear-gradient(135deg, #D9623C 0%, #BE4E2C 100%)',
+                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
                 color: '#fff',
                 fontWeight: 700,
                 borderRadius: 10,
@@ -282,7 +268,7 @@ const Login = () => {
                   padding: '14px 16px',
                   borderRadius: 10,
                   border: `1px solid ${selectedRole === r ? 'var(--ok-orange)' : borderL}`,
-                  background: selectedRole === r ? 'rgba(217,98,60,0.15)' : inputL,
+                  background: selectedRole === r ? 'rgba(245,80,0,0.15)' : inputL,
                   cursor: 'pointer',
                   color: '#F4EDE3',
                 }}
@@ -293,7 +279,7 @@ const Login = () => {
                   value={r}
                   checked={selectedRole === r}
                   onChange={() => setSelectedRole(r)}
-                  style={{ accentColor: '#D9623C' }}
+                  style={{ accentColor: '#F55000' }}
                 />
                 <span style={{ fontWeight: 600 }}>{roleLabel[r] ?? r}</span>
               </label>
@@ -304,7 +290,7 @@ const Login = () => {
               style={{
                 height: 46,
                 marginTop: 6,
-                background: 'linear-gradient(135deg, #D9623C 0%, #BE4E2C 100%)',
+                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
                 color: '#fff',
                 fontWeight: 700,
                 borderRadius: 10,
@@ -340,7 +326,7 @@ const Login = () => {
           style={{
             marginTop: 32,
             padding: '14px 16px',
-            background: 'rgba(217,98,60,0.12)',
+            background: 'rgba(245,80,0,0.12)',
             borderRadius: 10,
             border: `1px solid ${borderL}`,
           }}

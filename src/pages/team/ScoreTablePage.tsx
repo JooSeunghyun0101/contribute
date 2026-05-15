@@ -15,9 +15,10 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+import { MATRIX_SCORE_COLORS, MATRIX_SCORE_TEXT_COLORS } from '@/lib/evaluationMatrix';
 
-const SCORE_BG: Record<number, string> = { 4: '#F55000', 3: '#D94400', 2: '#FFAA00', 1: '#C2BAB0' };
-const SCORE_TEXT: Record<number, string> = { 4: '#fff', 3: '#fff', 2: '#4A1A00', 1: '#fff' };
+const SCORE_BG = MATRIX_SCORE_COLORS;
+const SCORE_TEXT = MATRIX_SCORE_TEXT_COLORS;
 
 const SCORE_COLUMNS = [4, 3, 2, 1] as const;
 

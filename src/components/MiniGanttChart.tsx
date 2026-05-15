@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Task } from '@/types/evaluation';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { getScoreColor } from '@/lib/evaluationMatrix';
 
 interface MiniGanttChartProps {
   tasks: Task[];
@@ -33,8 +34,6 @@ const MiniGanttChart: React.FC<MiniGanttChartProps> = ({
   const maxDate = new Date(new Date().getFullYear(), 11, 31);
   const totalDays = differenceInDays(maxDate, minDate);
 
-  const ganttColors = ['#F55000', '#55474A', '#FFAA00'];
-
   const displayTasks = showAll ? tasksWithDates : tasksWithDates.slice(0, maxInitialTasks);
   const hasMore = tasksWithDates.length > maxInitialTasks;
 
@@ -48,15 +47,15 @@ const MiniGanttChart: React.FC<MiniGanttChartProps> = ({
         </div>
         
         {/* Tasks */}
-        {displayTasks.map((task, index) => {
+        {displayTasks.map((task) => {
           const startDate = parseISO(task.startDate!);
           const endDate = parseISO(task.endDate!);
           const taskDays = differenceInDays(endDate, startDate);
           const startOffset = differenceInDays(startDate, minDate);
-          
+
           const leftPercent = totalDays > 0 ? (startOffset / totalDays) * 100 : 0;
           const widthPercent = totalDays > 0 ? (taskDays / totalDays) * 100 : 100;
-          
+
           return (
             <div key={task.id} className="flex items-center space-x-2">
               <div className="w-16 text-xs truncate" title={task.title}>
@@ -68,7 +67,7 @@ const MiniGanttChart: React.FC<MiniGanttChartProps> = ({
                   style={{
                     left: `${Math.max(0, leftPercent)}%`,
                     width: `${Math.min(100 - Math.max(0, leftPercent), widthPercent)}%`,
-                    backgroundColor: ganttColors[index % ganttColors.length],
+                    backgroundColor: getScoreColor(task.score),
                     opacity: 0.85
                   }}
                 />

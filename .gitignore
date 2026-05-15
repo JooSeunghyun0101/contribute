@@ -19,6 +19,9 @@ database_connect_information.yml
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# One-shot seeding/migration scripts kept locally
+scripts/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

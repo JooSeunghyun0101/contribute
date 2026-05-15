@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
 
 type Props = {
   score: number | null | undefined;
@@ -8,11 +9,9 @@ type Props = {
 
 export const NumBadge = ({ score, size = 28, className }: Props) => {
   const label = score == null ? '-' : score;
-  const bg =
-    score == null
-      ? 'var(--bg-muted)'
-      : 'linear-gradient(135deg, var(--ok-orange) 0%, var(--ok-yellow) 100%)';
-  const color = score == null ? 'var(--fg-subtle)' : '#fff';
+  // 점수별 색상 체계와 동일하게 — 배경/텍스트 모두 점수에 연동.
+  const bg = score == null ? 'var(--bg-muted)' : getScoreColor(score);
+  const color = score == null ? 'var(--fg-subtle)' : getScoreTextColor(score);
 
   return (
     <span

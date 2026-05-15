@@ -26,15 +26,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
     return <Navigate to="/login" replace />;
   }
 
+  // 권한이 맞지 않으면 현재 user.role 의 기본 홈(/)으로 redirect.
+  // 루트 `/`는 RoleRedirect 가 user.role 에 맞춰 /hr · /team · /my 로 보내준다.
+  // 권한 전환 직후/직접 URL 입력 모두 동일하게 처리되어 빈 권한 페이지 대신
+  // 새 권한의 상위 메뉴로 자연스럽게 진입한다.
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-4">접근 권한이 없습니다</h2>
-          <p className="text-muted-foreground">이 페이지에 접근할 권한이 없습니다.</p>
-        </div>
-      </div>
-    );
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

@@ -16,6 +16,8 @@ import {
   MATRIX_SCORE_COLORS,
   EvaluationMatrixScores,
   getMatrixScore,
+  getScoreColor,
+  getScoreTextColor,
 } from '@/lib/evaluationMatrix';
 
 const METHODS = MATRIX_METHODS;
@@ -770,7 +772,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
   >
     {group.tasks.map((item, index) => {
       const active = item.task.id === selectedTaskId;
-      const scoreBg = item.score != null ? (SCORE_BG[item.score] ?? '#C2BAB0') : 'var(--fg-subtle)';
+      const scoreBg = item.score != null ? getScoreColor(item.score) : 'var(--fg-subtle)';
 
       return (
         <button
@@ -818,7 +820,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
                     height: 24,
                     borderRadius: '50%',
                     background: scoreBg,
-                    color: '#fff',
+                    color: getScoreTextColor(item.score),
                     fontSize: 'var(--fs-sm)',
                     fontWeight: 900,
                     display: 'inline-flex',
@@ -937,7 +939,7 @@ const TaskDetail = ({
             renderCell={(_, __, methodIndex, scopeIndex, cellScore) => {
               const isSelected = !noContribSelected && methodIndex === selectedMethodIdx && scopeIndex === selectedScopeIdx;
               const cellBg = isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--bg-muted)';
-              const cellColor = isSelected ? '#fff' : 'var(--fg-subtle)';
+              const cellColor = isSelected ? getScoreTextColor(cellScore) : 'var(--fg-subtle)';
 
               return (
                 <button
@@ -1009,7 +1011,7 @@ const TaskDetail = ({
                   height: 78,
                   borderRadius: 16,
                   background: SCORE_BG[item.score] ?? group.accent,
-                  color: '#fff',
+                  color: getScoreTextColor(item.score),
                   fontSize: 'var(--fs-display)',
                   fontWeight: 900,
                   display: 'inline-flex',

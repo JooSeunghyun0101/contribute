@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
 
 export type TaskFeedbackEntry = {
   id: string;
@@ -15,9 +16,6 @@ export type TaskFeedbackCardProps = {
   score: number | null;
   entries: TaskFeedbackEntry[];
 };
-
-const SCORE_BG: Record<number, string> = { 4: '#F55000', 3: '#D94400', 2: '#FFAA00', 1: '#C2BAB0' };
-const SCORE_FG: Record<number, string> = { 4: '#fff', 3: '#fff', 2: '#4A1A00', 1: '#fff' };
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
@@ -80,8 +78,8 @@ const TaskFeedbackCard = ({
 }: TaskFeedbackCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [latest, ...older] = entries;
-  const scoreBg = score != null ? (SCORE_BG[score] ?? '#C2BAB0') : '#C2BAB0';
-  const scoreFg = score != null ? (SCORE_FG[score] ?? '#fff') : '#fff';
+  const scoreBg = getScoreColor(score);
+  const scoreFg = getScoreTextColor(score);
   const taskBadge = typeof taskIndex === 'number' ? `T${String(taskIndex + 1).padStart(2, '0')}` : null;
 
   return (

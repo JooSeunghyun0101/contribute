@@ -2,10 +2,10 @@ import { useMemo } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { getScoreColor } from '@/lib/evaluationMatrix';
 
 const monthLabels = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 const MONTH_SPAN = monthLabels.length; // 12
-const TASK_COLORS = ['#F55000', '#FFAA00', '#D94400', '#4A4541'];
 
 const toMonthFraction = (value?: string | null) => {
   if (!value) return 0;
@@ -120,7 +120,7 @@ const EvaluatorSchedulePage = () => {
                         const end = Math.max(start + 0.25, toMonthFraction(task.end_date));
                         const left = (start / MONTH_SPAN) * 100;
                         const width = ((end - start) / MONTH_SPAN) * 100;
-                        const color = TASK_COLORS[index % TASK_COLORS.length];
+                        const color = getScoreColor(task.score);
 
                         return (
                           <div

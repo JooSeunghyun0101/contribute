@@ -14,8 +14,6 @@ const weeklyData = [
   { label: '현재', value: 72 },
 ];
 
-const SCORE_BG: Record<number, string> = { 4: '#F55000', 3: '#D94400', 2: '#FFAA00', 1: '#C2BAB0' };
-
 const HrHome = () => {
   const { records, isLoading } = useCompanyDashboardRecords();
 

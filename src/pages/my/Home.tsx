@@ -8,12 +8,9 @@ import {
   getMatrixScore,
   getMatrixMethodIndex,
   getMatrixScopeIndex,
-  MATRIX_SCORE_COLORS,
+  getScoreColor,
+  getScoreTextColor,
 } from '@/lib/evaluationMatrix';
-
-/* ── 매트릭스 상수 (전 시스템 통일: 우상단=4) ───────────── */
-const SCORE_BG = MATRIX_SCORE_COLORS;
-const TASK_COLORS = ['#F55000', '#FFAA00', '#D94400', '#4A4541'];
 
 /* ── 간트 날짜 계산 (1월~12월 기준) ──────────────────────── */
 const GANTT_MONTHS = 12;
@@ -110,7 +107,6 @@ const MyHome = () => {
       })),
     [matrix, tasks],
   );
-  const TASK_PALETTE = ['#F55000', '#FFAA00', '#D94400', '#4A4541', '#A16207', '#78716C'];
 
   /* 최근 피드백 */
   const recentFeedbacks = useMemo(
@@ -239,13 +235,14 @@ const MyHome = () => {
               </div>
               <div
                 style={{
-                  marginTop: 6,
-                  fontSize: 'var(--fs-body)',
-                  fontWeight: 700,
+                  fontSize: 'var(--fs-display)',
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  letterSpacing: '-0.03em',
                   color: achieved ? 'var(--ok-orange)' : 'var(--fg-muted)',
                 }}
               >
-                {achieved ? '🎯 달성' : '미달성'}
+                {achieved ? '달성' : '미달성'}
               </div>
             </div>
           </div>
@@ -322,7 +319,7 @@ const MyHome = () => {
                     const cell = cellTasks[0];
                     const label = `T${String(cell.taskIndex + 1).padStart(2, '0')}`;
                     const hasScore = cell.score != null;
-                    const bg = hasScore ? (SCORE_BG[cell.score!] ?? '#78716C') : '#78716C';
+                    const bg = getScoreColor(cell.score);
                     return (
                       <div
                         style={{
@@ -333,7 +330,7 @@ const MyHome = () => {
                           flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          color: '#fff',
+                          color: getScoreTextColor(cell.score),
                           lineHeight: 1.05,
                           gap: 2,
                           padding: '4px 0',
@@ -385,7 +382,7 @@ const MyHome = () => {
                       {cellTasks.map((c) => {
                         const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
                         const hasScore = c.score != null;
-                        const bg = hasScore ? (SCORE_BG[c.score!] ?? '#78716C') : '#78716C';
+                        const bg = getScoreColor(c.score);
                         return (
                           <div
                             key={`chip-${c.taskIndex}`}
@@ -398,7 +395,7 @@ const MyHome = () => {
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               padding: '0 6px',
-                              color: '#fff',
+                              color: getScoreTextColor(c.score),
                               fontSize: 'var(--fs-micro)',
                               fontWeight: 800,
                               lineHeight: 1,
@@ -541,7 +538,7 @@ const MyHome = () => {
                             bottom: 3,
                             left: `${Math.min(96, leftPct)}%`,
                             width: `${Math.max(4, widthPct)}%`,
-                            background: TASK_COLORS[index % TASK_COLORS.length],
+                            background: getScoreColor(taskScore),
                             borderRadius: 4,
                             display: 'flex',
                             alignItems: 'center',
@@ -566,8 +563,8 @@ const MyHome = () => {
                                 width: 24,
                                 height: 24,
                                 borderRadius: 6,
-                                background: SCORE_BG[taskScore] ?? 'var(--bg-muted)',
-                                color: '#fff',
+                                background: getScoreColor(taskScore),
+                                color: getScoreTextColor(taskScore),
                                 fontWeight: 900,
                                 fontSize: 'var(--fs-sm)',
                                 display: 'inline-flex',
@@ -691,15 +688,8 @@ const MyHome = () => {
                             );
                           }}
                         >
-                          {weightDonutData.map((entry, i) => (
-                            <Cell
-                              key={entry.shortName}
-                              fill={
-                                entry.score != null
-                                  ? (SCORE_BG[entry.score] ?? TASK_PALETTE[i % TASK_PALETTE.length])
-                                  : TASK_PALETTE[i % TASK_PALETTE.length]
-                              }
-                            />
+                          {weightDonutData.map((entry) => (
+                            <Cell key={entry.shortName} fill={getScoreColor(entry.score)} />
                           ))}
                         </Pie>
                         <Tooltip
@@ -757,10 +747,7 @@ const MyHome = () => {
               {/* Legend / breakdown */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {weightDonutData.map((item, i) => {
-                  const color =
-                    item.score != null
-                      ? (SCORE_BG[item.score] ?? TASK_PALETTE[i % TASK_PALETTE.length])
-                      : TASK_PALETTE[i % TASK_PALETTE.length];
+                  const color = getScoreColor(item.score);
                   return (
                     <div
                       key={item.shortName}
@@ -818,8 +805,8 @@ const MyHome = () => {
                             width: 18,
                             height: 18,
                             borderRadius: '50%',
-                            background: SCORE_BG[item.score],
-                            color: '#fff',
+                            background: getScoreColor(item.score),
+                            color: getScoreTextColor(item.score),
                             fontSize: 'var(--fs-micro)',
                             fontWeight: 800,
                             display: 'flex',
@@ -905,11 +892,8 @@ const MyHome = () => {
                           width: 24,
                           height: 24,
                           borderRadius: 6,
-                          background:
-                            fb.taskScore != null
-                              ? (SCORE_BG[fb.taskScore] ?? 'var(--bg-muted)')
-                              : 'var(--bg-muted)',
-                          color: fb.taskScore != null ? '#fff' : 'var(--fg-muted)',
+                          background: getScoreColor(fb.taskScore),
+                          color: getScoreTextColor(fb.taskScore),
                           fontWeight: 900,
                           fontSize: 'var(--fs-sm)',
                           display: 'inline-flex',
