@@ -1,7 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useToast } from '@/hooks/use-toast';
+import { downloadFullEvaluationDataWorkbook } from '@/utils/hrDataExport';
 
 const weeklyData = [
   { label: '3월 1주', value: 28 },
@@ -16,6 +18,8 @@ const weeklyData = [
 
 const HrHome = () => {
   const { records, isLoading } = useCompanyDashboardRecords();
+  const { toast } = useToast();
+  const [isExportingReport, setIsExportingReport] = useState(false);
 
   const summary = useMemo(() => {
     const totalMembers = records.length;
@@ -71,6 +75,26 @@ const HrHome = () => {
     return `${Math.round(hours / 24)}일 전`;
   };
 
+  const handleExportEvaluationData = async () => {
+    setIsExportingReport(true);
+    try {
+      const result = await downloadFullEvaluationDataWorkbook({ includePastEvaluations: true });
+      toast({
+        title: '평가데이터 다운로드가 완료되었습니다.',
+        description: `평가 ${result.evaluationCount ?? 0}건 · 과업 ${result.taskCount ?? 0}건 · 피드백 ${result.feedbackCount ?? 0}건`,
+      });
+    } catch (error) {
+      console.error('평가데이터 다운로드 실패:', error);
+      toast({
+        title: '평가데이터 다운로드 실패',
+        description: '전체 평가 데이터 파일을 생성하지 못했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -78,7 +102,13 @@ const HrHome = () => {
         subtitle="2026 연간 기여도 평가 · 전사 현황"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="sd-btn sd-btn-outline sd-btn-sm">보고서</button>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={handleExportEvaluationData}
+              disabled={isExportingReport}
+            >
+              {isExportingReport ? '다운로드 중' : '평가데이터'}
+            </button>
             <button className="sd-btn sd-btn-primary sd-btn-sm">평가 설정</button>
           </div>
         }

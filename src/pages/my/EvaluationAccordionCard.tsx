@@ -44,6 +44,7 @@ interface Props {
   evaluationId: string | null;
   isCurrent: boolean;
   defaultExpanded?: boolean;
+  periodLabel?: string | null;
 }
 
 const EvaluationAccordionCard = ({
@@ -51,6 +52,7 @@ const EvaluationAccordionCard = ({
   evaluationId,
   isCurrent,
   defaultExpanded = false,
+  periodLabel,
 }: Props) => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
@@ -399,6 +401,22 @@ const EvaluationAccordionCard = ({
               </h2>
               <Pill tone={isCurrent ? 'orange' : 'neutral'}>{headerLabel}</Pill>
               <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
+              {periodLabel && (
+                <span
+                  className="tnum"
+                  style={{
+                    fontSize: 'var(--fs-sm)',
+                    fontWeight: 700,
+                    color: 'var(--fg-muted)',
+                    background: 'var(--bg-muted)',
+                    padding: '3px 10px',
+                    borderRadius: 999,
+                  }}
+                  title="평가자 근무기간"
+                >
+                  {periodLabel}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
               과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}%
@@ -434,7 +452,7 @@ const EvaluationAccordionCard = ({
         >
           <section
             style={{
-              width: 340,
+              width: 360,
               borderRight: '1px solid var(--border)',
               background: 'var(--bg-card)',
               display: 'flex',
@@ -570,7 +588,7 @@ const EvaluationAccordionCard = ({
                         <Pill tone={taskScore == null ? 'neutral' : 'orange'}>
                           T{String(index + 1).padStart(2, '0')}
                         </Pill>
-                        <NumBadge score={taskScore} size={22} />
+                        <NumBadge score={taskScore} size={28} />
                       </div>
                       <div style={{ fontWeight: active ? 700 : 600, fontSize: 'var(--fs-body)', lineHeight: 1.45 }}>
                         {task.title}
@@ -908,7 +926,7 @@ const EvaluationAccordionCard = ({
                               renderMethodLabel={(method) => (
                                 <div
                                   style={{
-                                    fontSize: 'var(--fs-micro)',
+                                    fontSize: 'var(--fs-sm)',
                                     fontWeight: 700,
                                     color: 'var(--fg-muted)',
                                     display: 'flex',
@@ -922,7 +940,7 @@ const EvaluationAccordionCard = ({
                                 <div
                                   style={{
                                     textAlign: 'center',
-                                    fontSize: 'var(--fs-2xs)',
+                                    fontSize: 'var(--fs-sm)',
                                     fontWeight: 700,
                                     color: 'var(--fg-muted)',
                                     paddingTop: 4,

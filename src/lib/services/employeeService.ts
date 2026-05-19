@@ -5,6 +5,10 @@ import { apiErrorHandler } from '@/utils/errorHandler';
 type EmployeeUpdatePayload = Partial<Employee> & {
   changed_by?: string | null;
   changedBy?: string | null;
+  changed_at?: string | null;
+  changedAt?: string | null;
+  evaluation_period_id?: string | null;
+  evaluationPeriodId?: string | null;
   assignment_change_reason?: string | null;
   change_reason?: string | null;
   reason?: string | null;
@@ -15,6 +19,10 @@ type AssignmentActionPayload = {
   changedBy?: string | null;
   actor_id?: string | null;
   actorId?: string | null;
+  changed_at?: string | null;
+  changedAt?: string | null;
+  evaluation_period_id?: string | null;
+  evaluationPeriodId?: string | null;
   reason?: string | null;
   cancel_reason?: string | null;
 };
@@ -26,6 +34,10 @@ type EvaluatorEditPayload = {
   changedBy?: string | null;
   actor_id?: string | null;
   actorId?: string | null;
+  changed_at?: string | null;
+  changedAt?: string | null;
+  evaluation_period_id?: string | null;
+  evaluationPeriodId?: string | null;
   reason?: string | null;
 };
 
@@ -36,6 +48,10 @@ type EvaluatorCorrectPayload = {
   changedBy?: string | null;
   actor_id?: string | null;
   actorId?: string | null;
+  changed_at?: string | null;
+  changedAt?: string | null;
+  evaluation_period_id?: string | null;
+  evaluationPeriodId?: string | null;
   reason?: string | null;
 };
 
@@ -55,6 +71,18 @@ export type MatchingImportRowInput = {
   evaluation_type?: string | null;
   matching_result?: string | null;
   raw_data?: Record<string, unknown>;
+};
+
+export type MatchingImportStoredRow = MatchingImportRowInput & {
+  id: string;
+  batch_id: string;
+  source_file_name?: string | null;
+  source_sheet_name?: string | null;
+  imported_at?: string | null;
+  created_at?: string | null;
+  is_primary?: boolean;
+  validation_status?: string | null;
+  validation_message?: string | null;
 };
 
 export type MatchingImportResult = {
@@ -104,6 +132,20 @@ export type EmployeeProfileImportRowInput = {
   target_status?: string | null;
   available_roles?: string[];
   raw_data?: Record<string, unknown>;
+};
+
+export type EmployeeProfileImportStoredRow = EmployeeProfileImportRowInput & {
+  id: string;
+  batch_id: string;
+  source_file_name?: string | null;
+  imported_at?: string | null;
+  created_at?: string | null;
+  evaluation_group_id?: string | null;
+  evaluation_group_name?: string | null;
+  growth_level?: number | null;
+  validation_status?: string | null;
+  validation_message?: string | null;
+  is_primary?: boolean;
 };
 
 export type EmployeeProfileImportResult = {
@@ -169,7 +211,25 @@ export const employeeService = {
     }
   },
 
+  async getLatestEmployeeProfileImportRows(): Promise<EmployeeProfileImportStoredRow[]> {
+    try {
+      return await apiFetch<EmployeeProfileImportStoredRow[]>(
+        '/api/employee-profile-imports/latest-rows',
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 평가대상자 엑셀 업로드 반영
+  async getLatestMatchingImportRows(): Promise<MatchingImportStoredRow[]> {
+    try {
+      return await apiFetch<MatchingImportStoredRow[]>('/api/matching-imports/latest-rows');
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   async importEmployeeProfiles(payload: {
     source_file_name: string;
     changed_by?: string | null;
@@ -266,6 +326,46 @@ export const employeeService = {
         employee: Employee | null;
         cancelled_entries: number;
       }>(`/api/evaluator-assignment-history/${historyId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 대상자 일괄삭제: admin 외 모든 employees + 그들에 딸린 평가·과업·이력·임포트 데이터 제거.
+  async resetEmployees(payload: {
+    actor_id?: string | null;
+    actorId?: string | null;
+  }): Promise<{ ok: boolean; deleted_employees: number; message: string }> {
+    try {
+      return await apiFetch<{
+        ok: boolean;
+        deleted_employees: number;
+        message: string;
+      }>('/api/admin/reset/employees', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 매칭정보 일괄삭제: employees 는 유지, 매칭 임포트로 들어온 평가자 배정·평가건·이력만 비움.
+  async resetMatching(payload: {
+    actor_id?: string | null;
+    actorId?: string | null;
+  }): Promise<{ ok: boolean; cleared_employees: number; message: string }> {
+    try {
+      return await apiFetch<{
+        ok: boolean;
+        cleared_employees: number;
+        message: string;
+      }>('/api/admin/reset/matching', {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'application/json' },

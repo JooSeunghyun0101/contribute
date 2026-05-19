@@ -3,21 +3,15 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
-import { usePastEvaluations } from '@/hooks/usePastEvaluations';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
 } from '@/components/Feedback/TaskFeedbackCard';
-import PastEvaluationAccordion from '@/components/Feedback/PastEvaluationAccordion';
 
 type PastTaskCard = TaskFeedbackCardProps & { taskId: string };
 
 const MyFeedbackPage = () => {
   const { user } = useAuth();
   const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '');
-  const { pastBundles, isLoadingPast } = usePastEvaluations(
-    user?.employeeId ?? '',
-    evaluationData?.id,
-  );
 
   const tasks = evaluationData?.tasks ?? [];
 
@@ -81,7 +75,7 @@ const MyFeedbackPage = () => {
     <>
       <PageHeader
         title="피드백 이력"
-        subtitle={`평가자로부터 받은 코멘트 ${totalFeedbacks}건 · 과거 평가자 ${pastBundles.length}건`}
+        subtitle={`평가자로부터 받은 코멘트 ${totalFeedbacks}건`}
       />
 
       <div style={{ padding: '28px 32px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
@@ -93,37 +87,17 @@ const MyFeedbackPage = () => {
               아직 등록된 과업이 없습니다.
             </div>
           ) : (
-            <>
-              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4 }}>
-                현재 평가
-              </div>
-              {taskCards.map((card) => (
-                <TaskFeedbackCard
-                  key={card.taskId}
-                  taskIndex={card.taskIndex}
-                  taskTitle={card.taskTitle}
-                  contributionMethod={card.contributionMethod}
-                  contributionScope={card.contributionScope}
-                  score={card.score}
-                  entries={card.entries}
-                />
-              ))}
-            </>
-          )}
-
-          {(pastBundles.length > 0 || isLoadingPast) && (
-            <>
-              <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)', letterSpacing: 0.4, marginTop: 8 }}>
-                과거 평가자별 이력
-              </div>
-              {isLoadingPast && pastBundles.length === 0 ? (
-                <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>과거 이력 로딩 중…</div>
-              ) : (
-                pastBundles.map((bundle) => (
-                  <PastEvaluationAccordion key={bundle.evaluation.id} bundle={bundle} editable />
-                ))
-              )}
-            </>
+            taskCards.map((card) => (
+              <TaskFeedbackCard
+                key={card.taskId}
+                taskIndex={card.taskIndex}
+                taskTitle={card.taskTitle}
+                contributionMethod={card.contributionMethod}
+                contributionScope={card.contributionScope}
+                score={card.score}
+                entries={card.entries}
+              />
+            ))
           )}
         </div>
 

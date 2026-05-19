@@ -2,13 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Clock3, PencilLine } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { Pill } from '@/components/brand';
+import { NumBadge, Pill } from '@/components/brand';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useToast } from '@/hooks/use-toast';
-import { evaluationService } from '@/lib/services';
+import { employeeService, evaluationService } from '@/lib/services';
+import {
+  buildEvaluatorPeriods,
+  formatEvaluatorPeriod,
+  type EvaluatorPeriod,
+} from '@/lib/evaluatorHistory';
 import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import {
   MATRIX_METHODS,
@@ -16,7 +21,6 @@ import {
   MATRIX_SCORE_COLORS,
   EvaluationMatrixScores,
   getMatrixScore,
-  getScoreColor,
   getScoreTextColor,
 } from '@/lib/evaluationMatrix';
 
@@ -149,6 +153,7 @@ const Evaluation = () => {
     isPeriodEditable,
     periodEditMessage,
     reloadData,
+    isAchieved,
   } = useEvaluationDataDB(id || '', { evaluationId: overrideEvaluationId });
 
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
@@ -157,6 +162,30 @@ const Evaluation = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDraftSaving, setIsDraftSaving] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
+  const [evaluatorPeriods, setEvaluatorPeriods] = useState<Map<string, EvaluatorPeriod>>(
+    () => new Map(),
+  );
+
+  useEffect(() => {
+    if (!id) {
+      setEvaluatorPeriods(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const history = await employeeService.getEvaluatorAssignmentHistory(id);
+        if (cancelled) return;
+        setEvaluatorPeriods(buildEvaluatorPeriods(history));
+      } catch (error) {
+        console.warn('평가자 이력 로드 실패:', error);
+        if (!cancelled) setEvaluatorPeriods(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const committedTasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const currentEvaluationTasks = useMemo(
@@ -500,56 +529,70 @@ const Evaluation = () => {
   return (
     <>
       <PageHeader
-        title="성과 평가"
-        subtitle={`${evaluationData.evaluateeName} · ${evaluationData.evaluateePosition} · ${evaluationData.evaluateeDepartment ?? ''}`}
+        title={`성과 평가 · ${evaluationData.evaluateeName}`}
+        subtitle={[
+          evaluationData.evaluateePosition,
+          evaluationData.evaluateeDepartment,
+          evaluationData.evaluateeId ? `ID ${evaluationData.evaluateeId}` : null,
+          `과업 ${currentEvaluationTasks.length}건`,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={onReopenEvaluationClick}
-              disabled={!canReopenCompleted || isReopening}
-              title={
-                canReopenCompleted
-                  ? '피평가자가 다시 수정할 수 있도록 돌려보냅니다.'
-                  : '평가가 완료된 상태에서만 돌려보낼 수 있습니다.'
-              }
-            >
-              <PencilLine size={14} aria-hidden="true" />
-              {isReopening ? '처리 중...' : '피평가자에게 돌려보내기'}
-            </button>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={onTemporarySaveClick}
-              disabled={
-                isDraftSaving ||
-                (evaluationStatus === 'completed'
-                  ? !canEditEvaluation
-                  : !canEvaluate || !hasDrafts)
-              }
-              title={
-                evaluationStatus === 'completed'
-                  ? '평가 단계를 임시저장 단계로 되돌려 점수/피드백을 수정할 수 있게 합니다.'
-                  : !canEvaluate
-                    ? evaluatorEditMessage ?? undefined
-                    : !hasDrafts
-                      ? '저장할 임시 내용이 없습니다.'
-                      : undefined
-              }
-            >
-              {isDraftSaving
-                ? '처리 중…'
-                : evaluationStatus === 'completed'
-                  ? '임시저장'
-                  : '임시저장'}
-            </button>
-            <button
-              className="sd-btn sd-btn-primary sd-btn-sm"
-              onClick={onSaveClick}
-              disabled={isSaving || !canEvaluate}
-              title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
-            >
-              {isSaving ? 'AI 검토 중…' : '평가 저장'}
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+            <EvaluateeStatHero
+              growthLevel={evaluationData.growthLevel}
+              currentScore={evaluatorGroups.find((group) => group.isOwnedByCurrentUser)?.exactScore ?? null}
+              achieved={isAchieved()}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                onClick={onReopenEvaluationClick}
+                disabled={!canReopenCompleted || isReopening}
+                title={
+                  canReopenCompleted
+                    ? '피평가자가 다시 수정할 수 있도록 돌려보냅니다.'
+                    : '평가가 완료된 상태에서만 돌려보낼 수 있습니다.'
+                }
+              >
+                <PencilLine size={14} aria-hidden="true" />
+                {isReopening ? '처리 중...' : '피평가자에게 돌려보내기'}
+              </button>
+              <button
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                onClick={onTemporarySaveClick}
+                disabled={
+                  isDraftSaving ||
+                  (evaluationStatus === 'completed'
+                    ? !canEditEvaluation
+                    : !canEvaluate || !hasDrafts)
+                }
+                title={
+                  evaluationStatus === 'completed'
+                    ? '평가 단계를 임시저장 단계로 되돌려 점수/피드백을 수정할 수 있게 합니다.'
+                    : !canEvaluate
+                      ? evaluatorEditMessage ?? undefined
+                      : !hasDrafts
+                        ? '저장할 임시 내용이 없습니다.'
+                        : undefined
+                }
+              >
+                {isDraftSaving
+                  ? '처리 중…'
+                  : evaluationStatus === 'completed'
+                    ? '임시저장'
+                    : '임시저장'}
+              </button>
+              <button
+                className="sd-btn sd-btn-primary sd-btn-sm"
+                onClick={onSaveClick}
+                disabled={isSaving || !canEvaluate}
+                title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
+              >
+                {isSaving ? 'AI 검토 중…' : '평가 저장'}
+              </button>
+            </div>
           </div>
         }
       />
@@ -590,6 +633,11 @@ const Evaluation = () => {
               isExpanded={isExpanded}
               selectedItem={selectedItem}
               selectedTaskId={selectedItem?.task.id}
+              periodLabel={
+                group.evaluatorId
+                  ? formatEvaluatorPeriod(evaluatorPeriods.get(group.evaluatorId))
+                  : null
+              }
               onToggle={() => toggleGroup(group.key)}
               onSelectTask={(taskId) => selectTask(group.key, taskId)}
               onCellClick={(task, methodIndex, scopeIndex) =>
@@ -614,11 +662,76 @@ const Evaluation = () => {
   );
 };
 
+type EvaluateeStatHeroProps = {
+  growthLevel: number;
+  currentScore: number | null;
+  achieved: boolean;
+};
+
+const EvaluateeStatHero = ({ growthLevel, currentScore, achieved }: EvaluateeStatHeroProps) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 18,
+    }}
+  >
+    <StatTile label="성장 레벨" value={`Lv.${growthLevel}`} valueColor="var(--fg)" />
+    <StatTile
+      label="내 반영 점수"
+      value={currentScore != null && currentScore > 0 ? currentScore.toFixed(1) : '–'}
+      valueColor="var(--ok-orange)"
+    />
+    <StatTile
+      label="달성 여부"
+      value={achieved ? '달성' : '미달성'}
+      valueColor={achieved ? 'var(--ok-orange)' : 'var(--fg-muted)'}
+    />
+  </div>
+);
+
+type StatTileProps = {
+  label: string;
+  value: string;
+  valueColor: string;
+};
+
+const StatTile = ({ label, value, valueColor }: StatTileProps) => (
+  <div style={{ textAlign: 'center', lineHeight: 1.1 }}>
+    <div
+      style={{
+        fontSize: 'var(--fs-micro)',
+        fontWeight: 700,
+        color: 'var(--fg-subtle)',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </div>
+    <div
+      className="tnum"
+      style={{
+        fontSize: 'var(--fs-h2)',
+        fontWeight: 900,
+        lineHeight: 1,
+        marginTop: 4,
+        color: valueColor,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {value}
+    </div>
+  </div>
+);
+
 type EvaluatorAccordionProps = {
   group: EvaluatorGroup;
   isExpanded: boolean;
   selectedItem?: EvaluatorTaskView;
   selectedTaskId?: string;
+  periodLabel?: string | null;
   onToggle: () => void;
   onSelectTask: (taskId: string) => void;
   onCellClick: (task: Task, methodIndex: number, scopeIndex: number) => void;
@@ -632,6 +745,7 @@ const EvaluatorAccordion = ({
   isExpanded,
   selectedItem,
   selectedTaskId,
+  periodLabel,
   onToggle,
   onSelectTask,
   onCellClick,
@@ -683,6 +797,22 @@ const EvaluatorAccordion = ({
             {group.label}
           </Pill>
           {!group.canEdit && <Pill tone="neutral">읽기 전용</Pill>}
+          {periodLabel && (
+            <span
+              className="tnum"
+              style={{
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 700,
+                color: 'var(--fg-muted)',
+                background: 'var(--bg-muted)',
+                padding: '3px 10px',
+                borderRadius: 999,
+              }}
+              title="평가자 근무기간"
+            >
+              {periodLabel}
+            </span>
+          )}
         </div>
         <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
           {group.description}
@@ -734,7 +864,7 @@ const EvaluatorAccordion = ({
         style={{
           borderTop: `1px solid ${group.accent}`,
           display: 'grid',
-          gridTemplateColumns: '280px minmax(0, 1fr)',
+          gridTemplateColumns: '420px minmax(0, 1fr)',
           minHeight: 420,
         }}
       >
@@ -772,7 +902,6 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
   >
     {group.tasks.map((item, index) => {
       const active = item.task.id === selectedTaskId;
-      const scoreBg = item.score != null ? getScoreColor(item.score) : 'var(--fg-subtle)';
 
       return (
         <button
@@ -798,7 +927,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
             T{String(index + 1).padStart(2, '0')}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
               <div
                 style={{
                   fontSize: 'var(--fs-body)',
@@ -813,25 +942,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
               >
                 {item.task.title}
               </div>
-              {item.score != null && (
-                <span
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    background: scoreBg,
-                    color: getScoreTextColor(item.score),
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 900,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {item.score}
-                </span>
-              )}
+              {item.score != null && <NumBadge score={item.score} size={28} />}
             </div>
             <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)' }}>
               <span>{item.displayTask.contributionMethod || '방식 미정'}</span>
@@ -934,8 +1045,34 @@ const TaskDetail = ({
 
           <MatrixGrid
             matrix={matrix}
-            rowHeaderWidth={64}
-            gap={6}
+            rowHeaderWidth={56}
+            gap={4}
+            renderMethodLabel={(method) => (
+              <div
+                style={{
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  color: 'var(--fg-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                {method}
+              </div>
+            )}
+            renderScopeLabel={(scope) => (
+              <div
+                style={{
+                  textAlign: 'center',
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  color: 'var(--fg-muted)',
+                  paddingTop: 4,
+                }}
+              >
+                {scope}
+              </div>
+            )}
             renderCell={(_, __, methodIndex, scopeIndex, cellScore) => {
               const isSelected = !noContribSelected && methodIndex === selectedMethodIdx && scopeIndex === selectedScopeIdx;
               const cellBg = isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--bg-muted)';
@@ -948,13 +1085,13 @@ const TaskDetail = ({
                   disabled={!group.canEdit}
                   style={{
                     width: '100%',
-                    height: 54,
+                    height: 44,
                     borderRadius: 8,
                     border: `2px solid ${isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--border)'}`,
                     background: cellBg,
                     color: cellColor,
                     fontWeight: isSelected ? 900 : 700,
-                    fontSize: isSelected ? 'var(--fs-h2)' : 'var(--fs-h4)',
+                    fontSize: isSelected ? 'var(--fs-h3)' : 'var(--fs-h4)',
                     cursor: group.canEdit ? 'pointer' : 'not-allowed',
                     opacity: group.canEdit || isSelected ? 1 : 0.48,
                   }}
@@ -1005,22 +1142,8 @@ const TaskDetail = ({
           <div className="sd-label-mini">{group.canEdit ? '현재 선택 점수' : '평가 점수'}</div>
           {item.score != null ? (
             <>
-              <div
-                style={{
-                  width: 78,
-                  height: 78,
-                  borderRadius: 16,
-                  background: SCORE_BG[item.score] ?? group.accent,
-                  color: getScoreTextColor(item.score),
-                  fontSize: 'var(--fs-display)',
-                  fontWeight: 900,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginTop: 12,
-                }}
-              >
-                {item.score}
+              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>
+                <NumBadge score={item.score} size={78} />
               </div>
               <div style={{ marginTop: 10, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                 {displayTask.contributionMethod || '미정'} × {displayTask.contributionScope || '미정'}

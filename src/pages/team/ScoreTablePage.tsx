@@ -12,13 +12,13 @@ import {
   YAxis,
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
+import { NumBadge } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
-import { MATRIX_SCORE_COLORS, MATRIX_SCORE_TEXT_COLORS } from '@/lib/evaluationMatrix';
+import { MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
 
 const SCORE_BG = MATRIX_SCORE_COLORS;
-const SCORE_TEXT = MATRIX_SCORE_TEXT_COLORS;
 
 const SCORE_COLUMNS = [4, 3, 2, 1] as const;
 
@@ -397,22 +397,7 @@ const ScoreTablePage = () => {
                     fontSize: 'var(--fs-sm)',
                   }}
                 >
-                  <span
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: '50%',
-                      background: SCORE_BG[score],
-                      color: SCORE_TEXT[score],
-                      fontSize: 'var(--fs-xs)',
-                      fontWeight: 800,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {score}
-                  </span>
+                  <NumBadge score={score} size={20} />
                   <span style={{ fontWeight: 700 }}>{count}건</span>
                   <span style={{ color: 'var(--fg-muted)' }}>
                     {totalScores > 0 ? Math.round((count / totalScores) * 100) : 0}%

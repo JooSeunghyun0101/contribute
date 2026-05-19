@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import { NumBadge } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -156,18 +157,6 @@ const MyHome = () => {
     >
       {/* ── 헤더 ─────────────────────────────────────── */}
       <div>
-        <div
-          style={{
-            fontSize: 'var(--fs-xs)',
-            fontWeight: 700,
-            color: 'var(--fg-subtle)',
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            marginBottom: 8,
-          }}
-        >
-          MY CONTRIBUTION · 2026
-        </div>
         <div
           style={{
             display: 'flex',
@@ -800,23 +789,7 @@ const MyHome = () => {
                         {item.weight}%
                       </span>
                       {item.score != null ? (
-                        <span
-                          style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: '50%',
-                            background: getScoreColor(item.score),
-                            color: getScoreTextColor(item.score),
-                            fontSize: 'var(--fs-micro)',
-                            fontWeight: 800,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {item.score}
-                        </span>
+                        <NumBadge score={item.score} size={20} />
                       ) : (
                         <span
                           style={{

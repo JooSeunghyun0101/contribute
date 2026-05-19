@@ -88,21 +88,38 @@ const TaskFeedbackCard = ({
         <div
           style={{
             position: 'absolute',
-            top: 18,
-            right: 20,
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
+            top: 16,
+            right: 18,
+            minWidth: 64,
+            padding: '6px 14px',
+            borderRadius: 10,
             background: scoreBg,
             color: scoreFg,
-            fontSize: 'var(--fs-body)',
-            fontWeight: 800,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
+            gap: 1,
+            boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
           }}
         >
-          {score}
+          <span
+            style={{
+              fontSize: 'var(--fs-micro)',
+              fontWeight: 800,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              opacity: 0.88,
+              lineHeight: 1.1,
+            }}
+          >
+            점수
+          </span>
+          <span
+            className="tnum"
+            style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, lineHeight: 1 }}
+          >
+            {score}
+          </span>
         </div>
       )}
 
@@ -115,7 +132,7 @@ const TaskFeedbackCard = ({
           borderRadius: 8,
           padding: '8px 12px',
           marginBottom: 14,
-          marginRight: score != null ? 36 : 0,
+          marginRight: score != null ? 92 : 0,
           flexWrap: 'wrap',
         }}
       >

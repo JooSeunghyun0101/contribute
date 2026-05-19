@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { employeeService, evaluationService } from '@/lib/services';
+import {
+  buildEvaluatorPeriods,
+  formatEvaluatorPeriod,
+  type EvaluatorPeriod,
+} from '@/lib/evaluatorHistory';
 import EvaluationAccordionCard from './EvaluationAccordionCard';
 import type { Evaluation, Employee } from '@/types';
 
@@ -11,6 +16,9 @@ const MyTasksPage = () => {
 
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [employee, setEmployee] = useState<Employee | null>(null);
+  const [evaluatorPeriods, setEvaluatorPeriods] = useState<Map<string, EvaluatorPeriod>>(
+    () => new Map(),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -20,12 +28,17 @@ const MyTasksPage = () => {
     (async () => {
       setIsLoading(true);
       try {
-        const [emp, evals] = await Promise.all([
+        const [emp, evals, history] = await Promise.all([
           employeeService.getEmployeeById(employeeId),
           evaluationService.getEvaluationsByEmployeeId(employeeId),
+          employeeService.getEvaluatorAssignmentHistory(employeeId).catch((error) => {
+            console.warn('평가자 이력 로드 실패:', error);
+            return [];
+          }),
         ]);
         if (cancelled) return;
         setEmployee(emp ?? null);
+        setEvaluatorPeriods(buildEvaluatorPeriods(history));
         const sorted = [...evals].sort((a, b) => {
           // 현재 평가(employees.evaluator_id 매칭)를 앞으로
           const aIsCurrent = a.evaluator_id && a.evaluator_id === emp?.evaluator_id ? 1 : 0;
@@ -88,6 +101,9 @@ const MyTasksPage = () => {
             const isCurrent = Boolean(
               ev.evaluator_id && employeeEvaluatorId && ev.evaluator_id === employeeEvaluatorId,
             );
+            const periodLabel = ev.evaluator_id
+              ? formatEvaluatorPeriod(evaluatorPeriods.get(ev.evaluator_id))
+              : null;
             return (
               <EvaluationAccordionCard
                 key={ev.id}
@@ -95,6 +111,7 @@ const MyTasksPage = () => {
                 evaluationId={ev.id}
                 isCurrent={isCurrent}
                 defaultExpanded={index === 0}
+                periodLabel={periodLabel}
               />
             );
           })}

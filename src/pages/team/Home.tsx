@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
@@ -6,6 +6,7 @@ import { Pill } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import { evaluationService } from '@/lib/services';
+import { useToast } from '@/hooks/use-toast';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 type ColumnId = 'draft' | 'submitted' | 'evaluating' | 'completed';
@@ -147,6 +148,7 @@ const buildCard = (record: EmployeeEvaluationRecord): CardModel => {
 const TeamHome = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const {
     records,
     isLoading,
@@ -189,13 +191,26 @@ const TeamHome = () => {
     };
   }, [grouped, records]);
 
+  const notifyNotYetSubmitted = (card: CardModel) => {
+    toast({
+      title: '아직 평가할 수 없습니다.',
+      description: `${card.record.employee.name}님이 평가를 최종제출하기 전입니다. 피평가자가 최종제출을 완료하면 평가할 수 있습니다.`,
+    });
+  };
+
   const openEvaluation = (card: CardModel) => {
-    if (card.disabled) return;
+    if (card.disabled) {
+      notifyNotYetSubmitted(card);
+      return;
+    }
     navigate(`/evaluation/${card.record.employee.employee_id}`);
   };
 
   const openFormerEvaluation = async (card: CardModel) => {
-    if (card.disabled) return;
+    if (card.disabled) {
+      notifyNotYetSubmitted(card);
+      return;
+    }
     try {
       const evals = await evaluationService.getEvaluationsByEmployeeId(
         card.record.employee.employee_id,
@@ -335,59 +350,12 @@ const TeamHome = () => {
             </section>
 
             {(isFormerLoading || formerError || formerCards.length > 0) && (
-              <section
-                style={{
-                  padding: 16,
-                  borderRadius: 8,
-                  border: '1px solid var(--ok-orange-100)',
-                  borderLeft: '3px solid var(--ok-orange-600)',
-                  background: 'var(--bg-card)',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>
-                    <div className="sd-label-mini" style={{ color: 'var(--ok-orange-700)' }}>
-                      이전 담당
-                    </div>
-                    <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, marginTop: 2, color: 'var(--fg)' }}>
-                      이전 담당 피평가자
-                    </h2>
-                  </div>
-                  <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 800 }}>
-                    {formerCards.length}명
-                  </span>
-                </div>
-
-                {isFormerLoading ? (
-                  <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>이전 담당 목록을 불러오는 중입니다.</div>
-                ) : formerError ? (
-                  <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{formerError}</div>
-                ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                      gap: 12,
-                    }}
-                  >
-                    {formerCards.map((card) => (
-                      <FormerBoardCard
-                        key={card.record.employee.employee_id}
-                        card={card}
-                        onClick={() => openFormerEvaluation(card)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
+              <FormerCarousel
+                cards={formerCards}
+                isLoading={isFormerLoading}
+                error={formerError}
+                onOpen={openFormerEvaluation}
+              />
             )}
 
             <section
@@ -605,6 +573,129 @@ const FormerBoardCard = ({ card, onClick }: BoardCardProps) => {
         {actionText === '제출 전' ? '이전 평가 보기' : '이전 평가 수정'}
       </div>
     </button>
+  );
+};
+
+const FORMER_CARD_WIDTH = 300;
+const FORMER_CARD_GAP = 12;
+
+const formerCarouselNavStyle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: '50%',
+  border: '1px solid var(--ok-orange-200)',
+  background: 'var(--bg-card)',
+  color: 'var(--ok-orange-700)',
+  fontSize: 'var(--fs-h4)',
+  fontWeight: 800,
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  lineHeight: 1,
+};
+
+type FormerCarouselProps = {
+  cards: CardModel[];
+  isLoading: boolean;
+  error: string | null;
+  onOpen: (card: CardModel) => void;
+};
+
+const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps) => {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollByPage = (direction: 'prev' | 'next') => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    const delta = (FORMER_CARD_WIDTH + FORMER_CARD_GAP) * 2 * (direction === 'next' ? 1 : -1);
+    node.scrollBy({ left: delta, behavior: 'smooth' });
+  };
+
+  return (
+    <section
+      style={{
+        padding: 16,
+        borderRadius: 8,
+        border: '1px solid var(--ok-orange-100)',
+        borderLeft: '3px solid var(--ok-orange-600)',
+        background: 'var(--bg-card)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <div>
+          <div className="sd-label-mini" style={{ color: 'var(--ok-orange-700)' }}>
+            이전 담당
+          </div>
+          <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, marginTop: 2, color: 'var(--fg)' }}>
+            이전 담당 피평가자
+          </h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 800 }}>
+            {cards.length}명
+          </span>
+          {cards.length > 0 && !isLoading && !error && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => scrollByPage('prev')}
+                aria-label="이전"
+                style={formerCarouselNavStyle}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollByPage('next')}
+                aria-label="다음"
+                style={formerCarouselNavStyle}
+              >
+                ›
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>이전 담당 목록을 불러오는 중입니다.</div>
+      ) : error ? (
+        <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
+      ) : (
+        <div
+          ref={scrollerRef}
+          style={{
+            display: 'flex',
+            gap: FORMER_CARD_GAP,
+            overflowX: 'auto',
+            scrollSnapType: 'x mandatory',
+            paddingBottom: 6,
+            paddingRight: 4,
+          }}
+        >
+          {cards.map((card) => (
+            <div
+              key={card.record.employee.employee_id}
+              style={{
+                flex: `0 0 ${FORMER_CARD_WIDTH}px`,
+                scrollSnapAlign: 'start',
+              }}
+            >
+              <FormerBoardCard card={card} onClick={() => onOpen(card)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 };
 

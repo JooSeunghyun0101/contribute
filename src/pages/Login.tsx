@@ -1,12 +1,10 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { BrandLockup, IconArrowRight } from '@/components/brand';
+import { IconArrowRight } from '@/components/brand';
 
-// three.js 기반 셰이더는 로그인 화면에서만 쓰이므로 lazy load — 메인 번들 분리.
-const ShaderAnimation = lazy(() =>
-  import('@/components/ui/shader-animation').then((m) => ({ default: m.ShaderAnimation })),
-);
+// WebGL hero is used only on the login screen, so keep it out of the main bundle.
+const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
 
 const roleLabel: Record<string, string> = {
   hr: 'HR 관리자',
@@ -84,75 +82,65 @@ const Login = () => {
         display: 'flex',
       }}
     >
-      {/* Left — brand */}
-      <div
-        style={{
-          flex: 1,
-          padding: '70px 72px',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-        className="hidden lg:flex"
-      >
-        {/* Shader animation background */}
-        <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: '#000' }}>
-          <Suspense fallback={null}>
-            <ShaderAnimation />
-          </Suspense>
-          {/* 셰이더 위 가독성용 — 균일하게 옅은 톤 */}
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(22,18,16,0.5)',
-              pointerEvents: 'none',
-            }}
-          />
-        </div>
-
-        {/* 담백한 브랜드 메시지 */}
+      <div className="hidden lg:block lg:flex-1 relative overflow-hidden bg-black">
+        <Suspense fallback={<div className="min-h-screen w-full bg-black" />}>
+          <ShaderShowcase />
+        </Suspense>
         <div
           style={{
-            position: 'relative',
+            position: 'absolute',
+            inset: 0,
             zIndex: 1,
-            height: '100%',
+            padding: '70px 72px 70px 24px',
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <BrandLockup />
           <div
             style={{
               flex: 1,
               display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              gap: 0,
             }}
           >
-            <h1
+            <img
+              src="/느낌표_orange.png"
+              alt="!"
               style={{
-                fontSize: 'var(--fs-display)',
-                fontWeight: 900,
-                letterSpacing: '-0.04em',
-                lineHeight: 1.1,
-                textShadow: '0 2px 24px rgba(0,0,0,0.65)',
+                width: 'clamp(108px, 14vw, 195px)',
+                height: 'auto',
+                objectFit: 'contain',
+                flexShrink: 0,
+                filter: 'drop-shadow(0 6px 24px rgba(245,80,0,0.45))',
               }}
-            >
-              기여도 평가
-            </h1>
-            <p
-              style={{
-                color: textSoft,
-                marginTop: 14,
-                fontSize: 'var(--fs-h4)',
-                lineHeight: 1.6,
-                textShadow: '0 1px 16px rgba(0,0,0,0.6)',
-              }}
-            >
-              OK금융그룹의 새로운 성과 평가 체계
-            </p>
+            />
+            <div style={{ minWidth: 0, marginLeft: -20 }}>
+              <h1
+                style={{
+                  fontSize: 'clamp(46px, 5.4vw, 76px)',
+                  fontWeight: 900,
+                  letterSpacing: '-0.04em',
+                  lineHeight: 1.06,
+                  textShadow: '0 2px 24px rgba(0,0,0,0.65)',
+                }}
+              >
+                기여도 평가
+              </h1>
+              <p
+                style={{
+                  color: textSoft,
+                  marginTop: 16,
+                  fontSize: 'clamp(18px, 1.45vw, 24px)',
+                  lineHeight: 1.5,
+                  textShadow: '0 1px 16px rgba(0,0,0,0.6)',
+                }}
+              >
+                OK금융그룹의 새로운 성과 평가 체계
+              </p>
+            </div>
           </div>
         </div>
       </div>

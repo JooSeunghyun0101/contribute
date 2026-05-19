@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
-import type { Employee, EvaluatorAssignmentHistory } from '@/types';
+import type { Employee, EvaluationPeriod, EvaluatorAssignmentHistory } from '@/types';
 import {
   assignmentStatusLabel,
   assignmentStatusTone,
@@ -15,14 +15,49 @@ interface Props {
   employee: Employee;
   historyItems: EvaluatorAssignmentHistory[];
   evaluatorOptions: Employee[];
+  periods: EvaluationPeriod[];
+  defaultPeriodId: string;
   isLoading: boolean;
   actionId: string | null;
-  onAddChange: (employee: Employee, newEvaluatorId: string) => void;
-  onCorrect: (employee: Employee, history: EvaluatorAssignmentHistory, newEvaluatorId: string) => void;
+  onAddChange: (
+    employee: Employee,
+    newEvaluatorId: string,
+    options: AssignmentChangeOptions,
+  ) => void;
+  onCorrect: (
+    employee: Employee,
+    history: EvaluatorAssignmentHistory,
+    newEvaluatorId: string,
+    options: AssignmentChangeOptions,
+  ) => void;
   onCancelChange: (employee: Employee, history: EvaluatorAssignmentHistory) => void;
   onRefresh: () => void;
   onClose: () => void;
 }
+
+type AssignmentChangeOptions = {
+  startDate: string;
+  evaluationPeriodId: string | null;
+};
+
+const todayInputValue = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const inputDateValue = (value?: string | null) => {
+  if (!value) return todayInputValue();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return todayInputValue();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const evaluatorName = (
   evaluatorId?: string | null,
@@ -44,6 +79,8 @@ const EvaluatorHistoryModal = ({
   employee,
   historyItems,
   evaluatorOptions,
+  periods,
+  defaultPeriodId,
   isLoading,
   actionId,
   onAddChange,
@@ -54,17 +91,26 @@ const EvaluatorHistoryModal = ({
 }: Props) => {
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [correctValue, setCorrectValue] = useState<string>('');
+  const [correctStartDate, setCorrectStartDate] = useState<string>(todayInputValue());
+  const [correctPeriodId, setCorrectPeriodId] = useState<string>(defaultPeriodId);
   const [bulkExpanded, setBulkExpanded] = useState(false);
   const [addingMode, setAddingMode] = useState(false);
   const [addValue, setAddValue] = useState<string>('');
+  const [addStartDate, setAddStartDate] = useState<string>(todayInputValue());
+  const [addPeriodId, setAddPeriodId] = useState<string>(defaultPeriodId);
 
-  // 매칭 일괄 임포트 행과 일반 행을 분리. 일반 행은 타임라인에, 일괄 행은 접이식 그룹으로.
+  // 매칭 일괄 임포트 행과 일반 행을 분리.
+  // 타임라인에는 "지금 실제로 적용된 행"만 표시 — cancelled/superseded 는 DB 로그로만 남긴다.
   const { timelineRows, bulkRows } = useMemo(() => {
     const timeline: EvaluatorAssignmentHistory[] = [];
     const bulk: EvaluatorAssignmentHistory[] = [];
     for (const h of historyItems) {
-      if (isBulkMatchingHistory(h)) bulk.push(h);
-      else timeline.push(h);
+      if (isBulkMatchingHistory(h)) {
+        bulk.push(h);
+        continue;
+      }
+      if (h.status !== 'applied' || h.change_type !== 'change') continue;
+      timeline.push(h);
     }
     return { timelineRows: timeline, bulkRows: bulk };
   }, [historyItems]);
@@ -74,6 +120,43 @@ const EvaluatorHistoryModal = ({
       historyItems.find((h) => h.status === 'applied' && h.change_type !== 'cancel') ?? null,
     [historyItems],
   );
+
+  // 각 history 행이 만든 평가자의 근무기간(시작~종료).
+  // 시작 = 이 행의 changed_at, 종료 = 다음 applied change 행의 changed_at - 1일 (없으면 "현재").
+  const rowPeriods = useMemo(() => {
+    const applied = historyItems
+      .filter((row) => row.status === 'applied' && row.change_type === 'change')
+      .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
+    const map = new Map<string, { start: string; end: string | null }>();
+    applied.forEach((row, i) => {
+      const next = applied[i + 1];
+      const endIso = next
+        ? new Date(new Date(next.changed_at).getTime() - 24 * 60 * 60 * 1000).toISOString()
+        : null;
+      map.set(row.id, { start: row.changed_at, end: endIso });
+    });
+    return map;
+  }, [historyItems]);
+
+  const formatPeriodDate = (iso: string | null) => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  };
+
+  const renderRowPeriod = (history: EvaluatorAssignmentHistory) => {
+    const period = rowPeriods.get(history.id);
+    if (!period) return '-';
+    const start = formatPeriodDate(period.start);
+    const end = formatPeriodDate(period.end);
+    if (!start) return '-';
+    return `${start} ~ ${end ?? '현재'}`;
+  };
 
   const currentEvaluatorLabel = evaluatorName(
     employee.evaluator_id,
@@ -90,14 +173,19 @@ const EvaluatorHistoryModal = ({
     setCorrectingId(null);
     setAddingMode(true);
     setAddValue('');
+    setAddStartDate(todayInputValue());
+    setAddPeriodId(defaultPeriodId);
   };
   const cancelAdd = () => {
     setAddingMode(false);
     setAddValue('');
   };
   const submitAdd = () => {
-    if (!addValue || addValue === employee.evaluator_id) return;
-    onAddChange(employee, addValue);
+    if (!addValue || addValue === employee.evaluator_id || !addStartDate || !addPeriodId) return;
+    onAddChange(employee, addValue, {
+      startDate: addStartDate,
+      evaluationPeriodId: addPeriodId || null,
+    });
     cancelAdd();
   };
 
@@ -105,14 +193,25 @@ const EvaluatorHistoryModal = ({
     setAddingMode(false);
     setCorrectingId(history.id);
     setCorrectValue(history.new_evaluator_id ?? '');
+    setCorrectStartDate(inputDateValue(history.changed_at));
+    setCorrectPeriodId(history.evaluation_period_id ?? defaultPeriodId);
   };
   const cancelCorrect = () => {
     setCorrectingId(null);
     setCorrectValue('');
+    setCorrectStartDate(todayInputValue());
+    setCorrectPeriodId(defaultPeriodId);
   };
   const submitCorrect = (history: EvaluatorAssignmentHistory) => {
-    if (!correctValue || correctValue === (history.new_evaluator_id ?? '')) return;
-    onCorrect(employee, history, correctValue);
+    if (!correctValue || !correctStartDate || !correctPeriodId) return;
+    const evaluatorChanged = correctValue !== (history.new_evaluator_id ?? '');
+    const dateChanged = correctStartDate !== inputDateValue(history.changed_at);
+    const periodChanged = correctPeriodId !== (history.evaluation_period_id ?? defaultPeriodId);
+    if (!evaluatorChanged && !dateChanged && !periodChanged) return;
+    onCorrect(employee, history, correctValue, {
+      startDate: correctStartDate,
+      evaluationPeriodId: correctPeriodId || null,
+    });
     cancelCorrect();
   };
 
@@ -133,8 +232,8 @@ const EvaluatorHistoryModal = ({
     const isCorrecting = correctingId === history.id;
 
     return (
+      <Fragment key={history.id}>
       <tr
-        key={history.id}
         style={{
           background: isCancelled ? 'var(--bg-muted)' : 'var(--bg-card)',
           opacity: isCancelled ? 0.72 : 1,
@@ -159,6 +258,11 @@ const EvaluatorHistoryModal = ({
               ↳ 정정
             </span>
           )}
+        </td>
+        <td style={cellStyle}>
+          <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+            {renderRowPeriod(history)}
+          </span>
         </td>
         <td style={cellStyle}>
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
@@ -193,17 +297,17 @@ const EvaluatorHistoryModal = ({
         </td>
         <td style={{ ...cellStyle, textAlign: 'right' }}>
           {isCorrecting ? (
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-              <EvaluatorPicker
-                options={evaluatorOptions}
-                value={correctValue}
-                onChange={setCorrectValue}
-                placeholder="이름·부서·사번으로 검색…"
-                minWidth={220}
-              />
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
               <button
                 className="sd-btn sd-btn-primary sd-btn-xs"
-                disabled={isRowBusy || !correctValue || correctValue === (history.new_evaluator_id ?? '')}
+                disabled={(() => {
+                  if (isRowBusy || !correctValue || !correctStartDate || !correctPeriodId) return true;
+                  const evaluatorChanged = correctValue !== (history.new_evaluator_id ?? '');
+                  const dateChanged = correctStartDate !== inputDateValue(history.changed_at);
+                  const periodChanged =
+                    correctPeriodId !== (history.evaluation_period_id ?? defaultPeriodId);
+                  return !evaluatorChanged && !dateChanged && !periodChanged;
+                })()}
                 onClick={() => submitCorrect(history)}
               >
                 저장
@@ -234,6 +338,51 @@ const EvaluatorHistoryModal = ({
           )}
         </td>
       </tr>
+      {isCorrecting && (
+        <tr style={{ background: 'var(--ok-orange-50)' }}>
+          <td colSpan={8} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+                새 평가자
+                <EvaluatorPicker
+                  options={evaluatorOptions}
+                  value={correctValue}
+                  onChange={setCorrectValue}
+                  placeholder="이름·부서·사번으로 검색…"
+                  minWidth={240}
+                />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+                변경 시작일
+                <input
+                  className="sd-input"
+                  type="date"
+                  value={correctStartDate}
+                  onChange={(event) => setCorrectStartDate(event.target.value)}
+                  style={{ width: 160 }}
+                />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+                평가기간
+                <select
+                  className="sd-input"
+                  value={correctPeriodId}
+                  onChange={(event) => setCorrectPeriodId(event.target.value)}
+                  style={{ minWidth: 200 }}
+                >
+                  <option value="">선택</option>
+                  {periods.map((period) => (
+                    <option key={period.id} value={period.id}>
+                      {period.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </td>
+        </tr>
+      )}
+      </Fragment>
     );
   };
 
@@ -259,7 +408,7 @@ const EvaluatorHistoryModal = ({
           background: 'var(--bg-card)',
           borderRadius: 12,
           border: '1px solid var(--border)',
-          width: 'min(960px, 100%)',
+          width: 'min(1280px, 100%)',
           maxHeight: '88vh',
           display: 'flex',
           flexDirection: 'column',
@@ -324,6 +473,7 @@ const EvaluatorHistoryModal = ({
               display: 'flex',
               alignItems: 'center',
               gap: 8,
+              flexWrap: 'wrap',
             }}
           >
             <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
@@ -336,9 +486,41 @@ const EvaluatorHistoryModal = ({
               placeholder="이름·부서·사번으로 검색…"
               minWidth={240}
             />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+              변경 시작일
+              <input
+                className="sd-input"
+                type="date"
+                value={addStartDate}
+                onChange={(event) => setAddStartDate(event.target.value)}
+                style={{ width: 150 }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
+              평가기간
+              <select
+                className="sd-input"
+                value={addPeriodId}
+                onChange={(event) => setAddPeriodId(event.target.value)}
+                style={{ minWidth: 180 }}
+              >
+                <option value="">선택</option>
+                {periods.map((period) => (
+                  <option key={period.id} value={period.id}>
+                    {period.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className="sd-btn sd-btn-primary sd-btn-xs"
-              disabled={actionId !== null || !addValue || addValue === employee.evaluator_id}
+              disabled={
+                actionId !== null ||
+                !addValue ||
+                addValue === employee.evaluator_id ||
+                !addStartDate ||
+                !addPeriodId
+              }
               onClick={submitAdd}
             >
               {actionId === 'add' ? '추가 중…' : '추가'}
@@ -368,6 +550,7 @@ const EvaluatorHistoryModal = ({
                 <tr style={{ textAlign: 'left' }}>
                   <th style={headStyle}>변경일</th>
                   <th style={headStyle}>변경 (이전 → 이후)</th>
+                  <th style={headStyle}>근무기간</th>
                   <th style={headStyle}>평가기간</th>
                   <th style={headStyle}>사유 / 출처</th>
                   <th style={headStyle}>유형</th>
@@ -378,7 +561,7 @@ const EvaluatorHistoryModal = ({
               <tbody>
                 {timelineRows.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ ...cellStyle, color: 'var(--fg-muted)' }}>
+                    <td colSpan={8} style={{ ...cellStyle, color: 'var(--fg-muted)' }}>
                       개별 변경 이력이 없습니다.
                     </td>
                   </tr>
@@ -389,7 +572,7 @@ const EvaluatorHistoryModal = ({
                 {bulkRows.length > 0 && (
                   <>
                     <tr>
-                      <td colSpan={7} style={{ ...cellStyle, background: 'var(--bg-muted)' }}>
+                      <td colSpan={8} style={{ ...cellStyle, background: 'var(--bg-muted)' }}>
                         <button
                           type="button"
                           onClick={() => setBulkExpanded((v) => !v)}

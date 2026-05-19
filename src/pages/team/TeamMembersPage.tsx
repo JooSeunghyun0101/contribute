@@ -24,7 +24,7 @@ const TeamMembersPage = () => {
   const growthLevels = useMemo(
     () =>
       Array.from(new Set(records.map((record) => record.employee.growth_level ?? 1))).sort(
-        (a, b) => a - b,
+        (a, b) => b - a,
       ),
     [records],
   );
@@ -47,7 +47,7 @@ const TeamMembersPage = () => {
     });
 
     return Array.from(groups.entries())
-      .sort(([a], [b]) => a - b)
+      .sort(([a], [b]) => b - a)
       .map(([level, items]) => ({
         level,
         items: [...items].sort((a, b) => a.employee.name.localeCompare(b.employee.name, 'ko-KR')),
@@ -73,7 +73,7 @@ const TeamMembersPage = () => {
                 className={selectedLevel === 'all' ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
                 onClick={() => setSelectedLevel('all')}
               >
-                전체 {records.length}
+                전체 · {records.length}명
               </button>
               {growthLevels.map((level) => {
                 const count = records.filter((record) => (record.employee.growth_level ?? 1) === level).length;
@@ -83,7 +83,7 @@ const TeamMembersPage = () => {
                     className={selectedLevel === level ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
                     onClick={() => setSelectedLevel(level)}
                   >
-                    Lv.{level} {count}
+                    Lv.{level} · {count}명
                   </button>
                 );
               })}
