@@ -12,6 +12,7 @@ import { Task, FeedbackHistoryItem } from '@/types/evaluation';
 import TaskListingComponent from '@/components/ui/task-listing-component';
 import { useToast } from '@/hooks/use-toast';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { formatScore } from '@/lib/evaluationMatrix';
 
 export const EvaluateeDashboardDB: React.FC = () => {
   const { user } = useAuth();
@@ -231,7 +232,7 @@ export const EvaluateeDashboardDB: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">총 점수</p>
-                <p className="text-2xl font-bold text-primary">{exactScore.toFixed(1)}점</p>
+                <p className="text-2xl font-bold text-primary">{formatScore(exactScore)}점</p>
                 <p className="text-xs text-muted-foreground">목표: {evaluationData.growthLevel}점</p>
               </div>
               <Target className="h-8 w-8 text-primary" />

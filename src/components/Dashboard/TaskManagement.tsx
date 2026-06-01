@@ -341,8 +341,10 @@ const TaskManagement: React.FC<TaskManagementProps> = ({
 
       // 6. 알림 생성 (데이터베이스 저장 성공 후)
       if (user?.role === 'evaluatee' && (hasTaskContentChanges || hasStructuralChanges)) {
-        // Find the evaluator for this evaluatee
-        const evaluatorId = findEvaluatorForEvaluatee(evaluationData.evaluateeId);
+        // 이 평가의 owner 평가자(assignment_history 기준)를 우선 사용 — 과거 평가건이면
+        // 현재 매핑 evaluator 가 아니라 그 시기 평가자에게 알림이 가야 함
+        const evaluatorId =
+          (evaluation as any)?.evaluator_id || findEvaluatorForEvaluatee(evaluationData.evaluateeId);
 
         if (evaluatorId) {
           // Collect all changes for a comprehensive notification

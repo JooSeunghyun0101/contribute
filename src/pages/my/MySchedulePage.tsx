@@ -1,5 +1,4 @@
 import PageHeader from '@/components/Layout/PageHeader';
-import { IconCalendar, IconCheck, IconClock, IconTarget, StatCard } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { getScoreColor } from '@/lib/evaluationMatrix';
@@ -21,26 +20,10 @@ const toMonthFraction = (value?: string) => {
   return Math.min(MONTH_SPAN - 0.05, date.getMonth() + (date.getDate() - 1) / 31);
 };
 
-const remainingDays = (value?: string) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-};
-
 const MySchedulePage = () => {
   const { user } = useAuth();
   const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '');
   const tasks = evaluationData?.tasks ?? [];
-  const completedTasks = tasks.filter((task) => task.score !== undefined).length;
-  const activeTasks = tasks.filter((task) => task.score === undefined).length;
-  const nearestDeadline = [...tasks]
-    .filter((task) => task.endDate)
-    .sort((a, b) => new Date(a.endDate!).getTime() - new Date(b.endDate!).getTime())[0];
-  const dDay = remainingDays(nearestDeadline?.endDate);
 
   const today = new Date();
   const todayFrac = Math.max(0, Math.min(1, (today.getMonth() + (today.getDate() - 1) / 31) / MONTH_SPAN));
@@ -191,25 +174,6 @@ const MySchedulePage = () => {
               )}
             </div>
           )}
-        </section>
-
-        {/* Stat cards — moved to bottom */}
-        <section
-          className="grid gap-4"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
-        >
-          <StatCard icon={IconTarget} label="전체 과업" value={tasks.length} />
-          <StatCard icon={IconCheck} label="평가 완료" value={completedTasks} />
-          <StatCard icon={IconClock} label="진행 중" value={activeTasks} />
-          <StatCard
-            icon={IconCalendar}
-            label="마감까지"
-            value={
-              dDay == null ? '-' : dDay > 0 ? `D-${dDay}` : dDay === 0 ? 'D-Day' : `D+${Math.abs(dDay)}`
-            }
-            sub={nearestDeadline?.title ?? '가까운 일정 없음'}
-            accent
-          />
         </section>
       </div>
     </>

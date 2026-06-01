@@ -34,6 +34,7 @@ export type EmployeeEvaluationRecord = {
 type LoadOptions = {
   includeFeedbackHistory?: boolean;
   periodId?: string | null;
+  evaluatorId?: string | null;
 };
 
 const toNumber = (value: unknown, fallback = 0) => {
@@ -103,6 +104,7 @@ export const loadEmployeeEvaluationRecord = async (
   try {
     evaluation = await evaluationService.getEvaluationByEmployeeId(employee.employee_id, {
       periodId: options.periodId,
+      evaluatorId: options.evaluatorId,
     });
   } catch {
     evaluation = null;
@@ -172,10 +174,30 @@ export const loadEmployeeEvaluationRecord = async (
   };
 };
 
+// 동시 요청 수를 제한해 직원이 많을 때 브라우저 리소스 고갈(ERR_INSUFFICIENT_RESOURCES)을 막는다.
+const mapWithConcurrency = async <T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const worker = async () => {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      results[current] = await fn(items[current]);
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+};
+
 export const loadEmployeeEvaluationRecords = async (
   employees: Employee[],
   options: LoadOptions = {},
-) => Promise.all(employees.map((employee) => loadEmployeeEvaluationRecord(employee, options)));
+) => mapWithConcurrency(employees, 6, (employee) => loadEmployeeEvaluationRecord(employee, options));
 
 export const getActiveEvaluatees = (employees: Employee[]) =>
   employees.filter((employee) => employee.available_roles?.includes('evaluatee'));

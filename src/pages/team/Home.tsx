@@ -2,12 +2,15 @@ import { useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { Pill } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import { evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
+import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+
+const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // #E84200
+const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // #C99A4E
 
 type ColumnId = 'draft' | 'submitted' | 'evaluating' | 'completed';
 
@@ -44,6 +47,22 @@ const COLUMN_DEFS: Record<
     dot: '#16A34A',
     icon: CheckCircle2,
   },
+};
+
+const formatWorkDate = (value?: string | null) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const formatWorkPeriod = (start?: string | null, end?: string | null) => {
+  const s = formatWorkDate(start);
+  const e = formatWorkDate(end);
+  if (!s && !e) return null;
+  if (s && e) return `${s} ~ ${e}`;
+  if (s) return `${s} ~ 현재`;
+  return `이전 ~ ${e}`;
 };
 
 const formatRelative = (value?: string | null) => {
@@ -89,7 +108,7 @@ const getColumn = (record: EmployeeEvaluationRecord): ColumnId => {
 
 const buildCard = (record: EmployeeEvaluationRecord): CardModel => {
   const column = getColumn(record);
-  const scoreText = record.weightedScore > 0 ? `${record.weightedScore.toFixed(1)}점` : '-';
+  const scoreText = record.weightedScore > 0 ? `${formatScore(record.weightedScore)}점` : '-';
   const progress = column === 'submitted' ? 0 : record.progress ?? 0;
   const totalTasks = record.totalTasks;
   const completedTasks = record.completedTasks;
@@ -124,7 +143,7 @@ const buildCard = (record: EmployeeEvaluationRecord): CardModel => {
     return {
       column,
       record,
-      caption: `평가 완료 - ${record.achieved ? '목표 달성' : '목표 미달'}`,
+      caption: `평가 완료 - ${record.achieved ? '목표 달성' : '목표 미달성'}`,
       scoreText,
       dateText: formatRelative(record.latestFeedback?.date ?? record.evaluation?.last_modified),
       progress: 100,
@@ -161,7 +180,21 @@ const TeamHome = () => {
   } = useFormerTeamDashboardRecords(user?.employeeId || '', true);
 
   const cards = useMemo(() => records.map(buildCard), [records]);
-  const formerCards = useMemo(() => formerRecords.map(buildCard), [formerRecords]);
+  // 과거 담당 피평가자 카드는 reviewStatus 가 어떤 값이든 클릭 가능해야 한다.
+  // (정정/매칭 변경 후 상태가 'draft' 로 보이더라도 본인이 평가자였던 이력이 있는 evaluation 은
+  //  과거 평가로 진입해서 점수/이력을 볼 수 있어야 함.)
+  const formerCards = useMemo(
+    () =>
+      formerRecords.map((record) => {
+        const card = buildCard(record);
+        return {
+          ...card,
+          disabled: false,
+          actionText: card.column === 'completed' ? '이전 평가 보기' : '이전 평가 열기',
+        };
+      }),
+    [formerRecords],
+  );
 
   const grouped = useMemo(() => {
     const out: Record<ColumnId, CardModel[]> = {
@@ -171,22 +204,24 @@ const TeamHome = () => {
       completed: [],
     };
     cards.forEach((card) => out[card.column].push(card));
+    (Object.keys(out) as ColumnId[]).forEach((col) => {
+      out[col].sort((a, b) => {
+        const levelA = a.record.employee.growth_level ?? 1;
+        const levelB = b.record.employee.growth_level ?? 1;
+        if (levelB !== levelA) return levelB - levelA;
+        return a.record.employee.name.localeCompare(b.record.employee.name, 'ko-KR');
+      });
+    });
     return out;
   }, [cards]);
 
   const stats = useMemo(() => {
     const reviewableCount = grouped.submitted.length + grouped.evaluating.length;
-    const completionRate = records.length > 0 ? Math.round((grouped.completed.length / records.length) * 100) : 0;
     const departmentName = records[0]?.employee.department ?? '';
 
     return {
       totalMembers: records.length,
-      draftCount: grouped.draft.length,
-      submittedCount: grouped.submitted.length,
-      evaluatingCount: grouped.evaluating.length,
-      completedCount: grouped.completed.length,
       reviewableCount,
-      completionRate,
       departmentName,
     };
   }, [grouped, records]);
@@ -281,7 +316,9 @@ const TeamHome = () => {
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
-                      padding: 16,
+                      // 좌우 padding 을 줄여서 카드 영역의 폭을 보존하면서
+                      // inner wrapper paddingLeft 로 카드 영역을 가운데로 정렬.
+                      padding: '16px 8px',
                       borderRadius: 8,
                       background: 'var(--bg-muted)',
                       border: '1px solid var(--border)',
@@ -322,7 +359,20 @@ const TeamHome = () => {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        flex: 1,
+                        maxHeight: 600,
+                        overflowY: 'auto',
+                        // scrollbar 자리 항상 확보 — 카드 수와 관계없이 동일 폭 유지
+                        scrollbarGutter: 'stable',
+                        // 카드 좌측 여백을 우측 scrollbar 자리(6px, 전역 thin) 와 동일하게 두어 가운데 정렬
+                        paddingLeft: 6,
+                      }}
+                    >
                       {items.length === 0 ? (
                         <div
                           style={{
@@ -358,18 +408,6 @@ const TeamHome = () => {
               />
             )}
 
-            <section
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                gap: 14,
-              }}
-            >
-              <StatTile label="담당 피평가자" value={stats.totalMembers} sub={stats.departmentName || ''} />
-              <StatTile label="검토 대기" value={stats.submittedCount} sub="최종제출 완료" accent />
-              <StatTile label="평가 중" value={stats.evaluatingCount} sub={`${stats.reviewableCount}건 진행 대상`} />
-              <StatTile label="완료" value={stats.completedCount} sub={`${stats.completionRate}%`} />
-            </section>
           </>
         )}
       </div>
@@ -383,14 +421,24 @@ type BoardCardProps = {
 };
 
 const BoardCard = ({ card, onClick }: BoardCardProps) => {
-  const { record, caption, scoreText, dateText, progress, column, actionText, disabled } = card;
+  const { record, caption, dateText, column, disabled } = card;
   const accentColor = COLUMN_DEFS[column].dot;
+  const scoreColor = getScoreColor(record.flooredScore);
+  const scoreFraction = Math.min(100, Math.max(0, (record.weightedScore / 4) * 100));
+  const hasScore = record.weightedScore > 0;
+  const growthLevel = record.employee.growth_level ?? 1;
+  const workPeriod = formatWorkPeriod(
+    record.employee.assigned_period_start ?? record.employee.work_start_date,
+    record.employee.assigned_period_end ?? record.employee.work_end_date,
+  );
 
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       style={{
+        width: '100%',
+        boxSizing: 'border-box',
         textAlign: 'left',
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
@@ -438,13 +486,24 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
               {record.employee.position}
             </span>
           </div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
-            {record.totalTasks}개 과업
+          <div style={{ marginTop: 4 }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: 'var(--ok-orange-50)',
+                color: 'var(--ok-orange-700)',
+                fontSize: 'var(--fs-xs)',
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+              }}
+            >
+              Lv.{growthLevel}
+            </span>
           </div>
         </div>
-        <Pill tone={disabled ? 'neutral' : column === 'completed' ? 'success' : column === 'submitted' ? 'orange' : 'info'}>
-          {actionText}
-        </Pill>
+        <StatusBadge disabled={disabled} isCompleted={column === 'completed'} achieved={record.achieved} />
       </div>
 
       <div
@@ -464,120 +523,108 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
 
       <div
         style={{
-          height: 4,
+          height: 6,
           background: 'var(--bg-muted)',
-          borderRadius: 4,
+          borderRadius: 3,
           overflow: 'hidden',
         }}
       >
         <div
           style={{
             height: '100%',
-            width: `${progress}%`,
-            background: accentColor,
-            borderRadius: 4,
+            width: `${scoreFraction}%`,
+            background: scoreColor,
+            borderRadius: 3,
             transition: 'width 0.4s',
           }}
         />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: accentColor }}>
-          {scoreText}
-        </span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <span
+            className="tnum"
+            style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: hasScore ? scoreColor : 'var(--fg-muted)' }}
+          >
+            {hasScore ? formatScore(record.weightedScore) : '–'}
+          </span>
+          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+            / 4.0
+          </span>
+        </div>
         <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
       </div>
+
+      {workPeriod && (
+        <div className="tnum" style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+          근무 {workPeriod}
+        </div>
+      )}
     </button>
   );
 };
 
-const FormerBoardCard = ({ card, onClick }: BoardCardProps) => {
-  const { record, caption, scoreText, dateText, progress, actionText } = card;
-
+const StatusBadge = ({
+  disabled,
+  isCompleted,
+  achieved,
+}: {
+  disabled: boolean;
+  isCompleted: boolean;
+  achieved: boolean;
+}) => {
+  if (disabled) {
+    // 피평가자가 아직 최종제출 안 함 — 제출 전만 표시
+    return (
+      <span
+        style={{
+          padding: '2px 10px',
+          borderRadius: 999,
+          background: 'var(--bg-muted)',
+          color: 'var(--fg-muted)',
+          border: '1px solid var(--border)',
+          fontSize: 'var(--fs-xs)',
+          fontWeight: 800,
+          letterSpacing: '0.04em',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        제출 전
+      </span>
+    );
+  }
+  if (!isCompleted) {
+    // 평가 완료 전(검토 대기·평가 중)은 라벨 비움
+    return null;
+  }
+  const color = achieved ? COLOR_ACHIEVED : COLOR_MISSED;
   return (
-    <button
-      onClick={onClick}
+    <span
       style={{
-        textAlign: 'left',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--ok-orange-100)',
-        borderRadius: 8,
-        padding: '14px 16px',
-        cursor: 'pointer',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
-      onMouseEnter={(event) => {
-        event.currentTarget.style.borderColor = 'var(--ok-orange-600)';
-        event.currentTarget.style.boxShadow = 'var(--sh-focus)';
-      }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.borderColor = 'var(--ok-orange-100)';
-        event.currentTarget.style.boxShadow = 'none';
+        padding: '2px 10px',
+        borderRadius: 999,
+        background: achieved ? 'var(--ok-orange-50)' : 'var(--warning-bg)',
+        color,
+        border: `1px solid ${color}33`,
+        fontSize: 'var(--fs-xs)',
+        fontWeight: 800,
+        letterSpacing: '0.04em',
+        whiteSpace: 'nowrap',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            background: 'var(--ok-orange-600)',
-            color: '#fff',
-            fontSize: 'var(--fs-body)',
-            fontWeight: 800,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {record.employee.name.charAt(0)}
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
-            {record.employee.name}{' '}
-            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 500, color: 'var(--fg-muted)' }}>
-              {record.employee.position}
-            </span>
-          </div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
-            현재 담당 변경됨 · {record.totalTasks}개 과업
-          </div>
-        </div>
-        <Pill tone="neutral">이전 담당</Pill>
-      </div>
-
-      <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg)', lineHeight: 1.4 }}>{caption}</div>
-
-      <div style={{ height: 4, background: 'var(--ok-orange-50)', borderRadius: 4, overflow: 'hidden' }}>
-        <div
-          style={{
-            height: '100%',
-            width: `${progress}%`,
-            background: 'var(--ok-orange-600)',
-            borderRadius: 4,
-          }}
-        />
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: 'var(--ok-orange-700)' }}>
-          {scoreText}
-        </span>
-        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
-      </div>
-
-      <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-orange-700)' }}>
-        {actionText === '제출 전' ? '이전 평가 보기' : '이전 평가 수정'}
-      </div>
-    </button>
+      {achieved ? '달성' : '미달성'}
+    </span>
   );
 };
 
-const FORMER_CARD_WIDTH = 300;
+// 위 board column 안의 카드 간 간격(12) 과 동일하게 맞춰 통일감 확보.
+// 위 column padding(좌우 8 합 16) + scrollbar gutter 6 + cards container paddingLeft 6
+// = 총 28 정도 만큼 카드 폭이 column outer 보다 좁다. 아래 wrapper outer 도 그만큼 줄여서
+// 카드 너비가 위/아래 동일해지도록 보정.
 const FORMER_CARD_GAP = 12;
+const FORMER_CARDS_VISIBLE = 4;
+const FORMER_CARD_SCROLLBAR_COMPENSATION = 15;
+const FORMER_CARD_FLEX_BASIS = `calc((100% - ${FORMER_CARD_GAP * (FORMER_CARDS_VISIBLE - 1)}px) / ${FORMER_CARDS_VISIBLE} - ${FORMER_CARD_SCROLLBAR_COMPENSATION}px)`;
 
 const formerCarouselNavStyle: React.CSSProperties = {
   width: 28,
@@ -608,17 +655,18 @@ const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps
   const scrollByPage = (direction: 'prev' | 'next') => {
     const node = scrollerRef.current;
     if (!node) return;
-    const delta = (FORMER_CARD_WIDTH + FORMER_CARD_GAP) * 2 * (direction === 'next' ? 1 : -1);
+    // 한 번에 카드 2개 분량씩 이동
+    const cardWidth = node.clientWidth / FORMER_CARDS_VISIBLE;
+    const delta = (cardWidth + FORMER_CARD_GAP) * 2 * (direction === 'next' ? 1 : -1);
     node.scrollBy({ left: delta, behavior: 'smooth' });
   };
 
   return (
     <section
       style={{
-        padding: 16,
+        padding: '16px 0',
         borderRadius: 8,
-        border: '1px solid var(--ok-orange-100)',
-        borderLeft: '3px solid var(--ok-orange-600)',
+        border: '1px solid var(--border)',
         background: 'var(--bg-card)',
       }}
     >
@@ -629,6 +677,7 @@ const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps
           alignItems: 'flex-start',
           gap: 12,
           marginBottom: 12,
+          padding: '0 16px',
         }}
       >
         <div>
@@ -674,23 +723,25 @@ const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps
         <div
           ref={scrollerRef}
           style={{
-            display: 'flex',
+            display: 'grid',
+            gridAutoFlow: 'column',
+            gridAutoColumns: FORMER_CARD_FLEX_BASIS,
             gap: FORMER_CARD_GAP,
             overflowX: 'auto',
             scrollSnapType: 'x mandatory',
             paddingBottom: 6,
-            paddingRight: 4,
           }}
         >
           {cards.map((card) => (
             <div
               key={card.record.employee.employee_id}
               style={{
-                flex: `0 0 ${FORMER_CARD_WIDTH}px`,
+                boxSizing: 'border-box',
+                padding: 16,
                 scrollSnapAlign: 'start',
               }}
             >
-              <FormerBoardCard card={card} onClick={() => onOpen(card)} />
+              <BoardCard card={card} onClick={() => onOpen(card)} />
             </div>
           ))}
         </div>
@@ -698,57 +749,5 @@ const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps
     </section>
   );
 };
-
-type StatTileProps = {
-  label: string;
-  value: number | string;
-  sub?: string;
-  accent?: boolean;
-};
-
-const StatTile = ({ label, value, sub, accent }: StatTileProps) => (
-  <div
-    className="sd-card"
-    style={{
-      padding: '20px 22px',
-      background: accent ? 'var(--ok-orange)' : undefined,
-      border: accent ? 'none' : undefined,
-      color: accent ? '#fff' : undefined,
-    }}
-  >
-    <div
-      style={{
-        fontSize: 'var(--fs-sm)',
-        fontWeight: 700,
-        color: accent ? 'rgba(255,255,255,0.86)' : 'var(--fg-muted)',
-        marginBottom: 8,
-      }}
-    >
-      {label}
-    </div>
-    <div
-      className="tnum"
-      style={{
-        fontSize: 'var(--fs-h1)',
-        fontWeight: 900,
-        lineHeight: 1.05,
-        color: accent ? '#fff' : 'var(--fg)',
-      }}
-    >
-      {value}
-    </div>
-    {sub && (
-      <div
-        style={{
-          fontSize: 'var(--fs-sm)',
-          color: accent ? 'rgba(255,255,255,0.86)' : 'var(--fg-muted)',
-          marginTop: 6,
-        }}
-      >
-        {sub}
-      </div>
-    )}
-  </div>
-);
 
 export default TeamHome;

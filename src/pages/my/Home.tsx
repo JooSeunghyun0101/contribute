@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import {
+  formatScore,
   getMatrixScore,
   getMatrixMethodIndex,
   getMatrixScopeIndex,
@@ -188,7 +189,7 @@ const MyHome = () => {
                 className="tnum"
                 style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
               >
-                {exactScore.toFixed(1)}
+                {formatScore(exactScore)}
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
@@ -288,7 +289,7 @@ const MyHome = () => {
                     return (
                       <div
                         style={{
-                          minHeight: 48,
+                          height: 48,
                           borderRadius: 8,
                           background: 'var(--bg-muted)',
                           display: 'flex',
@@ -312,7 +313,7 @@ const MyHome = () => {
                     return (
                       <div
                         style={{
-                          minHeight: 48,
+                          height: 48,
                           borderRadius: 8,
                           background: bg,
                           display: 'flex',
@@ -324,7 +325,7 @@ const MyHome = () => {
                           gap: 2,
                           padding: '4px 0',
                         }}
-                        title={hasScore ? `${label} · ${cell.score}점` : `${label} · 미평가`}
+                        title={hasScore ? `${label} · ${cell.score}점` : `${label} · 미완료`}
                       >
                         <span
                           style={{
@@ -343,16 +344,22 @@ const MyHome = () => {
                             fontWeight: 900,
                           }}
                         >
-                          {hasScore ? cell.score : '미평가'}
+                          {hasScore ? cell.score : '미완료'}
                         </span>
                       </div>
                     );
                   }
 
+                  const MAX_VISIBLE = 2;
+                  const isOverflow = cellTasks.length > MAX_VISIBLE;
+                  const visibleTasks = isOverflow
+                    ? cellTasks.slice(0, MAX_VISIBLE - 1)
+                    : cellTasks;
+                  const overflowCount = cellTasks.length - visibleTasks.length;
                   return (
                     <div
                       style={{
-                        minHeight: 48,
+                        height: 48,
                         borderRadius: 8,
                         background: 'var(--bg-card)',
                         border: '1px solid var(--border)',
@@ -360,15 +367,16 @@ const MyHome = () => {
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 2,
+                        overflow: 'hidden',
                       }}
                       title={cellTasks
                         .map((c) => {
                           const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
-                          return c.score != null ? `${lab}·${c.score}점` : `${lab}·미평가`;
+                          return c.score != null ? `${lab}·${c.score}점` : `${lab}·미완료`;
                         })
                         .join(', ')}
                     >
-                      {cellTasks.map((c) => {
+                      {visibleTasks.map((c) => {
                         const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
                         const hasScore = c.score != null;
                         const bg = getScoreColor(c.score);
@@ -397,53 +405,85 @@ const MyHome = () => {
                           </div>
                         );
                       })}
+                      {overflowCount > 0 && (
+                        <div
+                          style={{
+                            flex: 1,
+                            minHeight: 18,
+                            borderRadius: 5,
+                            background: 'var(--bg-muted)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--fg-muted)',
+                            fontSize: 'var(--fs-micro)',
+                            fontWeight: 800,
+                            lineHeight: 1,
+                          }}
+                        >
+                          +{overflowCount}
+                        </div>
+                      )}
                     </div>
                   );
                 }}
               />
 
-              {/* Summary */}
+              {/* Summary — 한 줄 가로 배치로 카드 높이 일정하게 유지 */}
               <div
                 style={{
                   marginTop: 14,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
                   paddingTop: 12,
                   borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  fontSize: 'var(--fs-sm)',
+                  alignItems: 'center',
                 }}
               >
                 {([4, 3, 2, 1] as const).filter((s) => dist[String(s)] > 0).map((s) => (
-                  <div
+                  <span
                     key={s}
-                    style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-body)' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
                   >
-                    <span style={{ color: 'var(--fg-muted)' }}>{s}점 과업</span>
-                    <span style={{ fontWeight: 700 }}>{dist[String(s)]}</span>
-                  </div>
+                    <span style={{ color: 'var(--fg-muted)' }}>{s}점</span>
+                    <span className="tnum" style={{ fontWeight: 800, color: 'var(--fg)' }}>
+                      {dist[String(s)]}
+                    </span>
+                  </span>
                 ))}
                 {dist.none > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-body)' }}>
-                    <span style={{ color: 'var(--fg-muted)' }}>미평가</span>
-                    <span style={{ fontWeight: 700 }}>{dist.none}</span>
-                  </div>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ color: 'var(--fg-muted)' }}>미완료</span>
+                    <span className="tnum" style={{ fontWeight: 800, color: 'var(--fg)' }}>
+                      {dist.none}
+                    </span>
+                  </span>
                 )}
               </div>
             </div>
 
             {/* 과업 일정 (간트) */}
             <div className="sd-card" style={{ padding: 18 }}>
+              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 12 }}>
+                과업 일정 (간트)
+              </h3>
+              {/* month labels — task row grid(1fr 64px gap 8)와 동일 정렬 */}
               <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 12,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 64px',
+                  gap: 8,
+                  marginBottom: 10,
                 }}
               >
-                <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>과업 일정 (간트)</h3>
-                {/* month labels */}
-                <div style={{ display: 'flex', gap: 0, flex: 1, marginLeft: 16 }}>
+                <div style={{ display: 'flex' }}>
                   {GANTT_LABELS.map((m) => (
                     <div
                       key={m}
@@ -458,13 +498,25 @@ const MyHome = () => {
                       {m}
                     </div>
                   ))}
-                  <div style={{ width: 64 }} />
                 </div>
+                <div />
               </div>
 
-              {/* Task rows */}
+              {/* Task rows — 영역 고정. 과업이 많으면 안에서 세로 스크롤 */}
               <div
-                style={{ display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}
+                style={{
+                  height: 220,
+                  overflowY: 'auto',
+                  paddingRight: 4,
+                }}
+              >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  position: 'relative',
+                }}
               >
                 {/* Today marker */}
                 <div
@@ -579,7 +631,7 @@ const MyHome = () => {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            미평가
+                            미완료
                           </span>
                         )}
                       </div>
@@ -592,6 +644,7 @@ const MyHome = () => {
                     등록된 과업이 없습니다.
                   </div>
                 )}
+              </div>
               </div>
             </div>
           </div>
@@ -733,8 +786,17 @@ const MyHome = () => {
                 )}
               </div>
 
-              {/* Legend / breakdown */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {/* Legend / breakdown — 높이 고정 + 스크롤 */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 5,
+                  height: 300,
+                  overflowY: 'auto',
+                  paddingRight: 4,
+                }}
+              >
                 {weightDonutData.map((item, i) => {
                   const color = getScoreColor(item.score);
                   return (
@@ -802,7 +864,7 @@ const MyHome = () => {
                             border: '1px solid var(--border)',
                           }}
                         >
-                          미평가
+                          미완료
                         </span>
                       )}
                     </div>
@@ -812,90 +874,6 @@ const MyHome = () => {
             </div>
           </div>
 
-          {/* ── 최근 피드백 ───────────────────────────── */}
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 14,
-              }}
-            >
-              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>최근 피드백</h3>
-              {newCount > 0 && (
-                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--ok-orange)', fontWeight: 700 }}>
-                  신규 {newCount}건
-                </span>
-              )}
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: 14,
-              }}
-            >
-              {recentFeedbacks.map((fb, i) => (
-                <div key={fb.id ?? i} className="sd-card" style={{ padding: 18 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      justifyContent: 'space-between',
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        fontSize: 'var(--fs-body)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        flex: 1,
-                        marginRight: 8,
-                      }}
-                    >
-                      {fb.taskTitle}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                      <div
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: getScoreColor(fb.taskScore),
-                          color: getScoreTextColor(fb.taskScore),
-                          fontWeight: 900,
-                          fontSize: 'var(--fs-sm)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {fb.taskScore ?? '-'}
-                      </div>
-                      <span className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-                        {fb.taskScore != null ? `${fb.taskScore.toFixed(1)}` : '-'}
-                      </span>
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.7, color: 'var(--fg)', margin: 0 }}>
-                    {fb.content}
-                  </p>
-                  <div style={{ marginTop: 10, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-                    {fb.evaluatorName} · {formatDate(fb.date)}
-                  </div>
-                </div>
-              ))}
-              {recentFeedbacks.length === 0 && (
-                <div className="sd-card" style={{ padding: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                  아직 받은 피드백이 없습니다.
-                </div>
-              )}
-            </div>
-          </div>
         </>
       )}
     </div>

@@ -97,20 +97,43 @@ const EvaluatorSchedulePage = () => {
                       </div>
                       <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>{record.employee.name}</span>
                       <span style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>
-                        {record.employee.position} · {record.employee.department}
+                        {record.employee.position} · Lv.{record.employee.growth_level ?? 1} · {record.employee.department}
                       </span>
-                      <span
-                        style={{
-                          padding: '2px 10px',
-                          borderRadius: 12,
-                          background: record.progress >= 100 ? '#DCFCE7' : 'var(--ok-orange-50)',
-                          color: record.progress >= 100 ? '#16A34A' : 'var(--ok-orange)',
-                          fontSize: 'var(--fs-sm)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {record.progress}%
-                      </span>
+                      {(() => {
+                        const evaluated = record.completedTasks > 0 && record.completedTasks === record.totalTasks;
+                        if (!evaluated) {
+                          return (
+                            <span
+                              style={{
+                                padding: '2px 10px',
+                                borderRadius: 12,
+                                background: 'var(--bg-muted)',
+                                color: 'var(--fg-muted)',
+                                border: '1px solid var(--border)',
+                                fontSize: 'var(--fs-sm)',
+                                fontWeight: 700,
+                              }}
+                            >
+                              미완료
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            style={{
+                              padding: '2px 10px',
+                              borderRadius: 12,
+                              background: record.achieved ? 'var(--ok-orange-50)' : 'var(--warning-bg)',
+                              color: record.achieved ? 'var(--ok-orange)' : 'var(--ok-orange-700)',
+                              border: '1px solid var(--ok-orange-100)',
+                              fontSize: 'var(--fs-sm)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {record.achieved ? '달성' : '미달성'}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     {/* Task rows */}

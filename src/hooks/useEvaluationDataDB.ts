@@ -445,11 +445,17 @@ export const useEvaluationDataDB = (
       // 사용자가 '현재 평가의 담당 평가자' 인지 (라벨/권한용)
       const isCurrentAssignedEvaluator =
         isEvaluatorOfThisEvaluation && isLoadedEvaluationCurrent;
-      // '이전 평가'로 볼지 — 사용자가 이 평가의 소유 평가자지만 현재 평가가 아닌 경우
+      // '이전 평가'로 볼지 —
+      // 본인이 현재 평가자(isCurrentAssignedEvaluator)가 아닌데
+      // 이 evaluation 에 본인 또는 다른 평가자의 entry 가 존재하거나
+      // 본인이 evaluation 의 소유 평가자였다면 former 로 본다.
+      // (백엔드 former-evaluator 라우트가 이미 권한 검증 후의 흐름이므로 안전.)
       const isFormerEvaluator =
         user?.role === 'evaluator' &&
-        isEvaluatorOfThisEvaluation &&
-        !isLoadedEvaluationCurrent;
+        !isCurrentAssignedEvaluator &&
+        (isEvaluatorOfThisEvaluation ||
+          hasOwnEvaluationEntries ||
+          hasOtherEvaluatorEntries);
       const canEditAsEvaluator =
         user?.role !== 'evaluator' ||
         Boolean(hasOwnEvaluationEntries) ||
@@ -498,7 +504,11 @@ export const useEvaluationDataDB = (
                 ) ?? null
               : null;
           const latestEntry = evaluationEntries[0] ?? null;
-          const displayEntry = user?.role === 'evaluator' ? currentEvaluatorEntry : latestEntry;
+          // evaluator role: 본인이 매긴 entry 우선, 없으면 가장 최근 entry로 fallback.
+          // (정정으로 평가자였지만 본인이 직접 점수를 입력하지 않은 케이스 — 박준형 같은
+          //  '이전 평가자' 화면에서 다른 평가자가 매긴 점수/피드백이 그대로 노출되어야 함.)
+          const displayEntry =
+            user?.role === 'evaluator' ? currentEvaluatorEntry ?? latestEntry : latestEntry;
           const legacyMatchesCurrentEvaluator =
             user?.role === 'evaluator' &&
             evaluationEntries.length === 0 &&

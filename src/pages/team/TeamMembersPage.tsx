@@ -3,16 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { formatScore, getScoreColor } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 const CARD_WIDTH = 300;
 const CARD_GAP = 16;
 
-const formatDate = (value?: string | null) => {
+const formatWorkDate = (value?: string | null) => {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(d);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const formatWorkPeriod = (start?: string | null, end?: string | null) => {
+  const s = formatWorkDate(start);
+  const e = formatWorkDate(end);
+  if (!s && !e) return null;
+  if (s && e) return `${s} ~ ${e}`;
+  if (s) return `${s} ~ 현재`;
+  return `이전 ~ ${e}`;
 };
 
 const TeamMembersPage = () => {
@@ -50,7 +60,19 @@ const TeamMembersPage = () => {
       .sort(([a], [b]) => b - a)
       .map(([level, items]) => ({
         level,
-        items: [...items].sort((a, b) => a.employee.name.localeCompare(b.employee.name, 'ko-KR')),
+        items: [...items].sort((a, b) => {
+          // 달성 → 미달성 → 미완료 순, 같은 상태 안에서는 점수 내림차순
+          const stateRank: Record<AchievementState, number> = {
+            achieved: 0,
+            missed: 1,
+            pending: 2,
+          };
+          const sa = getAchievementState(a);
+          const sb = getAchievementState(b);
+          if (sa !== sb) return stateRank[sa] - stateRank[sb];
+          if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
+          return a.employee.name.localeCompare(b.employee.name, 'ko-KR');
+        }),
       }));
   }, [visibleRecords]);
 
@@ -213,13 +235,60 @@ type MemberCardProps = {
   onOpen: () => void;
 };
 
+type AchievementState = 'achieved' | 'missed' | 'pending';
+
+const getAchievementState = (record: EmployeeEvaluationRecord): AchievementState => {
+  // 평가 완료(or 잠금) 상태만 달성/미달성으로 분류. 그 외는 모두 미완료.
+  const isCompleted =
+    record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
+  if (!isCompleted) return 'pending';
+  return record.achieved ? 'achieved' : 'missed';
+};
+
+// 점수 색상표 기준 — 4점 진오렌지(달성), 2점 머스터드(미달성), 회색(미완료)
+const ACHIEVEMENT_STYLE: Record<
+  AchievementState,
+  { label: string; chipBg: string; chipColor: string; accent: string }
+> = {
+  achieved: {
+    label: '달성',
+    chipBg: 'var(--ok-orange-50)',
+    chipColor: '#E84200',
+    accent: '#E84200',
+  },
+  missed: {
+    label: '미달성',
+    chipBg: 'var(--warning-bg)',
+    chipColor: '#A06A3D',
+    accent: '#E8B588',
+  },
+  pending: {
+    label: '미완료',
+    chipBg: 'var(--bg-muted)',
+    chipColor: 'var(--fg-muted)',
+    accent: 'var(--border)',
+  },
+};
+
 const MemberCard = ({ record, onOpen }: MemberCardProps) => {
-  const latestFeedbackDate = record.tasks
-    .flatMap((t) => t.feedbackHistory ?? [])
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date;
-  const recentDate = formatDate(latestFeedbackDate);
-  const completedCount = record.completedTasks;
-  const totalCount = record.totalTasks;
+  const workPeriod = formatWorkPeriod(
+    record.employee.work_start_date,
+    record.employee.work_end_date,
+  );
+  const state = getAchievementState(record);
+  const palette = ACHIEVEMENT_STYLE[state];
+  const growthLevel = record.employee.growth_level ?? 1;
+  const scoreColor = getScoreColor(record.flooredScore);
+  const scoreFraction = Math.min(100, Math.max(0, (record.weightedScore / 4) * 100));
+  const hasScore = record.weightedScore > 0;
+
+  // 상태별 카드 테두리 — 달성/미달성은 solid 강조, 미완료는 dashed로 약하게
+  const cardBorder =
+    state === 'achieved'
+      ? `2px solid ${palette.accent}`
+      : state === 'missed'
+        ? `2px solid ${palette.accent}`
+        : '2px dashed var(--border)';
 
   return (
     <div
@@ -230,34 +299,34 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
+        border: cardBorder,
       }}
     >
-      {record.achieved && (
+      {/* 우상단 상태 라벨 (이모지 없음) */}
+      {state !== 'pending' && (
         <div
           style={{
             position: 'absolute',
-            top: 16,
-            right: 16,
+            top: 14,
+            right: 14,
+            padding: '3px 12px',
+            borderRadius: 999,
+            background: palette.chipBg,
+            color: palette.chipColor,
             fontSize: 'var(--fs-xs)',
-            fontWeight: 700,
-            color: '#16A34A',
-            background: '#DCFCE7',
-            padding: '2px 8px',
-            borderRadius: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
+            fontWeight: 800,
+            letterSpacing: '0.04em',
           }}
         >
-          <span>✓</span> 달성
+          {palette.label}
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, paddingRight: 64 }}>
         <div
           style={{
-            width: 48,
-            height: 48,
+            width: 44,
+            height: 44,
             borderRadius: '50%',
             background: 'var(--ok-orange)',
             color: '#fff',
@@ -271,63 +340,71 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
         >
           {record.employee.name.charAt(0)}
         </div>
-        <div>
-          <div style={{ fontSize: 'var(--fs-h4)', fontWeight: 700 }}>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 'var(--fs-h4)',
+              fontWeight: 700,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {record.employee.name}{' '}
             <span style={{ fontSize: 'var(--fs-body)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {record.employee.position}
             </span>
           </div>
           <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
-            {record.employee.department} · Lv.{record.employee.growth_level ?? 1}
+            {record.employee.department} · Lv.{growthLevel}
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 4 }}>
-            현재 점수
-          </div>
-          <div
-            style={{
-              fontSize: 'var(--fs-h1)',
-              fontWeight: 900,
-              color: 'var(--ok-orange)',
-              lineHeight: 1,
-            }}
-          >
-            {record.weightedScore > 0 ? record.weightedScore.toFixed(1) : '–'}
+      <div style={{ marginBottom: 14 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            marginBottom: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span
+              className="tnum"
+              style={{
+                fontSize: 'var(--fs-h1)',
+                fontWeight: 900,
+                color: hasScore ? scoreColor : 'var(--fg-muted)',
+                lineHeight: 1.0,
+              }}
+            >
+              {hasScore ? formatScore(record.weightedScore) : '–'}
+            </span>
+            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+              / 4.0
+            </span>
           </div>
         </div>
 
-        <div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 600, marginBottom: 8 }}>
-            평가 진행률
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div
-              style={{
-                flex: 1,
-                height: 6,
-                background: 'var(--bg-muted)',
-                borderRadius: 4,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  height: '100%',
-                  width: `${record.progress}%`,
-                  background: record.progress >= 100 ? '#16A34A' : 'var(--ok-orange)',
-                  borderRadius: 4,
-                }}
-              />
-            </div>
-            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
-              {completedCount}/{totalCount}
-            </span>
-          </div>
+        <div
+          style={{
+            height: 8,
+            background: 'var(--bg-muted)',
+            borderRadius: 4,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: `${scoreFraction}%`,
+              background: scoreColor,
+              borderRadius: 4,
+              transition: 'width 0.4s',
+            }}
+          />
         </div>
       </div>
 
@@ -339,8 +416,8 @@ const MemberCard = ({ record, onOpen }: MemberCardProps) => {
           marginTop: 'auto',
         }}
       >
-        <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-          {recentDate ? `최근 활동 · ${recentDate}` : '활동 기록 없음'}
+        <div className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+          {workPeriod ? `근무 ${workPeriod}` : '근무기간 정보 없음'}
         </div>
         <button
           className="sd-btn sd-btn-ghost sd-btn-sm"

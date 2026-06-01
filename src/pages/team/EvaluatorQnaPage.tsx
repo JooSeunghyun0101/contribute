@@ -306,7 +306,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
     ? 'rgba(220,69,69,0.08)'
     : isUser
       ? 'var(--ok-orange)'
-      : '#FFFFFF';
+      : 'var(--bg-card)';
   const color = message.error
     ? 'var(--danger)'
     : isUser

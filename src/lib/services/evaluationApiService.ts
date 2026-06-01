@@ -5,6 +5,7 @@ import { apiErrorHandler } from '@/utils/errorHandler';
 type EvaluationQuery = {
   periodId?: string | null;
   year?: number | null;
+  evaluatorId?: string | null;
 };
 
 const buildEvaluationQuery = (query: EvaluationQuery = {}) => {
@@ -13,6 +14,9 @@ const buildEvaluationQuery = (query: EvaluationQuery = {}) => {
     params.set('periodId', query.periodId);
   } else if (query.year != null) {
     params.set('year', String(query.year));
+  }
+  if (query.evaluatorId) {
+    params.set('evaluatorId', query.evaluatorId);
   }
   const qs = params.toString();
   return qs ? `?${qs}` : '';

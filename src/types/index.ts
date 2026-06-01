@@ -47,6 +47,10 @@ export interface Employee {
   job_role?: string | null;
   target_status?: string | null;
   last_profile_batch_id?: string | null;
+  assigned_period_start?: string | null;
+  assigned_period_end?: string | null;
+  /** 어떤 평가기간에라도 active evaluation 이 있는지 (사용자 관리 화면 필터용) */
+  has_any_evaluation?: boolean;
   created_at: string;
   updated_at: string;
 }

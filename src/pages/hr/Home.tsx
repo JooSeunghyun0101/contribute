@@ -1,25 +1,81 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
 import { downloadFullEvaluationDataWorkbook } from '@/utils/hrDataExport';
+import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
-const weeklyData = [
-  { label: '3월 1주', value: 28 },
-  { label: '2주', value: 34 },
-  { label: '3주', value: 38 },
-  { label: '4주', value: 41 },
-  { label: '4월 1주', value: 52 },
-  { label: '2주', value: 60 },
-  { label: '3주', value: 67 },
-  { label: '현재', value: 72 },
+const MONTH_LABELS = [
+  '1월',
+  '2월',
+  '3월',
+  '4월',
+  '5월',
+  '6월',
+  '7월',
+  '8월',
+  '9월',
+  '10월',
+  '11월',
+  '12월',
 ];
 
+type MonthlyTrendPoint = { label: string; value: number | null };
+
+const buildMonthlyTrend = (
+  records: EmployeeEvaluationRecord[],
+  year: number,
+): MonthlyTrendPoint[] => {
+  const total = records.length;
+
+  const completedTimes = records
+    .map((r) => {
+      if (r.status !== 'completed') return null;
+      const ts = r.evaluation?.last_modified;
+      const parsed = ts ? new Date(ts).getTime() : NaN;
+      return Number.isFinite(parsed) ? parsed : null;
+    })
+    .filter((t): t is number => t !== null);
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  return MONTH_LABELS.map((label, monthIdx) => {
+    const isFutureMonth =
+      year > currentYear || (year === currentYear && monthIdx > currentMonth);
+    if (isFutureMonth) {
+      return { label, value: null };
+    }
+    if (total === 0) {
+      return { label, value: 0 };
+    }
+    const monthEnd = new Date(year, monthIdx + 1, 1).getTime() - 1;
+    const cutoff = Math.min(monthEnd, nowMs);
+    const completedByThen = completedTimes.filter((t) => t <= cutoff).length;
+    return { label, value: Math.round((completedByThen / total) * 100) };
+  });
+};
+
 const HrHome = () => {
+  const navigate = useNavigate();
   const { records, isLoading } = useCompanyDashboardRecords();
+  const { selectedPeriod } = useEvaluationPeriod();
   const { toast } = useToast();
   const [isExportingReport, setIsExportingReport] = useState(false);
+
+  const trendYear = useMemo(() => {
+    if (selectedPeriod?.evaluation_year) return selectedPeriod.evaluation_year;
+    if (selectedPeriod?.starts_on) {
+      const y = new Date(selectedPeriod.starts_on).getFullYear();
+      if (Number.isFinite(y)) return y;
+    }
+    return new Date().getFullYear();
+  }, [selectedPeriod?.evaluation_year, selectedPeriod?.starts_on]);
 
   const summary = useMemo(() => {
     const totalMembers = records.length;
@@ -30,6 +86,14 @@ const HrHome = () => {
       totalMembers > 0 ? Math.round((completedMembers / totalMembers) * 100) : 0;
     const achievementRate =
       totalMembers > 0 ? Math.round((achievedMembers / totalMembers) * 100) : 0;
+
+    const monthlyTrend = buildMonthlyTrend(records, trendYear);
+    const validPoints = monthlyTrend.filter(
+      (p): p is { label: string; value: number } => p.value !== null,
+    );
+    const lastRate = validPoints.at(-1)?.value ?? 0;
+    const prevRate = validPoints.at(-2)?.value ?? 0;
+    const completionDelta = lastRate - prevRate;
 
     const departments = Object.values(
       records.reduce<
@@ -62,8 +126,32 @@ const HrHome = () => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 8);
 
-    return { totalMembers, completedMembers, completionRate, achievementRate, inProgress, departments, recentActivities };
-  }, [records]);
+    return {
+      totalMembers,
+      completedMembers,
+      completionRate,
+      achievementRate,
+      inProgress,
+      departments,
+      recentActivities,
+      monthlyTrend,
+      completionDelta,
+    };
+  }, [records, trendYear]);
+
+  const deadlineInfo = useMemo(() => {
+    const endsOn = selectedPeriod?.ends_on;
+    if (!endsOn) return { label: '마감일 미설정', emphasize: false };
+    const end = new Date(endsOn);
+    if (Number.isNaN(end.getTime())) return { label: '마감일 미설정', emphasize: false };
+    const today = new Date();
+    end.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((end.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays > 0) return { label: `마감 D-${diffDays}`, emphasize: diffDays <= 14 };
+    if (diffDays === 0) return { label: '오늘 마감', emphasize: true };
+    return { label: `마감 ${-diffDays}일 경과`, emphasize: true };
+  }, [selectedPeriod?.ends_on]);
 
   const formatRelativeTime = (dateStr: string) => {
     if (!dateStr) return '';
@@ -109,7 +197,6 @@ const HrHome = () => {
             >
               {isExportingReport ? '다운로드 중' : '평가데이터'}
             </button>
-            <button className="sd-btn sd-btn-primary sd-btn-sm">평가 설정</button>
           </div>
         }
       />
@@ -147,7 +234,12 @@ const HrHome = () => {
               {summary.completedMembers} / {summary.totalMembers}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', color: '#FFD4B8', marginTop: 4, fontWeight: 700 }}>
-              ↑ +8%
+              {summary.completionDelta > 0
+                ? `↑ +${summary.completionDelta}%`
+                : summary.completionDelta < 0
+                ? `↓ ${summary.completionDelta}%`
+                : '변동 없음'}{' '}
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>vs 전월</span>
             </div>
           </div>
 
@@ -168,7 +260,16 @@ const HrHome = () => {
               진행 중
             </div>
             <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>{summary.inProgress}</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>마감 D-7</div>
+            <div
+              style={{
+                fontSize: 'var(--fs-sm)',
+                color: deadlineInfo.emphasize ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                marginTop: 6,
+                fontWeight: deadlineInfo.emphasize ? 700 : 500,
+              }}
+            >
+              {deadlineInfo.label}
+            </div>
           </div>
         </section>
 
@@ -181,7 +282,7 @@ const HrHome = () => {
               {/* Weekly completion trend chart */}
               <div className="sd-card sd-card-lg">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>주간 완료율 추이</h3>
+                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>월간 완료율 추이</h3>
                   <span
                     style={{
                       fontSize: 'var(--fs-xs)',
@@ -193,11 +294,11 @@ const HrHome = () => {
                       color: 'var(--fg-muted)',
                     }}
                   >
-                    최근 8주
+                    {trendYear}년 누적
                   </span>
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={weeklyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <AreaChart data={summary.monthlyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#F55000" stopOpacity={0.25} />
@@ -244,7 +345,11 @@ const HrHome = () => {
               <div className="sd-card sd-card-lg">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>최근 시스템 활동</h3>
-                  <button className="sd-btn sd-btn-ghost sd-btn-sm" style={{ color: 'var(--ok-orange)' }}>
+                  <button
+                    className="sd-btn sd-btn-ghost sd-btn-sm"
+                    style={{ color: 'var(--ok-orange)' }}
+                    onClick={() => navigate('/notifications')}
+                  >
                     전체 보기 →
                   </button>
                 </div>

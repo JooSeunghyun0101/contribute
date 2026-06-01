@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { generateFeedbackSummaryForEvaluatee, type FeedbackForSummary } from '@/lib/gptOss';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
 } from '@/components/Feedback/TaskFeedbackCard';
@@ -54,6 +56,55 @@ const MyFeedbackPage = () => {
     return null;
   }, [cardsWithFeedback]);
   const latestEvaluatorInitial = latestEvaluator ? latestEvaluator.charAt(0) : '?';
+
+  // AI 요약
+  const feedbackInputs = useMemo<FeedbackForSummary[]>(
+    () =>
+      cardsWithFeedback.flatMap((card) =>
+        card.entries.map((entry) => ({
+          taskTitle: card.taskTitle,
+          content: entry.content,
+          score: card.score ?? null,
+          evaluatorName: entry.evaluatorName ?? null,
+        })),
+      ),
+    [cardsWithFeedback],
+  );
+
+  const feedbackSignature = useMemo(
+    () => feedbackInputs.map((f) => `${f.taskTitle}|${f.content}`).join('\n'),
+    [feedbackInputs],
+  );
+
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiRefreshKey, setAiRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (feedbackInputs.length === 0) {
+      setAiSummary(null);
+      setAiError(null);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    setAiError(null);
+    generateFeedbackSummaryForEvaluatee(feedbackInputs)
+      .then((text) => {
+        if (!cancelled) setAiSummary(text);
+      })
+      .catch((err) => {
+        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 요약 호출 실패');
+      })
+      .finally(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedbackSignature, aiRefreshKey]);
 
   const keywords = useMemo(() => {
     const seen = new Set<string>();
@@ -216,10 +267,63 @@ const MyFeedbackPage = () => {
               <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
                 <IconSparkle width={16} height={16} />
               </div>
-              <div>
-                <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
-                <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
-                  최근 피드백을 기준으로 주도성과 실행력이 강점으로 평가되고 있습니다. 다음 라운드에서 협업과 공유 관점의 활동을 추가하면 더 높은 점수에 근접할 수 있습니다.
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
+                    AI 요약
+                  </span>
+                  {feedbackInputs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAiRefreshKey((k) => k + 1)}
+                      disabled={aiLoading}
+                      title="다시 생성"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--ok-orange-100)',
+                        background: 'transparent',
+                        color: 'var(--ok-orange-700)',
+                        fontSize: 'var(--fs-xs)',
+                        fontWeight: 700,
+                        cursor: aiLoading ? 'wait' : 'pointer',
+                        opacity: aiLoading ? 0.6 : 1,
+                      }}
+                    >
+                      <RefreshCw
+                        size={12}
+                        style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }}
+                      />
+                      다시 생성
+                    </button>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--fs-sm)',
+                    lineHeight: 1.7,
+                    color: 'var(--ok-brown)',
+                    marginTop: 6,
+                    minHeight: 40,
+                  }}
+                >
+                  {feedbackInputs.length === 0
+                    ? '아직 받은 피드백이 없습니다. 평가자가 작성하면 요약이 생성됩니다.'
+                    : aiLoading && aiSummary == null
+                      ? 'AI가 피드백을 분석 중입니다…'
+                      : aiError
+                        ? `${aiError} (다시 생성 버튼으로 재시도)`
+                        : aiSummary ?? '요약을 준비하고 있습니다…'}
                 </div>
               </div>
             </div>

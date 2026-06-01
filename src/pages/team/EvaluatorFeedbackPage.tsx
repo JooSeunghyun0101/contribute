@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import {
+  generateFeedbackSummaryForEvaluator,
+  type FeedbackForSummary,
+} from '@/lib/gptOss';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
 } from '@/components/Feedback/TaskFeedbackCard';
@@ -45,11 +50,10 @@ const buildEmployeeTaskCards = (
         : [];
 
     const allEntries = historyEntries.length > 0 ? historyEntries : fallbackEntries;
-    const authoredEntries = authorName
-      ? allEntries.filter((entry) => entry.evaluatorName === authorName)
-      : allEntries;
-    const visible = authoredEntries.length > 0 ? authoredEntries : allEntries;
-    const sorted = [...visible].sort(
+    // 본인이 매긴 피드백과 이전 평가자가 매긴 피드백을 모두 노출한다.
+    // (authorName 인자는 이제 정렬·라벨링용으로만 활용되고, 필터링에는 사용하지 않는다.)
+    void authorName;
+    const sorted = [...allEntries].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
 
@@ -92,11 +96,27 @@ const EvaluatorFeedbackPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<'all' | string>('all');
-  const { records, isLoading, error } = useTeamDashboardRecords(user?.employeeId || '', true);
+  const { records, isLoading: isCurrentLoading, error } = useTeamDashboardRecords(user?.employeeId || '', true);
+  const { records: formerRecords, isLoading: isFormerLoading } = useFormerTeamDashboardRecords(
+    user?.employeeId || '',
+    true,
+  );
+  const isLoading = isCurrentLoading || isFormerLoading;
+
+  // 현재 담당 + 과거 담당 피평가자의 피드백 이력을 함께 노출.
+  // (같은 employee 가 두 곳에 나타나면 current 를 우선 사용.)
+  const combinedRecords = useMemo(() => {
+    const map = new Map<string, (typeof records)[number]>();
+    for (const r of records) map.set(r.employee.employee_id, r);
+    for (const r of formerRecords) {
+      if (!map.has(r.employee.employee_id)) map.set(r.employee.employee_id, r);
+    }
+    return [...map.values()];
+  }, [records, formerRecords]);
 
   const employeeBundles = useMemo(
-    () => records.map((record) => buildEmployeeTaskCards(record, user?.name ?? null)),
-    [records, user?.name],
+    () => combinedRecords.map((record) => buildEmployeeTaskCards(record, user?.name ?? null)),
+    [combinedRecords, user?.name],
   );
 
   const employeeOptions = useMemo(
@@ -128,6 +148,54 @@ const EvaluatorFeedbackPage = () => {
 
   const totalFeedbacks = focusedBundle?.totalFeedbacks ?? aggregateStats.feedbacks;
 
+  // AI 요약 — 한 명 선택 시 그 피평가자에 작성한 피드백을 요약
+  const aiFeedbackInputs = useMemo<FeedbackForSummary[]>(() => {
+    if (!focusedBundle) return [];
+    return focusedBundle.cards.flatMap((card) =>
+      card.entries.map((entry) => ({
+        taskTitle: card.taskTitle,
+        content: entry.content,
+        score: card.score ?? null,
+        evaluatorName: entry.evaluatorName ?? null,
+      })),
+    );
+  }, [focusedBundle]);
+
+  const aiFeedbackSignature = useMemo(
+    () => `${focusedBundle?.employeeId ?? ''}|${aiFeedbackInputs.map((f) => f.content).join('|')}`,
+    [focusedBundle?.employeeId, aiFeedbackInputs],
+  );
+
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiRefreshKey, setAiRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!focusedBundle || aiFeedbackInputs.length === 0) {
+      setAiSummary(null);
+      setAiError(null);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    setAiError(null);
+    generateFeedbackSummaryForEvaluator(focusedBundle.employeeName, aiFeedbackInputs)
+      .then((text) => {
+        if (!cancelled) setAiSummary(text);
+      })
+      .catch((err) => {
+        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 요약 호출 실패');
+      })
+      .finally(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiFeedbackSignature, aiRefreshKey]);
+
   return (
     <>
       <PageHeader
@@ -139,7 +207,7 @@ const EvaluatorFeedbackPage = () => {
         <div
           style={{
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'flex-start',
             alignItems: 'center',
             gap: 6,
             marginBottom: 18,
@@ -380,12 +448,65 @@ const EvaluatorFeedbackPage = () => {
                   <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
                     <IconSparkle width={16} height={16} />
                   </div>
-                  <div>
-                    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>AI 요약</div>
-                    <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--ok-brown)', marginTop: 4 }}>
-                      {focusedBundle
-                        ? `${focusedBundle.employeeName}님은 최근 작성된 피드백을 기준으로 핵심 과업 수행에서 일관된 강점을 보입니다.`
-                        : '담당 피평가자별 피드백을 한눈에 확인하고 다음 평가에 활용하세요.'}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
+                        AI 요약
+                      </span>
+                      {focusedBundle && aiFeedbackInputs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAiRefreshKey((k) => k + 1)}
+                          disabled={aiLoading}
+                          title="다시 생성"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            border: '1px solid var(--ok-orange-100)',
+                            background: 'transparent',
+                            color: 'var(--ok-orange-700)',
+                            fontSize: 'var(--fs-xs)',
+                            fontWeight: 700,
+                            cursor: aiLoading ? 'wait' : 'pointer',
+                            opacity: aiLoading ? 0.6 : 1,
+                          }}
+                        >
+                          <RefreshCw
+                            size={12}
+                            style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }}
+                          />
+                          다시 생성
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 'var(--fs-sm)',
+                        lineHeight: 1.7,
+                        color: 'var(--ok-brown)',
+                        marginTop: 6,
+                        minHeight: 40,
+                      }}
+                    >
+                      {!focusedBundle
+                        ? '담당 피평가자별 피드백을 한눈에 확인하고 다음 평가에 활용하세요. 한 명을 선택하면 AI 요약이 생성됩니다.'
+                        : aiFeedbackInputs.length === 0
+                          ? `${focusedBundle.employeeName}님에게 작성한 피드백이 아직 없습니다.`
+                          : aiLoading && aiSummary == null
+                            ? 'AI가 피드백을 분석 중입니다…'
+                            : aiError
+                              ? `${aiError} (다시 생성 버튼으로 재시도)`
+                              : aiSummary ?? '요약을 준비하고 있습니다…'}
                     </div>
                   </div>
                 </div>

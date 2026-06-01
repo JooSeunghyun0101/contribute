@@ -81,7 +81,7 @@ const PastEvaluationAccordion = ({
           </div>
           <div>
             <div style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--fg)' }}>
-              {evaluatorName} 평가 (과거)
+              평가자 {evaluatorName}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
               {assignedAt ? `${assignedAt} 시작` : '기간 정보 없음'}
