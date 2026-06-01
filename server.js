@@ -185,6 +185,11 @@ const EMPLOYEE_UPDATE_FIELDS = new Set([
   'growth_level',
   'evaluator_id',
   'available_roles',
+  'job_role',
+  'org_corporation',
+  'org_division',
+  'org_department',
+  'org_team',
 ]);
 const ASSIGNMENT_HISTORY_CHANGE_TYPES = new Set(['change', 'cancel']);
 const ASSIGNMENT_HISTORY_STATUSES = new Set(['applied', 'cancelled']);
@@ -239,6 +244,12 @@ const normalizeOptionalText = (value) => {
   if (value === undefined || value === null) return null;
   const text = String(value).trim();
   return text || null;
+};
+
+// 조직 계층(법인/본부/부/팀) 정규화. 업로드 양식은 빈 계층을 "-" 로 표기 → null 로 본다.
+const normalizeOrgText = (value) => {
+  const text = normalizeOptionalText(value);
+  return text === '-' ? null : text;
 };
 
 // 사번이 영문으로 시작하면 잘못된 데이터로 본다(정상 사번은 숫자로 시작).
@@ -317,6 +328,10 @@ const normalizeMatchingImportRow = (row = {}, index = 0) => {
     employee_name: employeeName,
     org_sequence: normalizeOptionalText(row.org_sequence ?? row.orgSequence),
     department_id: normalizeOptionalText(row.department_id ?? row.departmentId),
+    org_corporation: normalizeOrgText(row.org_corporation ?? row.orgCorporation),
+    org_division: normalizeOrgText(row.org_division ?? row.orgDivision),
+    org_department: normalizeOrgText(row.org_department ?? row.orgDepartment),
+    org_team: normalizeOrgText(row.org_team ?? row.orgTeam),
     department_name: normalizeOptionalText(row.department_name ?? row.departmentName),
     work_start_date: normalizeImportDate(row.work_start_date ?? row.workStartDate),
     work_end_date: normalizeImportDate(row.work_end_date ?? row.workEndDate),
@@ -436,6 +451,10 @@ const normalizeEmployeeProfileImportRow = (row = {}, index = 0) => {
     employee_name: employeeName,
     org_sequence: normalizeOptionalText(row.org_sequence ?? row.orgSequence),
     department_id: normalizeOptionalText(row.department_id ?? row.departmentId),
+    org_corporation: normalizeOrgText(row.org_corporation ?? row.orgCorporation),
+    org_division: normalizeOrgText(row.org_division ?? row.orgDivision),
+    org_department: normalizeOrgText(row.org_department ?? row.orgDepartment),
+    org_team: normalizeOrgText(row.org_team ?? row.orgTeam),
     department_name: normalizeOptionalText(row.department_name ?? row.departmentName),
     work_start_date: normalizeImportDate(row.work_start_date ?? row.workStartDate),
     work_end_date: normalizeImportDate(row.work_end_date ?? row.workEndDate),
@@ -467,6 +486,10 @@ const mergeEmployeeProfileRows = (rows) => {
       evaluation_group_name: null,
       org_sequence: null,
       department_id: null,
+      org_corporation: null,
+      org_division: null,
+      org_department: null,
+      org_team: null,
       department_name: null,
       work_start_date: null,
       work_end_date: null,
@@ -498,6 +521,10 @@ const mergeEmployeeProfileRows = (rows) => {
       evaluation_group_name: row.evaluation_group_name ?? current.evaluation_group_name,
       org_sequence: row.org_sequence ?? current.org_sequence,
       department_id: row.department_id ?? current.department_id,
+      org_corporation: row.org_corporation ?? current.org_corporation,
+      org_division: row.org_division ?? current.org_division,
+      org_department: row.org_department ?? current.org_department,
+      org_team: row.org_team ?? current.org_team,
       department_name: row.department_name ?? current.department_name,
       work_start_date: row.work_start_date ?? current.work_start_date,
       work_end_date: row.work_end_date ?? current.work_end_date,
@@ -2924,9 +2951,13 @@ app.post('/api/employee-profile-imports', async (req, res) => {
             is_primary,
             validation_status,
             validation_message,
-            raw_data
+            raw_data,
+            org_corporation,
+            org_division,
+            org_department,
+            org_team
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::text[],$23,$24,$25,$26::jsonb)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::text[],$23,$24,$25,$26::jsonb,$27,$28,$29,$30)
         `,
         [
           batch.id,
@@ -2955,6 +2986,10 @@ app.post('/api/employee-profile-imports', async (req, res) => {
           row.validation_status,
           row.validation_message,
           JSON.stringify(row.raw_data ?? {}),
+          row.org_corporation ?? null,
+          row.org_division ?? null,
+          row.org_department ?? null,
+          row.org_team ?? null,
         ]
       );
     }
@@ -3019,10 +3054,14 @@ app.post('/api/employee-profile-imports', async (req, res) => {
             job_role,
             target_status,
             last_profile_batch_id,
+            org_corporation,
+            org_division,
+            org_department,
+            org_team,
             created_at,
             updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())
+          VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
             position = EXCLUDED.position,
@@ -3059,6 +3098,10 @@ app.post('/api/employee-profile-imports', async (req, res) => {
             job_role = EXCLUDED.job_role,
             target_status = EXCLUDED.target_status,
             last_profile_batch_id = EXCLUDED.last_profile_batch_id,
+            org_corporation = EXCLUDED.org_corporation,
+            org_division = EXCLUDED.org_division,
+            org_department = EXCLUDED.org_department,
+            org_team = EXCLUDED.org_team,
             updated_at = NOW()
         `,
         [
@@ -3078,6 +3121,10 @@ app.post('/api/employee-profile-imports', async (req, res) => {
           row.target_status,
           batch.id,
           hasFileRoles,
+          row.org_corporation ?? null,
+          row.org_division ?? null,
+          row.org_department ?? null,
+          row.org_team ?? null,
         ]
       );
     }
@@ -3604,9 +3651,13 @@ app.post('/api/matching-imports', async (req, res) => {
             is_primary,
             validation_status,
             validation_message,
-            raw_data
+            raw_data,
+            org_corporation,
+            org_division,
+            org_department,
+            org_team
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$22,$23)
         `,
         [
           batch.id,
@@ -3628,6 +3679,10 @@ app.post('/api/matching-imports', async (req, res) => {
           row.validation_status,
           row.validation_message,
           JSON.stringify(row.raw_data ?? {}),
+          row.org_corporation ?? null,
+          row.org_division ?? null,
+          row.org_department ?? null,
+          row.org_team ?? null,
         ]
       );
     }
@@ -3710,10 +3765,14 @@ app.post('/api/matching-imports', async (req, res) => {
             confirmer_id,
             confirmer_name,
             last_matching_batch_id,
+            org_corporation,
+            org_division,
+            org_department,
+            org_team,
             created_at,
             updated_at
           )
-          VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+          VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
             available_roles = (
@@ -3731,6 +3790,10 @@ app.post('/api/matching-imports', async (req, res) => {
             confirmer_id = EXCLUDED.confirmer_id,
             confirmer_name = EXCLUDED.confirmer_name,
             last_matching_batch_id = EXCLUDED.last_matching_batch_id,
+            org_corporation = EXCLUDED.org_corporation,
+            org_division = EXCLUDED.org_division,
+            org_department = EXCLUDED.org_department,
+            org_team = EXCLUDED.org_team,
             updated_at = NOW()
           RETURNING *
         `,
@@ -3749,6 +3812,10 @@ app.post('/api/matching-imports', async (req, res) => {
           row.confirmer_id,
           row.confirmer_name,
           batch.id,
+          row.org_corporation ?? null,
+          row.org_division ?? null,
+          row.org_department ?? null,
+          row.org_team ?? null,
         ]
       );
     }

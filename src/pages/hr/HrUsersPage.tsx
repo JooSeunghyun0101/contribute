@@ -19,6 +19,8 @@ import EvaluatorHistoryModal from '@/components/hr/EvaluatorHistoryModal';
 import AddEmployeeModal, { type NewEmployeeInput } from '@/components/hr/AddEmployeeModal';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
+import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
@@ -84,6 +86,11 @@ type EmployeeEditForm = {
   department: string;
   growthLevel: string;
   roles: UserRole[];
+  jobRole: string;
+  orgCorporation: string;
+  orgDivision: string;
+  orgDepartment: string;
+  orgTeam: string;
 };
 
 type AssignmentChangeOptions = {
@@ -102,105 +109,73 @@ const toOptionalCellText = (value: unknown) => {
   return text || null;
 };
 
-const MATCHING_IMPORT_HEADERS = [
-  '사번',
-  '성명',
-  '소속순번',
-  '부서ID',
-  '부서명',
-  '근무시작일',
-  '근무종료일',
-  '평가자사번',
-  '평가자명',
-  '확인자사번',
-  '확인자명',
-  '평가유형',
-  '결과',
-];
-
-const hasMatchingImportHeaders = (sheetRows: unknown[][]) => {
-  const headerRow = sheetRows[0] ?? [];
-  return MATCHING_IMPORT_HEADERS.every((header, index) => toCellText(headerRow[index]) === header);
+// 업로드 양식의 헤더 위치가 바뀌어도(예: 법인/본부/부/팀 컬럼 추가) 깨지지 않도록
+// 헤더 "이름" 기준으로 컬럼 인덱스를 매핑해서 읽는다. (기존: 위치 고정 → 컬럼 추가 시 전부 어긋남)
+const buildColIndex = (headerRow: unknown[]): Record<string, number> => {
+  const map: Record<string, number> = {};
+  (headerRow ?? []).forEach((cell, i) => {
+    const key = toCellText(cell);
+    if (key && !(key in map)) map[key] = i;
+  });
+  return map;
 };
 
-const buildMatchingImportRows = (sheetRows: unknown[][]): MatchingImportRowInput[] =>
-  sheetRows
+const cellByName = (
+  row: unknown[],
+  idx: Record<string, number>,
+  name: string,
+): string | null => {
+  const i = idx[name];
+  return i == null ? null : toOptionalCellText(row[i]);
+};
+
+// 4단계 조직 계층(법인/본부/부/팀)을 헤더명으로 읽는다. 컬럼이 없거나 "-"(빈 계층)면 null.
+const normOrgCell = (v: string | null): string | null => {
+  if (v == null) return null;
+  const t = v.trim();
+  return !t || t === '-' ? null : t;
+};
+const orgFieldsFromRow = (row: unknown[], idx: Record<string, number>) => ({
+  org_corporation: normOrgCell(cellByName(row, idx, '법인')),
+  org_division: normOrgCell(cellByName(row, idx, '본부')),
+  org_department: normOrgCell(cellByName(row, idx, '부')),
+  org_team: normOrgCell(cellByName(row, idx, '팀')),
+});
+
+// 매칭 결과 시트 식별: 평가자/평가유형 헤더가 있으면 매칭 시트.
+const MATCHING_REQUIRED_HEADERS = ['사번', '부서명', '평가자사번', '평가유형'];
+const hasMatchingImportHeaders = (sheetRows: unknown[][]) => {
+  const idx = buildColIndex(sheetRows[0] ?? []);
+  return MATCHING_REQUIRED_HEADERS.every((header) => header in idx);
+};
+
+const buildMatchingImportRows = (sheetRows: unknown[][]): MatchingImportRowInput[] => {
+  const idx = buildColIndex(sheetRows[0] ?? []);
+  return sheetRows
     .slice(1)
     .map((row, index) => {
-      const employeeId = toCellText(row[0]);
-      const employeeName = toCellText(row[1]);
-      const orgSequence = toOptionalCellText(row[2]);
-      const departmentId = toOptionalCellText(row[3]);
-      const departmentName = toOptionalCellText(row[4]);
-      const workStartDate = toOptionalCellText(row[5]);
-      const workEndDate = toOptionalCellText(row[6]);
-      const evaluatorId = toOptionalCellText(row[7]);
-      const evaluatorName = toOptionalCellText(row[8]);
-      const confirmerId = toOptionalCellText(row[9]);
-      const confirmerName = toOptionalCellText(row[10]);
-      const evaluationType = toOptionalCellText(row[11]);
-      const matchingResult = toOptionalCellText(row[12]);
-
-      return {
+      const get = (name: string) => cellByName(row, idx, name);
+      const item = {
         row_number: index + 2,
-        employee_id: employeeId,
-        employee_name: employeeName,
-        org_sequence: orgSequence,
-        department_id: departmentId,
-        department_name: departmentName,
-        work_start_date: workStartDate,
-        work_end_date: workEndDate,
-        evaluator_id: evaluatorId,
-        evaluator_name: evaluatorName,
-        confirmer_id: confirmerId,
-        confirmer_name: confirmerName,
-        evaluation_type: evaluationType,
-        matching_result: matchingResult,
-        raw_data: {
-          employee_id: employeeId,
-          employee_name: employeeName,
-          org_sequence: orgSequence,
-          department_id: departmentId,
-          department_name: departmentName,
-          work_start_date: workStartDate,
-          work_end_date: workEndDate,
-          evaluator_id: evaluatorId,
-          evaluator_name: evaluatorName,
-          confirmer_id: confirmerId,
-          confirmer_name: confirmerName,
-          evaluation_type: evaluationType,
-          matching_result: matchingResult,
-        },
+        employee_id: get('사번') ?? '',
+        employee_name: get('성명') ?? '',
+        org_sequence: get('소속순번'),
+        department_id: get('부서ID'),
+        ...orgFieldsFromRow(row, idx),
+        department_name: get('부서명'),
+        work_start_date: get('근무시작일'),
+        work_end_date: get('근무종료일'),
+        evaluator_id: get('평가자사번'),
+        evaluator_name: get('평가자명'),
+        confirmer_id: get('확인자사번'),
+        confirmer_name: get('확인자명'),
+        evaluation_type: get('평가유형'),
+        matching_result: get('결과'),
       };
+      return { ...item, raw_data: { ...item } };
     })
     .filter((row) => row.employee_id || row.employee_name);
-
-const PROFILE_SHEET1_HEADERS = [
-  '평가그룹',
-  '사번',
-  '성명',
-  '성장레벨(직급)',
-  '부서명',
-  '직책',
-  '권한1',
-  '권한2',
-  '권한3',
-  '직무',
-];
-
-const PROFILE_SHEET2_HEADERS = [
-  '평가그룹',
-  '사번',
-  '성명',
-  '소속순번',
-  '선택',
-  '부서ID',
-  '부서명',
-  '근무시작일',
-  '근무종료일',
-  '성장레벨(직급)',
-  '직책',
-];
+};
 
 const PROFILE_ROLE_LABELS: Record<string, UserRole> = {
   '피평가자': 'evaluatee',
@@ -218,36 +193,47 @@ const parseRolesFromCells = (...cells: unknown[]): UserRole[] => {
   return [...roles];
 };
 
-const hasHeaders = (sheetRows: unknown[][], expectedHeaders: string[]) => {
-  const headerRow = sheetRows[0] ?? [];
-  return expectedHeaders.every((header, index) => toCellText(headerRow[index]) === header);
+// 프로필(대상자) 시트 식별 — 헤더명 기준(컬럼 추가에도 견고).
+const hasProfileSummaryHeaders = (sheetRows: unknown[][]) => {
+  const idx = buildColIndex(sheetRows[0] ?? []);
+  return ['사번', '성명', '부서명', '직무', '권한1'].every((h) => h in idx);
 };
+const hasProfileDetailHeaders = (sheetRows: unknown[][]) => {
+  const idx = buildColIndex(sheetRows[0] ?? []);
+  return ['사번', '소속순번', '부서ID', '근무시작일'].every((h) => h in idx);
+};
+const isProfileSheet = (sheetRows: unknown[][]) =>
+  hasProfileSummaryHeaders(sheetRows) || hasProfileDetailHeaders(sheetRows);
 
 const buildEmployeeProfileRows = (
   sheetName: string,
   sheetRows: unknown[][],
 ): EmployeeProfileImportRowInput[] => {
-  const isSummarySheet = hasHeaders(sheetRows, PROFILE_SHEET1_HEADERS);
-  const isDetailSheet = hasHeaders(sheetRows, PROFILE_SHEET2_HEADERS);
+  const idx = buildColIndex(sheetRows[0] ?? []);
+  const isDetailSheet = hasProfileDetailHeaders(sheetRows);
+  const isSummarySheet = hasProfileSummaryHeaders(sheetRows);
   if (!isSummarySheet && !isDetailSheet) return [];
 
   return sheetRows
     .slice(1)
     .map((row, index) => {
+      const get = (name: string) => cellByName(row, idx, name);
       if (isDetailSheet) {
         const item = {
           sheet_name: sheetName,
           row_number: index + 2,
-          evaluation_group: toOptionalCellText(row[0]),
-          employee_id: toCellText(row[1]),
-          employee_name: toCellText(row[2]),
-          org_sequence: toOptionalCellText(row[3]),
-          department_id: toOptionalCellText(row[5]),
-          department_name: toOptionalCellText(row[6]),
-          work_start_date: toOptionalCellText(row[7]),
-          work_end_date: toOptionalCellText(row[8]),
-          growth_level_label: toOptionalCellText(row[9]),
-          position: toOptionalCellText(row[10]),
+          evaluation_group: get('평가그룹'),
+          employee_id: get('사번') ?? '',
+          employee_name: get('성명') ?? '',
+          org_sequence: get('소속순번'),
+          department_id: get('부서ID'),
+          ...orgFieldsFromRow(row, idx),
+          department_name: get('부서명'),
+          work_start_date: get('근무시작일'),
+          work_end_date: get('근무종료일'),
+          growth_level_label: get('성장레벨(직급)'),
+          position: get('직책'),
+          // 상세시트의 평가자/대상여부 컬럼은 헤더명이 명확치 않아 기존 고정 위치 유지(레거시 호환)
           evaluator_id: toOptionalCellText(row[14]),
           evaluator_name: toOptionalCellText(row[15]),
           evaluator_position: toOptionalCellText(row[16]),
@@ -259,14 +245,15 @@ const buildEmployeeProfileRows = (
       const item = {
         sheet_name: sheetName,
         row_number: index + 2,
-        evaluation_group: toOptionalCellText(row[0]),
-        employee_id: toCellText(row[1]),
-        employee_name: toCellText(row[2]),
-        growth_level_label: toOptionalCellText(row[3]),
-        department_name: toOptionalCellText(row[4]),
-        position: toOptionalCellText(row[5]),
-        available_roles: parseRolesFromCells(row[6], row[7], row[8]),
-        job_role: toOptionalCellText(row[9]),
+        evaluation_group: get('평가그룹'),
+        employee_id: get('사번') ?? '',
+        employee_name: get('성명') ?? '',
+        ...orgFieldsFromRow(row, idx),
+        department_name: get('부서명'),
+        growth_level_label: get('성장레벨(직급)'),
+        position: get('직책'),
+        available_roles: parseRolesFromCells(get('권한1'), get('권한2'), get('권한3')),
+        job_role: get('직무'),
       };
       return { ...item, raw_data: item };
     })
@@ -287,6 +274,7 @@ const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
+  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
   const [updatingEvaluationId, setUpdatingEvaluationId] = useState<string | null>(null);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
@@ -369,8 +357,9 @@ const HrUsersPage = () => {
             selectedRole === 'all' || employee.available_roles.includes(selectedRole);
           return matchesQuery && matchesRole;
         })
+        .filter((employee) => matchesOrgFilter(employee, orgFilter))
         .sort((a, b) => a.department.localeCompare(b.department) || a.name.localeCompare(b.name)),
-    [employees, recordMap, query, selectedRole],
+    [employees, recordMap, query, selectedRole, orgFilter],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -468,6 +457,11 @@ const HrUsersPage = () => {
       department: employee.department,
       growthLevel: employee.growth_level == null ? '' : String(employee.growth_level),
       roles: employee.available_roles as UserRole[],
+      jobRole: employee.job_role ?? '',
+      orgCorporation: getOrgValue(employee, 'corporation'),
+      orgDivision: getOrgValue(employee, 'division'),
+      orgDepartment: getOrgValue(employee, 'department'),
+      orgTeam: getOrgValue(employee, 'team'),
     });
   };
 
@@ -530,12 +524,21 @@ const HrUsersPage = () => {
 
     setSavingEmployeeId(employee.employee_id);
     try {
+      const orgOrNull = (v: string) => {
+        const t = v.trim();
+        return !t || t === '-' ? null : t;
+      };
       await employeeService.updateEmployee(employee.employee_id, {
         name,
         position,
         department,
         growth_level: parsedGrowthLevel,
         available_roles: editForm.roles,
+        job_role: editForm.jobRole.trim() || null,
+        org_corporation: orgOrNull(editForm.orgCorporation),
+        org_division: orgOrNull(editForm.orgDivision),
+        org_department: orgOrNull(editForm.orgDepartment),
+        org_team: orgOrNull(editForm.orgTeam),
         changed_by: actorId,
       });
       await reload();
@@ -957,7 +960,7 @@ const HrUsersPage = () => {
           raw: true,
           defval: '',
         }) as unknown[][];
-        if (hasHeaders(sheetRows, PROFILE_SHEET1_HEADERS) || hasHeaders(sheetRows, PROFILE_SHEET2_HEADERS)) {
+        if (isProfileSheet(sheetRows)) {
           return buildEmployeeProfileRows(sheetName, sheetRows);
         }
         return [];
@@ -1171,6 +1174,8 @@ const HrUsersPage = () => {
               />
             </div>
 
+            <OrgFilterBar items={employees} value={orgFilter} onChange={setOrgFilter} />
+
             <div style={{ display: 'flex', gap: 6 }}>
               {roleFilters.map((filter) => (
                 <button
@@ -1280,8 +1285,11 @@ const HrUsersPage = () => {
                   <TableHead style={{ width: 96 }}>사번</TableHead>
                   <TableHead style={{ width: 130 }}>이름</TableHead>
                   <TableHead style={{ width: 100 }}>직급</TableHead>
-                  <TableHead style={{ width: 150 }}>부서</TableHead>
-                  <TableHead style={{ width: 120 }}>직무</TableHead>
+                  <TableHead style={{ width: 80, whiteSpace: 'nowrap' }}>법인</TableHead>
+                  <TableHead style={{ width: 140, whiteSpace: 'nowrap' }}>본부</TableHead>
+                  <TableHead style={{ width: 140, whiteSpace: 'nowrap' }}>부</TableHead>
+                  <TableHead style={{ width: 140, whiteSpace: 'nowrap' }}>팀</TableHead>
+                  <TableHead style={{ width: 110, whiteSpace: 'nowrap' }}>직무</TableHead>
                   <TableHead style={{ width: 92 }}>레벨</TableHead>
                   <TableHead style={{ width: 220 }}>역할</TableHead>
                   <TableHead style={{ width: 140 }}>평가자</TableHead>
@@ -1358,20 +1366,65 @@ const HrUsersPage = () => {
                           employee.position
                         )}
                       </TableCell>
-                      <TableCell style={{ color: isEditing ? 'var(--fg)' : 'var(--fg-muted)' }}>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                         {isEditing && editForm ? (
                           <input
                             className="sd-input"
-                            value={editForm.department}
-                            onChange={(event) => updateEditForm('department', event.target.value)}
-                            style={{ minWidth: 120 }}
+                            value={editForm.orgCorporation}
+                            onChange={(event) => updateEditForm('orgCorporation', event.target.value)}
+                            style={{ minWidth: 70 }}
                           />
                         ) : (
-                          employee.department
+                          getOrgValue(employee, 'corporation') || '-'
                         )}
                       </TableCell>
-                      <TableCell style={{ color: 'var(--fg-muted)' }}>
-                        {employee.job_role ?? '-'}
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {isEditing && editForm ? (
+                          <input
+                            className="sd-input"
+                            value={editForm.orgDivision}
+                            onChange={(event) => updateEditForm('orgDivision', event.target.value)}
+                            style={{ minWidth: 110 }}
+                          />
+                        ) : (
+                          getOrgValue(employee, 'division') || '-'
+                        )}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {isEditing && editForm ? (
+                          <input
+                            className="sd-input"
+                            value={editForm.orgDepartment}
+                            onChange={(event) => updateEditForm('orgDepartment', event.target.value)}
+                            style={{ minWidth: 110 }}
+                          />
+                        ) : (
+                          getOrgValue(employee, 'department') || '-'
+                        )}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {isEditing && editForm ? (
+                          <input
+                            className="sd-input"
+                            value={editForm.orgTeam}
+                            onChange={(event) => updateEditForm('orgTeam', event.target.value)}
+                            style={{ minWidth: 110 }}
+                          />
+                        ) : (
+                          getOrgValue(employee, 'team') || '-'
+                        )}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {isEditing && editForm ? (
+                          <input
+                            className="sd-input"
+                            value={editForm.jobRole}
+                            onChange={(event) => updateEditForm('jobRole', event.target.value)}
+                            style={{ minWidth: 90 }}
+                          />
+                        ) : (
+                          employee.job_role ?? '-'
+                        )}
                       </TableCell>
                       <TableCell>
                         {isEditing && editForm ? (
@@ -1508,7 +1561,7 @@ const HrUsersPage = () => {
 
                 {!filteredEmployees.length && (
                   <TableRow>
-                    <TableCell colSpan={11} style={{ color: 'var(--fg-muted)' }}>
+                    <TableCell colSpan={14} style={{ color: 'var(--fg-muted)' }}>
                       {records.filter((r) => r.evaluation).length === 0
                         ? '선택한 평가기간에 매칭된 직원이 없습니다. 대상자/매칭 엑셀을 업로드하세요.'
                         : '조건에 맞는 사용자가 없습니다.'}

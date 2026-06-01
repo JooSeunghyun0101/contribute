@@ -31,6 +31,11 @@ export interface Employee {
   position: string;
   department: string;
   department_id?: string | null;
+  // 4단계 조직 계층 (법인 > 본부 > 부 > 팀). 업로드 양식 기준 현재 소속.
+  org_corporation?: string | null;
+  org_division?: string | null;
+  org_department?: string | null;
+  org_team?: string | null;
   growth_level: number | null;
   evaluator_id: string | null;
   available_roles: string[];

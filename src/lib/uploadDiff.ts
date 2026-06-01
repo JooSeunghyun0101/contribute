@@ -3,6 +3,13 @@ import type {
   EmployeeProfileImportRowInput,
   MatchingImportRowInput,
 } from '@/lib/services/employeeService';
+import {
+  ORG_FIELD,
+  ORG_LEVELS,
+  ORG_LEVEL_LABELS,
+  getOrgValue,
+  type OrgFields,
+} from '@/lib/orgHierarchy';
 
 // 업로드 미리보기용 변경 분류.
 // 서버 apply 로직과 별개로, 파일 행을 현재 직원 상태와 대조해
@@ -68,7 +75,7 @@ const evaluatorLabel = (id: string | null | undefined, empMap: Map<string, Emplo
 };
 
 // ── 대상자(프로필) 업로드 diff ────────────────────────────────
-interface MergedProfile {
+interface MergedProfile extends OrgFields {
   employee_id: string;
   name: string;
   position?: string | null;
@@ -95,6 +102,10 @@ export const diffProfileRows = (
     if (r.employee_name) cur.name = r.employee_name;
     if (r.position != null) cur.position = r.position;
     if (r.department_name != null) cur.department = r.department_name;
+    for (const level of ORG_LEVELS) {
+      const field = ORG_FIELD[level];
+      if (r[field] != null) cur[field] = r[field];
+    }
     const gl = parseGrowthLevel(r.growth_level_label);
     if (gl != null) cur.growth_level = gl;
     if (r.job_role != null) cur.job_role = r.job_role;
@@ -118,6 +129,13 @@ export const diffProfileRows = (
     if (m.name && m.name !== emp.name) changes.push({ field: '이름', before: fmt(emp.name), after: fmt(m.name) });
     if (m.position != null && m.position !== emp.position) changes.push({ field: '직급', before: fmt(emp.position), after: fmt(m.position) });
     if (m.department != null && m.department !== emp.department) changes.push({ field: '부서', before: fmt(emp.department), after: fmt(m.department) });
+    for (const level of ORG_LEVELS) {
+      const field = ORG_FIELD[level];
+      const after = m[field];
+      if (after != null && String(after) !== getOrgValue(emp, level)) {
+        changes.push({ field: ORG_LEVEL_LABELS[level], before: fmt(getOrgValue(emp, level) || null), after: fmt(after) });
+      }
+    }
     if (m.growth_level != null && m.growth_level !== (emp.growth_level ?? null)) changes.push({ field: '성장레벨', before: fmt(emp.growth_level), after: fmt(m.growth_level) });
     if (m.job_role != null && m.job_role !== (emp.job_role ?? null)) changes.push({ field: '직무', before: fmt(emp.job_role), after: fmt(m.job_role) });
     if (m.roles) {
@@ -172,6 +190,13 @@ export const diffMatchingRows = (
     }
     if (primary.department_name != null && primary.department_name !== emp.department) {
       changes.push({ field: '부서', before: fmt(emp.department), after: fmt(primary.department_name) });
+    }
+    for (const level of ORG_LEVELS) {
+      const field = ORG_FIELD[level];
+      const after = (primary as OrgFields)[field];
+      if (after != null && String(after) !== getOrgValue(emp, level)) {
+        changes.push({ field: ORG_LEVEL_LABELS[level], before: fmt(getOrgValue(emp, level) || null), after: fmt(after) });
+      }
     }
     if (distinctEvaluators.length > 1) {
       changes.push({ field: '발령단계', before: '—', after: `${distinctEvaluators.length}단계 (이전 평가자 보존)` });

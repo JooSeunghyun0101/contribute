@@ -64,6 +64,10 @@ export type MatchingImportRowInput = {
   employee_name: string;
   org_sequence?: string | null;
   department_id?: string | null;
+  org_corporation?: string | null;
+  org_division?: string | null;
+  org_department?: string | null;
+  org_team?: string | null;
   department_name?: string | null;
   work_start_date?: string | null;
   work_end_date?: string | null;
@@ -123,6 +127,10 @@ export type EmployeeProfileImportRowInput = {
   employee_name: string;
   org_sequence?: string | null;
   department_id?: string | null;
+  org_corporation?: string | null;
+  org_division?: string | null;
+  org_department?: string | null;
+  org_team?: string | null;
   department_name?: string | null;
   work_start_date?: string | null;
   work_end_date?: string | null;
