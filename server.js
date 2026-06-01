@@ -241,6 +241,11 @@ const normalizeOptionalText = (value) => {
   return text || null;
 };
 
+// 사번이 영문으로 시작하면 잘못된 데이터로 본다(정상 사번은 숫자로 시작).
+// import 시 이런 사번으로 직원/평가자 계정이 생성되지 않도록 거르는 데 쓴다.
+const startsWithLetter = (id) =>
+  typeof id === 'string' && /^[A-Za-z]/.test(id.trim());
+
 const getAssignmentActor = (body = {}) =>
   normalizeOptionalText(body.changed_by ?? body.changedBy ?? body.actor_id ?? body.actorId);
 
@@ -1216,6 +1221,171 @@ const transferEvaluatorEntriesForCorrection = async (
   return { transferredEntries, mergedEntries, transferredFeedbackCount };
 };
 
+// 정정 시 점수/피드백 ownership 을 evaluation 한 건 내에서만 안전하게 이전한다.
+// (전체 evaluatee 단위 이전은 다른 evaluation 의 entries 까지 무차별 이동시킬 위험이 있어,
+//  정정의 정확한 범위인 evaluation_id 로 한정한다.)
+const transferEvaluatorEntriesForCorrectionScoped = async (
+  client,
+  { evaluationId, previousEvaluatorId, newEvaluatorId, actorId, reason }
+) => {
+  if (!evaluationId || !previousEvaluatorId || !newEvaluatorId || previousEvaluatorId === newEvaluatorId) {
+    return { transferredEntries: [], mergedEntries: [], transferredFeedbackCount: 0 };
+  }
+
+  const { rows: evaluatorRows } = await client.query(
+    'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+    [newEvaluatorId]
+  );
+  const newEvaluatorName = evaluatorRows[0]?.name ?? newEvaluatorId;
+
+  const { rows: targetEntries } = await client.query(
+    `
+      SELECT *
+      FROM task_evaluation_entries
+      WHERE evaluation_id = $1
+        AND evaluator_id IS NOT DISTINCT FROM $2
+        AND COALESCE(status, 'active') = 'active'
+      ORDER BY updated_at DESC, created_at DESC
+    `,
+    [evaluationId, previousEvaluatorId]
+  );
+
+  const transferredEntries = [];
+  const mergedEntries = [];
+  let transferredFeedbackCount = 0;
+  const affectedTaskIds = new Set();
+
+  for (const entry of targetEntries) {
+    let targetEntry = null;
+    await client.query('SAVEPOINT scoped_transfer');
+    try {
+      const { rows } = await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET
+            evaluator_id = $2,
+            evaluator_name = $3,
+            assignment_history_id = NULL,
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [entry.id, newEvaluatorId, newEvaluatorName]
+      );
+      targetEntry = rows[0] ?? null;
+      await client.query('RELEASE SAVEPOINT scoped_transfer');
+      if (targetEntry) transferredEntries.push(targetEntry);
+    } catch (err) {
+      await client.query('ROLLBACK TO SAVEPOINT scoped_transfer');
+      if (err.code !== '23505') {
+        throw err;
+      }
+      const { rows } = await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET
+            evaluator_name = $3,
+            contribution_method = $4,
+            contribution_scope = $5,
+            score = $6,
+            feedback = $7,
+            feedback_date = $8,
+            assignment_history_id = NULL,
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          WHERE task_uuid = $1
+            AND evaluator_id IS NOT DISTINCT FROM $2
+          RETURNING *
+        `,
+        [
+          entry.task_uuid,
+          newEvaluatorId,
+          newEvaluatorName,
+          entry.contribution_method,
+          entry.contribution_scope,
+          entry.score,
+          entry.feedback,
+          entry.feedback_date,
+        ]
+      );
+      targetEntry = rows[0] ?? null;
+      if (targetEntry) mergedEntries.push(targetEntry);
+      await client.query(
+        `
+          UPDATE task_evaluation_entries
+          SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $2, cancel_reason = $3,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [entry.id, actorId ?? null, reason || 'Merged into corrected evaluator']
+      );
+      await client.query('RELEASE SAVEPOINT scoped_transfer');
+    }
+    if (entry.task_uuid) affectedTaskIds.add(entry.task_uuid);
+    if (targetEntry?.id) {
+      const { rowCount } = await client.query(
+        `
+          UPDATE feedback_history
+          SET evaluator_id = $4, evaluator_name = $5, task_evaluation_entry_id = $6,
+              status = 'active', cancelled_at = NULL, cancelled_by = NULL, cancel_reason = NULL
+          WHERE task_uuid = $1
+            AND COALESCE(status, 'active') = 'active'
+            AND (task_evaluation_entry_id = $2 OR evaluator_id IS NOT DISTINCT FROM $3)
+        `,
+        [entry.task_uuid, entry.id, previousEvaluatorId, newEvaluatorId, newEvaluatorName, targetEntry.id]
+      );
+      transferredFeedbackCount += rowCount ?? 0;
+    }
+  }
+
+  await rebuildTaskEvaluationSnapshot(client, [...affectedTaskIds]);
+  return { transferredEntries, mergedEntries, transferredFeedbackCount };
+};
+
+// 한 직원의 applied non-cancel history 행들의 previous_evaluator_id 를
+// 시간순 직전 행의 new_evaluator_id 로 일관 동기화한다.
+// (정정 후 직전 평가자가 바뀌면 그 다음 행들의 prev 도 그에 맞춰 따라가도록.)
+const reconcilePreviousEvaluatorIds = async (client, employeeId) => {
+  if (!employeeId) return;
+  await client.query(
+    `
+      WITH numbered AS (
+        SELECT
+          id,
+          new_evaluator_id,
+          supersedes_history_id,
+          ROW_NUMBER() OVER (ORDER BY changed_at, id) AS rn
+        FROM evaluator_assignment_history
+        WHERE employee_id = $1
+          AND status = 'applied'
+          AND change_type <> 'cancel'
+      ),
+      expected AS (
+        SELECT
+          curr.id AS row_id,
+          COALESCE(orig.new_evaluator_id, prev.new_evaluator_id) AS expected_prev
+        FROM numbered curr
+        LEFT JOIN evaluator_assignment_history orig
+          ON orig.id = curr.supersedes_history_id
+        LEFT JOIN numbered prev ON prev.rn = curr.rn - 1
+      )
+      UPDATE evaluator_assignment_history h
+      SET previous_evaluator_id = e.expected_prev
+      FROM expected e
+      WHERE h.id = e.row_id
+        AND h.previous_evaluator_id IS DISTINCT FROM e.expected_prev
+    `,
+    [employeeId]
+  );
+};
+
 const reconcileAssignmentHistoryForDirectEvaluatorEdit = async (
   client,
   { employeeId, currentEvaluatorId, actorId, reason }
@@ -1360,22 +1530,37 @@ const normalizePeriodPayload = (body, { partial = false } = {}) => {
 };
 
 const savePeriodWithActivationRules = async (client, period, id = null) => {
-  const shouldActivate = period.status === 'active' || period.is_default === true;
   const payload = { ...period };
 
-  if (shouldActivate) {
+  // 기본(default) 지정은 1개만 유지: payload가 명시적으로 is_default=true 일 때만 다른 기본을 해제.
+  if (payload.is_default === true) {
     await client.query(`
       UPDATE evaluation_periods
-      SET
-        is_default = false,
-        status = CASE WHEN status = 'active' THEN 'closed' ELSE status END,
-        updated_at = NOW()
+      SET is_default = false, updated_at = NOW()
       WHERE ($1::uuid IS NULL OR id <> $1::uuid)
     `, [id]);
-    payload.status = 'active';
-    payload.is_default = true;
-  } else if (payload.status && payload.status !== 'active') {
+  }
+
+  // 마감/잠금/작성 전 상태로 바뀐 기간은 기본에서 자동 제외.
+  if (payload.status && payload.status !== 'active' && payload.is_default !== true) {
     payload.is_default = false;
+  }
+
+  // 활성 기간이 한 개도 기본이 아닌 상태가 되지 않도록 자동 보정.
+  // (사용자가 status='active'로 새 기간을 만들거나 활성화할 때, 다른 기본이 없으면 이번 기간을 기본으로.)
+  if (payload.status === 'active' && payload.is_default === undefined) {
+    const { rows: defaultRows } = await client.query(
+      `
+        SELECT COUNT(*)::int AS cnt
+        FROM evaluation_periods
+        WHERE is_default = TRUE
+          AND ($1::uuid IS NULL OR id <> $1::uuid)
+      `,
+      [id],
+    );
+    if ((defaultRows[0]?.cnt ?? 0) === 0) {
+      payload.is_default = true;
+    }
   }
 
   const columns = Object.keys(payload);
@@ -1437,13 +1622,28 @@ const assertEvaluationWritableById = async (evaluationId) => {
       `
         SELECT
           p.status AS period_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM evaluations e
         LEFT JOIN evaluation_periods p ON p.id = e.evaluation_period_id
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE e.id = $1
         LIMIT 1
       `,
@@ -1477,12 +1677,27 @@ const assertEvaluationTaskStructureEditableById = async (
       `
         SELECT
           e.evaluation_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM evaluations e
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE e.id = $1
         LIMIT 1
       `,
@@ -1521,7 +1736,15 @@ const assertTaskWritableById = async (taskId) => {
       `
         SELECT
           p.status AS period_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
@@ -1529,6 +1752,13 @@ const assertTaskWritableById = async (taskId) => {
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE t.id = $1
         LIMIT 1
       `,
@@ -1562,13 +1792,28 @@ const assertTaskStructureEditableById = async (
       `
         SELECT
           e.evaluation_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE t.id = $1
         LIMIT 1
       `,
@@ -1607,13 +1852,28 @@ const assertTaskEvaluationEditableById = async (taskId) => {
       `
         SELECT
           e.evaluation_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE t.id = $1
         LIMIT 1
       `,
@@ -1644,7 +1904,15 @@ const assertTaskWritableByTaskId = async (taskId) => {
       `
         SELECT
           p.status AS period_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
@@ -1652,6 +1920,13 @@ const assertTaskWritableByTaskId = async (taskId) => {
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE t.task_id = $1
         LIMIT 1
       `,
@@ -1682,13 +1957,28 @@ const assertTaskEvaluationEditableByTaskId = async (taskId) => {
       `
         SELECT
           e.evaluation_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM tasks t
         LEFT JOIN evaluations e ON e.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE t.task_id = $1
         LIMIT 1
       `,
@@ -1765,7 +2055,15 @@ const getTaskForEvaluationEntry = async (client, payload) => {
         t.task_id,
         t.evaluation_id,
         e.evaluation_status,
-        e.record_status,
+        CASE
+          WHEN e.record_status = 'cancelled' AND EXISTS (
+            SELECT 1 FROM evaluator_assignment_history h2
+            WHERE h2.evaluation_id = e.id
+              AND h2.status = 'applied'
+              AND h2.change_type <> 'cancel'
+          ) THEN 'active'
+          ELSE COALESCE(e.record_status, 'active')
+        END AS record_status,
         cancelled_assignment.id AS cancelled_assignment_id,
         p.status AS period_status
       FROM tasks t
@@ -1773,6 +2071,13 @@ const getTaskForEvaluationEntry = async (client, payload) => {
       LEFT JOIN evaluator_assignment_history cancelled_assignment
         ON cancelled_assignment.evaluation_id = e.id
         AND cancelled_assignment.status = 'cancelled'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM evaluator_assignment_history live
+          WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+            AND live.status = 'applied'
+            AND live.change_type <> 'cancel'
+        )
       LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
       WHERE
         ($1::text IS NOT NULL AND t.id::text = $1)
@@ -1900,7 +2205,15 @@ const assertFeedbackWritableById = async (feedbackId) => {
         SELECT
           p.status AS period_status,
           f.status AS feedback_status,
-          e.record_status,
+          CASE
+            WHEN e.record_status = 'cancelled' AND EXISTS (
+              SELECT 1 FROM evaluator_assignment_history h2
+              WHERE h2.evaluation_id = e.id
+                AND h2.status = 'applied'
+                AND h2.change_type <> 'cancel'
+            ) THEN 'active'
+            ELSE COALESCE(e.record_status, 'active')
+          END AS record_status,
           cancelled_assignment.id AS cancelled_assignment_id
         FROM feedback_history f
         LEFT JOIN tasks t ON t.id = f.task_uuid OR t.task_id = f.task_id
@@ -1908,6 +2221,13 @@ const assertFeedbackWritableById = async (feedbackId) => {
         LEFT JOIN evaluator_assignment_history cancelled_assignment
           ON cancelled_assignment.evaluation_id = e.id
           AND cancelled_assignment.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = cancelled_assignment.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         LEFT JOIN evaluation_periods p ON p.id = t.evaluation_period_id
         WHERE f.id = $1
         LIMIT 1
@@ -1996,11 +2316,264 @@ app.get('/api/employees', async (req, res) => {
   }
 
   try {
-    const { rows } = await pool.query('SELECT * FROM employees ORDER BY name');
+    const { rows } = await pool.query(
+      `
+        SELECT
+          e.*,
+          EXISTS (
+            SELECT 1 FROM evaluations ev
+            WHERE ev.evaluatee_id = e.employee_id
+              AND COALESCE(ev.record_status, 'active') = 'active'
+          ) AS has_any_evaluation
+        FROM employees e
+        ORDER BY e.name
+      `
+    );
     res.json(rows);
   } catch (err) {
     console.error('Error fetching employees:', err);
     res.json([...mockEmployees].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+});
+
+// 단건 사용자 추가
+app.post('/api/employees', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+
+  const body = req.body || {};
+  const employeeId = normalizeOptionalText(body.employee_id ?? body.employeeId);
+  const name = normalizeOptionalText(body.name);
+  if (!employeeId || !name) {
+    return res.status(400).json({ error: '사번과 이름은 필수입니다.' });
+  }
+  if (/^[A-Za-z]/.test(employeeId)) {
+    return res.status(400).json({ error: '사번은 영문자로 시작할 수 없습니다.' });
+  }
+
+  const roles =
+    Array.isArray(body.available_roles) && body.available_roles.length > 0
+      ? body.available_roles
+      : ['evaluatee'];
+  const growthLevelRaw = body.growth_level ?? body.growthLevel;
+  const growthLevel =
+    growthLevelRaw === '' || growthLevelRaw === null || growthLevelRaw === undefined
+      ? null
+      : Number(growthLevelRaw);
+  if (growthLevel !== null && (!Number.isInteger(growthLevel) || growthLevel < 1)) {
+    return res.status(400).json({ error: '성장레벨은 1 이상의 정수여야 합니다.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: existing } = await client.query(
+      'SELECT 1 FROM employees WHERE employee_id = $1',
+      [employeeId]
+    );
+    if (existing[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '이미 존재하는 사번입니다.' });
+    }
+    const evaluatorId = normalizeOptionalText(body.evaluator_id ?? body.evaluatorId);
+    const { rows } = await client.query(
+      `
+        INSERT INTO employees (
+          employee_id, name, position, department, growth_level,
+          evaluator_id, available_roles, job_role, created_at, updated_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,NOW(),NOW())
+        RETURNING *
+      `,
+      [
+        employeeId,
+        name,
+        normalizeOptionalText(body.position) ?? '미지정',
+        normalizeOptionalText(body.department) ?? '미지정',
+        growthLevel,
+        evaluatorId,
+        roles,
+        normalizeOptionalText(body.job_role ?? body.jobRole),
+      ]
+    );
+    const employee = rows[0];
+
+    // 선택한 평가기간 기준으로 evaluation 을 맞춘다.
+    // (AFTER INSERT 트리거가 active 평가기간으로 만든 evaluation 이 있으면 선택 기간으로 보정,
+    //  트리거가 만들지 않았고 평가 대상이면 선택 기간으로 직접 생성.)
+    const evaluationPeriodId = normalizeOptionalText(
+      body.evaluation_period_id ?? body.evaluationPeriodId,
+    );
+    if (evaluationPeriodId) {
+      const { rows: periodRows } = await client.query(
+        'SELECT id, evaluation_year FROM evaluation_periods WHERE id = $1 LIMIT 1',
+        [evaluationPeriodId]
+      );
+      const selectedPeriod = periodRows[0];
+      if (selectedPeriod) {
+        const { rowCount: updated } = await client.query(
+          `
+            UPDATE evaluations
+            SET evaluation_period_id = $2, evaluation_year = $3, updated_at = NOW()
+            WHERE evaluatee_id = $1
+              AND COALESCE(record_status, 'active') = 'active'
+              AND evaluation_period_id IS DISTINCT FROM $2
+          `,
+          [employee.employee_id, selectedPeriod.id, selectedPeriod.evaluation_year]
+        );
+        // 트리거가 evaluation 을 만들지 않았고(active 없음 등) 평가 대상이면 직접 생성.
+        const { rows: existingEval } = await client.query(
+          `SELECT 1 FROM evaluations WHERE evaluatee_id = $1 AND COALESCE(record_status, 'active') = 'active' LIMIT 1`,
+          [employee.employee_id]
+        );
+        if (updated === 0 && existingEval.length === 0 && roles.includes('evaluatee') && evaluatorId) {
+          await client.query(
+            `
+              INSERT INTO evaluations (
+                evaluatee_id, evaluatee_name, evaluatee_position, evaluatee_department,
+                growth_level, evaluation_status, evaluation_year, evaluation_period_id,
+                created_at, updated_at
+              )
+              VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,NOW(),NOW())
+            `,
+            [
+              employee.employee_id,
+              employee.name,
+              employee.position,
+              employee.department,
+              employee.growth_level ?? 0,
+              selectedPeriod.evaluation_year,
+              selectedPeriod.id,
+            ]
+          );
+        }
+      }
+    }
+
+    // 평가자 배정 baseline 이력 생성.
+    // (이게 없으면 by-employee 조회의 latest_ah.id IS NOT NULL 조건 때문에 evaluation 이 화면에 나타나지 않는다.)
+    if (evaluatorId && roles.includes('evaluatee')) {
+      const { rows: evalRows } = await client.query(
+        `
+          SELECT id, evaluation_period_id
+          FROM evaluations
+          WHERE evaluatee_id = $1 AND COALESCE(record_status, 'active') = 'active'
+          ORDER BY created_at DESC
+          LIMIT 1
+        `,
+        [employee.employee_id]
+      );
+      const evaluationId = evalRows[0]?.id ?? null;
+      if (evaluationId) {
+        const { rows: histRows } = await client.query(
+          `
+            SELECT 1 FROM evaluator_assignment_history
+            WHERE employee_id = $1 AND status = 'applied' AND change_type <> 'cancel'
+            LIMIT 1
+          `,
+          [employee.employee_id]
+        );
+        if (!histRows[0]) {
+          const assignmentHistory = await insertEvaluatorAssignmentHistory(client, {
+            employeeId: employee.employee_id,
+            previousEvaluatorId: null,
+            newEvaluatorId: evaluatorId,
+            changedBy: getAssignmentActor(body),
+            reason: 'Manual employee creation',
+            changeType: 'change',
+            evaluationId,
+            evaluationPeriodId: evalRows[0]?.evaluation_period_id ?? null,
+          });
+          if (assignmentHistory?.id) {
+            await client.query(
+              `UPDATE evaluations SET assignment_history_id = $2, updated_at = NOW()
+                WHERE id = $1 AND assignment_history_id IS NULL`,
+              [evaluationId, assignmentHistory.id]
+            );
+          }
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json(employee);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error creating employee:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 단건 사용자 삭제 (admin 제외, 관련 데이터 cascade 정리)
+app.delete('/api/employee/:id', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const employeeId = req.params.id;
+  if (employeeId === 'admin') {
+    return res.status(409).json({ error: 'admin 계정은 삭제할 수 없습니다.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT 1 FROM employees WHERE employee_id = $1', [employeeId]);
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '직원을 찾을 수 없습니다.' });
+    }
+
+    await client.query(
+      `DELETE FROM feedback_history
+        WHERE evaluator_id = $1
+           OR evaluation_id IN (SELECT id FROM evaluations WHERE evaluatee_id = $1)`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM task_evaluation_entries
+        WHERE evaluator_id = $1
+           OR evaluation_id IN (SELECT id FROM evaluations WHERE evaluatee_id = $1)`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM tasks WHERE evaluation_id IN (SELECT id FROM evaluations WHERE evaluatee_id = $1)`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM evaluator_assignment_history
+        WHERE employee_id = $1 OR previous_evaluator_id = $1 OR new_evaluator_id = $1`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM notifications WHERE recipient_id = $1 OR sender_id = $1`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM final_assessment WHERE evaluation_id IN (SELECT id FROM evaluations WHERE evaluatee_id = $1)`,
+      [employeeId]
+    );
+    await client.query(
+      `DELETE FROM admin_audit_logs WHERE actor_id = $1 OR target_employee_id = $1`,
+      [employeeId]
+    );
+    await client.query(`DELETE FROM evaluations WHERE evaluatee_id = $1`, [employeeId]);
+    // 이 직원을 평가자로 가리키던 다른 직원 정리.
+    await client.query(
+      `UPDATE employees SET evaluator_id = NULL, updated_at = NOW() WHERE evaluator_id = $1`,
+      [employeeId]
+    );
+    const { rowCount } = await client.query('DELETE FROM employees WHERE employee_id = $1', [employeeId]);
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted_id: employeeId, deleted: rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting employee:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -2024,6 +2597,12 @@ app.get('/api/employees/evaluator/:evaluatorId', async (req, res) => {
 
 // Get employees who used to be assigned to an evaluator, or have entries owned by that evaluator.
 app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
+  // 과거 평가자 화면에 노출되는 조건:
+  //   1) 현재 마스터 평가자(employees.evaluator_id)가 이 사용자가 아니어야 함.
+  //   2) evaluator_assignment_history 에서 이 사용자가 new_evaluator 였던 applied non-cancel 행이 있고,
+  //   3) 그 행 이후 다른 평가자로 변경된 applied non-cancel 행이 존재해야 함.
+  //   (cancelled 행만 가진 평가자는 자동으로 제외되어, 정정으로 사라진 김남엽/정호영 같은
+  //    이력은 노출되지 않는다.)
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -2033,21 +2612,24 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
       `
         SELECT DISTINCT e.*
         FROM employees e
-        LEFT JOIN evaluator_assignment_history h
-          ON h.employee_id = e.employee_id
-          AND h.status = 'applied'
-          AND h.change_type <> 'cancel'
-          AND (h.previous_evaluator_id = $1 OR h.new_evaluator_id = $1)
-        LEFT JOIN evaluations ev
-          ON ev.evaluatee_id = e.employee_id
-          AND ev.record_status = 'active'
-        LEFT JOIN task_evaluation_entries tee
-          ON tee.evaluation_id = ev.id
-          AND tee.evaluator_id = $1
-          AND COALESCE(tee.status, 'active') = 'active'
-        WHERE
-          (e.evaluator_id IS DISTINCT FROM $1)
-          AND (h.id IS NOT NULL OR tee.id IS NOT NULL)
+        WHERE e.evaluator_id IS DISTINCT FROM $1
+          AND EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history h
+            WHERE h.employee_id = e.employee_id
+              AND h.new_evaluator_id = $1
+              AND h.status = 'applied'
+              AND h.change_type <> 'cancel'
+              AND EXISTS (
+                SELECT 1
+                FROM evaluator_assignment_history later
+                WHERE later.employee_id = e.employee_id
+                  AND later.status = 'applied'
+                  AND later.change_type <> 'cancel'
+                  AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
+                  AND later.new_evaluator_id IS DISTINCT FROM $1
+              )
+          )
         ORDER BY e.department, e.name
       `,
       [req.params.evaluatorId]
@@ -2109,12 +2691,21 @@ app.get('/api/matching-imports/latest-rows', async (req, res) => {
     return res.json([]);
   }
 
+  const periodId = req.query.periodId ? String(req.query.periodId) : null;
+
   try {
+    const params = [];
+    let periodClause = '';
+    if (periodId) {
+      params.push(periodId);
+      periodClause = ` WHERE evaluation_period_id = $${params.length}::uuid`;
+    }
     const { rows } = await pool.query(
       `
         WITH latest_batch AS (
           SELECT id
           FROM matching_import_batches
+          ${periodClause}
           ORDER BY created_at DESC
           LIMIT 1
         )
@@ -2147,7 +2738,8 @@ app.get('/api/matching-imports/latest-rows', async (req, res) => {
         INNER JOIN latest_batch lb ON lb.id = r.batch_id
         INNER JOIN matching_import_batches b ON b.id = r.batch_id
         ORDER BY r.row_number
-      `
+      `,
+      params,
     );
     res.json(rows);
   } catch (err) {
@@ -2188,12 +2780,21 @@ app.get('/api/employee-profile-imports/latest-rows', async (req, res) => {
     return res.json([]);
   }
 
+  const periodId = req.query.periodId ? String(req.query.periodId) : null;
+
   try {
+    const params = [];
+    let periodClause = '';
+    if (periodId) {
+      params.push(periodId);
+      periodClause = ` WHERE evaluation_period_id = $${params.length}::uuid`;
+    }
     const { rows } = await pool.query(
       `
         WITH latest_batch AS (
           SELECT id
           FROM employee_profile_import_batches
+          ${periodClause}
           ORDER BY created_at DESC
           LIMIT 1
         )
@@ -2205,7 +2806,8 @@ app.get('/api/employee-profile-imports/latest-rows', async (req, res) => {
         INNER JOIN latest_batch lb ON lb.id = r.batch_id
         INNER JOIN employee_profile_import_batches b ON b.id = r.batch_id
         ORDER BY r.sheet_name, r.row_number
-      `
+      `,
+      params,
     );
     res.json(rows);
   } catch (err) {
@@ -2223,6 +2825,9 @@ app.post('/api/employee-profile-imports', async (req, res) => {
   }
 
   const sourceFileName = normalizeOptionalText(req.body?.source_file_name ?? req.body?.sourceFileName);
+  const evaluationPeriodId = normalizeOptionalText(
+    req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId,
+  );
   const requestedImportedBy = getAssignmentActor(req.body);
   const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
@@ -2247,21 +2852,25 @@ app.post('/api/employee-profile-imports', async (req, res) => {
       if (!actorRows[0]) importedBy = null;
     }
 
-    const normalizedRows = rawRows.map((row, index) =>
-      normalizeEmployeeProfileImportRow(row, index)
-    );
+    const normalizedRows = rawRows
+      .map((row, index) => normalizeEmployeeProfileImportRow(row, index))
+      // 영문 사번(잘못된 데이터)은 직원으로 만들지 않는다. 평가자 사번이 영문이면 미배정 처리.
+      .filter((row) => !startsWithLetter(row.employee_id))
+      .map((row) =>
+        startsWithLetter(row.evaluator_id) ? { ...row, evaluator_id: null, evaluator_name: null } : row
+      );
     const { mergedRows, primaryRowKeys } = mergeEmployeeProfileRows(normalizedRows);
     const sheetNames = [...new Set(normalizedRows.map((row) => row.sheet_name).filter(Boolean))];
 
     const evaluatorRefs = new Map();
     normalizedRows.forEach((row) => {
-      if (row.evaluation_group_id) {
+      if (row.evaluation_group_id && !startsWithLetter(row.evaluation_group_id)) {
         evaluatorRefs.set(row.evaluation_group_id, {
           name: row.evaluation_group_name ?? row.evaluation_group_id,
           position: null,
         });
       }
-      if (row.evaluator_id) {
+      if (row.evaluator_id && !startsWithLetter(row.evaluator_id)) {
         evaluatorRefs.set(row.evaluator_id, {
           name: row.evaluator_name ?? row.evaluator_id,
           position: row.evaluator_position ?? null,
@@ -2276,12 +2885,13 @@ app.post('/api/employee-profile-imports', async (req, res) => {
           source_sheet_names,
           imported_by,
           row_count,
-          status
+          status,
+          evaluation_period_id
         )
-        VALUES ($1,$2::text[],$3,$4,'applied')
+        VALUES ($1,$2::text[],$3,$4,'applied',$5)
         RETURNING *
       `,
-      [sourceFileName, sheetNames, importedBy, normalizedRows.length]
+      [sourceFileName, sheetNames, importedBy, normalizedRows.length, evaluationPeriodId]
     );
     const batch = batchRows[0];
 
@@ -2472,6 +3082,88 @@ app.post('/api/employee-profile-imports', async (req, res) => {
       );
     }
 
+    // 대상자 업로드 평가기간 귀속:
+    // 업로드한 평가기간에 evaluatee 대상자의 evaluation 을 보장한다(평가자 유무 무관).
+    // 이게 있어야 "그 평가기간에 업로드한 대상자는 그 기간 화면에만 표시"가 성립한다.
+    if (evaluationPeriodId) {
+      const { rows: periodRows } = await client.query(
+        'SELECT id, evaluation_year FROM evaluation_periods WHERE id = $1 LIMIT 1',
+        [evaluationPeriodId]
+      );
+      const targetPeriod = periodRows[0];
+      if (targetPeriod) {
+        for (const row of mergedRows) {
+          const { rows: empRows } = await client.query(
+            'SELECT * FROM employees WHERE employee_id = $1 LIMIT 1',
+            [row.employee_id]
+          );
+          const emp = empRows[0];
+          if (!emp || !(emp.available_roles ?? []).includes('evaluatee')) continue;
+
+          // 이 평가기간에 evaluation 이 없으면 생성.
+          const { rows: existing } = await client.query(
+            `SELECT id FROM evaluations
+              WHERE evaluatee_id = $1 AND evaluation_period_id = $2
+                AND COALESCE(record_status, 'active') = 'active'
+              LIMIT 1`,
+            [emp.employee_id, targetPeriod.id]
+          );
+          let evaluationId = existing[0]?.id ?? null;
+          if (!evaluationId) {
+            const { rows: created } = await client.query(
+              `
+                INSERT INTO evaluations (
+                  evaluatee_id, evaluatee_name, evaluatee_position, evaluatee_department,
+                  growth_level, evaluation_status, evaluation_year, evaluation_period_id,
+                  created_at, updated_at
+                )
+                VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,NOW(),NOW())
+                RETURNING id
+              `,
+              [
+                emp.employee_id,
+                emp.name,
+                emp.position,
+                emp.department,
+                emp.growth_level ?? 0,
+                targetPeriod.evaluation_year,
+                targetPeriod.id,
+              ]
+            );
+            evaluationId = created[0].id;
+          }
+
+          // 평가자가 지정되어 있으면 baseline 이력 보장.
+          if (evaluationId && emp.evaluator_id) {
+            const { rows: histRows } = await client.query(
+              `SELECT 1 FROM evaluator_assignment_history
+                WHERE evaluation_id = $1 AND status = 'applied' AND change_type <> 'cancel' LIMIT 1`,
+              [evaluationId]
+            );
+            if (!histRows[0]) {
+              const ah = await insertEvaluatorAssignmentHistory(client, {
+                employeeId: emp.employee_id,
+                previousEvaluatorId: null,
+                newEvaluatorId: emp.evaluator_id,
+                changedBy: importedBy,
+                reason: 'Profile import baseline',
+                changeType: 'change',
+                evaluationId,
+                evaluationPeriodId: targetPeriod.id,
+              });
+              if (ah?.id) {
+                await client.query(
+                  `UPDATE evaluations SET assignment_history_id = $2, updated_at = NOW()
+                    WHERE id = $1 AND assignment_history_id IS NULL`,
+                  [evaluationId, ah.id]
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
     const warningCount = normalizedRows.filter((row) => row.validation_status === 'warning').length;
     const errorCount = normalizedRows.filter((row) => row.validation_status === 'error').length;
     const { rows: updatedBatchRows } = await client.query(
@@ -2536,6 +3228,282 @@ app.post('/api/employee-profile-imports', async (req, res) => {
   }
 });
 
+// ── 매칭 reconcile 엔진 ────────────────────────────────────────────
+// 매칭 파일 = 해당 직원의 평가자 단계(타임라인)에 대한 "정답(source of truth)".
+// 같은 파일 안 여러 행을 시간순 단계로 묶고, DB 이력을 그 단계 집합에 맞춰 동기화한다.
+//   - 같은 발령일·같은 평가자        → 동일(unchanged): 그대로 둠
+//   - 같은 발령일·다른 평가자        → 정정(corrected): 기존 행을 supersede (평행 baseline 금지)
+//   - 같은 평가자·다른 발령일        → 무시(ignoredDate): 기존 발령일 유지, 파일 날짜 미반영
+//   - 파일에만 있는 단계            → 신규(created): 새 평가+이력 생성
+//   - 파일에 없는 기존 단계         → 삭제(removed): 이력·평가 취소
+// 종료일/근무기간은 저장 컬럼이 아니라 다음 단계 발령일로부터 파생되므로,
+// 단계 집합만 맞으면 "연말까지" 등 종료일은 자동으로 일관된다.
+
+// 한 직원의 매칭 행들을 시간순 평가자 단계로 변환(연속 동일 평가자 병합).
+// 정렬: work_start_date 가 있는 행을 먼저(ASC), 빈 날짜 행은 뒤로.
+//   (이렇게 해야 한 평가자에 대해 정상 날짜 행과 빈 날짜 행이 섞여 있을 때
+//    빈 날짜가 stage 의 startDate 를 덮어쓰지 않는다 — 빈 날짜 행은 병합 단계에서
+//    같은 평가자면 endDate 만 갱신하고 startDate 는 정상 날짜를 유지.)
+const buildMatchingStagesForEmployee = (rows) => {
+  const valid = rows.filter((r) => r.evaluator_id && r.validation_status !== 'error');
+  const sorted = [...valid].sort((a, b) => {
+    const hasA = !!a.work_start_date;
+    const hasB = !!b.work_start_date;
+    if (hasA !== hasB) return hasA ? -1 : 1; // null/empty 는 뒤로
+    if (hasA && hasB) {
+      const sa = Date.parse(a.work_start_date) || 0;
+      const sb = Date.parse(b.work_start_date) || 0;
+      if (sa !== sb) return sa - sb;
+    }
+    return (Number(a.org_sequence) || 0) - (Number(b.org_sequence) || 0);
+  });
+  const stages = [];
+  for (const r of sorted) {
+    const startDate = r.work_start_date ? String(r.work_start_date).slice(0, 10) : null;
+    const endDate = r.work_end_date ? String(r.work_end_date).slice(0, 10) : null;
+    const last = stages[stages.length - 1];
+    if (last && last.evaluatorId === r.evaluator_id) {
+      // 같은 평가자 연속 행: startDate 는 처음 들어온(정상) 값 유지, endDate 만 채움.
+      last.endDate = endDate ?? last.endDate;
+      if (!last.startDate && startDate) last.startDate = startDate;
+      continue;
+    }
+    stages.push({
+      evaluatorId: r.evaluator_id,
+      evaluatorName: r.evaluator_name ?? null,
+      startDate,
+      endDate,
+      department: r.department_name ?? null,
+    });
+  }
+  return stages;
+};
+
+// 같은 평가(evaluation) 위에서 평가자만 정정(supersede). 점수/피드백 ownership 이전.
+// employees.evaluator_id 갱신과 prev 보정은 호출부(reconcile)에서 일괄 처리한다.
+const supersedeAssignmentEvaluator = async (
+  client,
+  { history, newEvaluatorId, actorId, reason, changedAt }
+) => {
+  const correctionRow = await insertEvaluatorAssignmentHistory(client, {
+    employeeId: history.employee_id,
+    previousEvaluatorId: history.new_evaluator_id ?? null,
+    newEvaluatorId: newEvaluatorId ?? null,
+    changedBy: actorId,
+    reason: reason || 'Matching reconcile correction',
+    changeType: 'change',
+    status: 'applied',
+    supersedesHistoryId: history.id,
+    evaluationId: history.evaluation_id ?? null,
+    evaluationPeriodId: history.evaluation_period_id ?? null,
+    changedAt: changedAt ?? null,
+  });
+  await client.query(
+    `UPDATE evaluator_assignment_history
+       SET status='cancelled', cancelled_at=NOW(), cancelled_by=$2,
+           cancel_reason='Superseded by matching reconcile'
+     WHERE id=$1`,
+    [history.id, actorId ?? null]
+  );
+  if (history.evaluation_id) {
+    await client.query(
+      `UPDATE evaluations SET record_status='active', assignment_history_id=$2, updated_at=NOW()
+       WHERE id=$1`,
+      [history.evaluation_id, correctionRow.id]
+    );
+    await transferEvaluatorEntriesForCorrectionScoped(client, {
+      evaluationId: history.evaluation_id,
+      previousEvaluatorId: history.new_evaluator_id ?? null,
+      newEvaluatorId: newEvaluatorId ?? null,
+      actorId,
+      reason: reason || 'Matching reconcile correction',
+    });
+  }
+  return correctionRow;
+};
+
+// 직원별 평가자 단계 동기화. result 카운트와 평가자 배정 변동(알림용)을 반환.
+const reconcileEmployeeMatchingStages = async (
+  client,
+  { employee, stages, periodId, periodYear, importedBy, sourceFileName }
+) => {
+  const employeeId = employee.employee_id;
+  const result = {
+    created: 0,
+    corrected: 0,
+    unchanged: 0,
+    ignoredDate: 0,
+    removed: 0,
+    assignedEvaluators: [],
+    releasedEvaluators: [],
+  };
+
+  // ── 빈 중복 평가 정리 ─────────────────────────────────────────
+  // 프로필 업로드가 "평가기간 노출용"으로 만들어둔 빈 draft 평가가 있으면
+  // reconcile 들어오기 전에 제거한다. 매칭이 들어왔다는 건 이 사람의
+  // 단계별 평가가 새로 생성될 거라는 뜻이므로, 이력·과업·엔트리·피드백이
+  // 전혀 없는 빈 껍데기는 잉여(빈 중복)다. 안전 조건을 모두 만족할 때만 삭제.
+  await client.query(
+    `DELETE FROM evaluations e
+      WHERE COALESCE(e.record_status,'active')='active'
+        AND e.evaluatee_id = $1
+        AND COALESCE(e.evaluation_period_id::text,'') = COALESCE($2::text,'')
+        AND e.assignment_history_id IS NULL
+        AND e.evaluation_status = 'draft'
+        AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.evaluation_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM task_evaluation_entries x WHERE x.evaluation_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM feedback_history f WHERE f.evaluation_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM evaluator_assignment_history h WHERE h.evaluation_id = e.id)`,
+    [employeeId, periodId ?? null]
+  );
+
+  const { rows: existing } = await client.query(
+    `SELECT id, evaluation_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
+       FROM evaluator_assignment_history
+      WHERE employee_id=$1 AND status='applied' AND change_type<>'cancel'
+      ORDER BY changed_at ASC, id ASC`,
+    [employeeId]
+  );
+  const reason = `Matching reconcile: ${sourceFileName}`;
+  const existingMatched = new Array(existing.length).fill(false);
+  const stageMatched = new Array(stages.length).fill(false);
+
+  // pass 1: 정확 일치(발령일+평가자) → 동일
+  stages.forEach((fs, si) => {
+    const ei = existing.findIndex(
+      (e, idx) =>
+        !existingMatched[idx] &&
+        e.date_str === fs.startDate &&
+        (e.new_evaluator_id ?? null) === (fs.evaluatorId ?? null)
+    );
+    if (ei >= 0) {
+      existingMatched[ei] = true;
+      stageMatched[si] = true;
+      result.unchanged += 1;
+    }
+  });
+
+  // pass 2: 같은 발령일·다른 평가자 → 정정(supersede)
+  for (let si = 0; si < stages.length; si += 1) {
+    if (stageMatched[si]) continue;
+    const fs = stages[si];
+    const ei = existing.findIndex(
+      (e, idx) =>
+        !existingMatched[idx] &&
+        e.date_str === fs.startDate &&
+        (e.new_evaluator_id ?? null) !== (fs.evaluatorId ?? null)
+    );
+    if (ei >= 0) {
+      const e = existing[ei];
+      await supersedeAssignmentEvaluator(client, {
+        history: {
+          id: e.id,
+          employee_id: employeeId,
+          new_evaluator_id: e.new_evaluator_id,
+          evaluation_id: e.evaluation_id,
+          evaluation_period_id: periodId,
+        },
+        newEvaluatorId: fs.evaluatorId,
+        actorId: importedBy,
+        reason,
+        changedAt: fs.startDate,
+      });
+      result.assignedEvaluators.push(fs.evaluatorId);
+      if (e.new_evaluator_id) result.releasedEvaluators.push(e.new_evaluator_id);
+      existingMatched[ei] = true;
+      stageMatched[si] = true;
+      result.corrected += 1;
+    }
+  }
+
+  // pass 3: 같은 평가자·다른 발령일 → 무시(기존 발령일 유지)
+  for (let si = 0; si < stages.length; si += 1) {
+    if (stageMatched[si]) continue;
+    const fs = stages[si];
+    const ei = existing.findIndex(
+      (e, idx) => !existingMatched[idx] && (e.new_evaluator_id ?? null) === (fs.evaluatorId ?? null)
+    );
+    if (ei >= 0) {
+      existingMatched[ei] = true;
+      stageMatched[si] = true;
+      result.ignoredDate += 1;
+    }
+  }
+
+  // pass 4: 파일에만 있는 단계 → 신규 평가+이력
+  for (let si = 0; si < stages.length; si += 1) {
+    if (stageMatched[si]) continue;
+    const fs = stages[si];
+    const prevStage = stages.slice(0, si).reverse().find((s) => s.evaluatorId);
+    const evaluation = await createDraftEvaluationForEmployeeAssignment(client, employee, periodId);
+    const hist = await insertEvaluatorAssignmentHistory(client, {
+      employeeId,
+      previousEvaluatorId: prevStage?.evaluatorId ?? null,
+      newEvaluatorId: fs.evaluatorId,
+      changedBy: importedBy,
+      reason,
+      changeType: 'change',
+      evaluationId: evaluation?.id ?? null,
+      evaluationPeriodId: evaluation?.evaluation_period_id ?? periodId,
+      changedAt: fs.startDate,
+    });
+    if (evaluation?.id && hist?.id) {
+      await client.query(
+        `UPDATE evaluations SET assignment_history_id=$2, updated_at=NOW() WHERE id=$1`,
+        [evaluation.id, hist.id]
+      );
+    }
+    result.assignedEvaluators.push(fs.evaluatorId);
+    stageMatched[si] = true;
+    result.created += 1;
+  }
+
+  // pass 5: 파일에 없는 기존 단계 → 삭제(이력·평가 취소)
+  for (let ei = 0; ei < existing.length; ei += 1) {
+    if (existingMatched[ei]) continue;
+    const e = existing[ei];
+    await client.query(
+      `UPDATE evaluator_assignment_history
+         SET status='cancelled', cancelled_at=NOW(), cancelled_by=$2,
+             cancel_reason='Removed by matching reconcile (not in file)'
+       WHERE id=$1`,
+      [e.id, importedBy ?? null]
+    );
+    if (e.evaluation_id) {
+      await client.query(
+        `UPDATE evaluations SET record_status='cancelled', updated_at=NOW()
+         WHERE id=$1 AND COALESCE(record_status,'active')='active'`,
+        [e.evaluation_id]
+      );
+      await client.query(
+        `UPDATE task_evaluation_entries SET status='cancelled', cancelled_at=NOW(), cancelled_by=$2,
+               cancel_reason='Removed by matching reconcile'
+         WHERE evaluation_id=$1 AND COALESCE(status,'active')='active'`,
+        [e.evaluation_id, importedBy ?? null]
+      );
+      await client.query(
+        `UPDATE feedback_history SET status='cancelled', cancelled_at=NOW(), cancelled_by=$2,
+               cancel_reason='Removed by matching reconcile'
+         WHERE evaluation_id=$1 AND COALESCE(status,'active')='active'`,
+        [e.evaluation_id, importedBy ?? null]
+      );
+    }
+    if (e.new_evaluator_id) result.releasedEvaluators.push(e.new_evaluator_id);
+    result.removed += 1;
+  }
+
+  // 현재 평가자 = 마지막(가장 늦은 발령일) 단계의 평가자. prev 링크 일관화.
+  const orderedStages = stages.filter((s) => s.evaluatorId);
+  const lastStage = orderedStages.length ? orderedStages[orderedStages.length - 1] : null;
+  await client.query(`UPDATE employees SET evaluator_id=$2, updated_at=NOW() WHERE employee_id=$1`, [
+    employeeId,
+    lastStage?.evaluatorId ?? null,
+  ]);
+  await reconcilePreviousEvaluatorIds(client, employeeId);
+
+  return result;
+};
+
 app.post('/api/matching-imports', async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
@@ -2543,6 +3511,9 @@ app.post('/api/matching-imports', async (req, res) => {
 
   const sourceFileName = normalizeOptionalText(req.body?.source_file_name ?? req.body?.sourceFileName);
   const sourceSheetName = normalizeOptionalText(req.body?.source_sheet_name ?? req.body?.sourceSheetName);
+  const evaluationPeriodId = normalizeOptionalText(
+    req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId,
+  );
   const requestedImportedBy = getAssignmentActor(req.body);
   const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
@@ -2567,7 +3538,13 @@ app.post('/api/matching-imports', async (req, res) => {
       if (!actorRows[0]) importedBy = null;
     }
 
-    const normalizedRows = rawRows.map((row, index) => normalizeMatchingImportRow(row, index));
+    const normalizedRows = rawRows
+      .map((row, index) => normalizeMatchingImportRow(row, index))
+      // 영문 사번(잘못된 데이터)은 직원으로 만들지 않는다. 평가자 사번이 영문이면 미배정 처리.
+      .filter((row) => !startsWithLetter(row.employee_id))
+      .map((row) =>
+        startsWithLetter(row.evaluator_id) ? { ...row, evaluator_id: null, evaluator_name: null } : row
+      );
     const primaryByEmployee = selectPrimaryMatchingRows(normalizedRows);
     const primaryRows = [...primaryByEmployee.values()];
     const primaryIds = new Set(primaryRows.map((row) => row.employee_id));
@@ -2595,12 +3572,13 @@ app.post('/api/matching-imports', async (req, res) => {
           source_sheet_name,
           imported_by,
           row_count,
-          status
+          status,
+          evaluation_period_id
         )
-        VALUES ($1,$2,$3,$4,'applied')
+        VALUES ($1,$2,$3,$4,'applied',$5)
         RETURNING *
       `,
-      [sourceFileName, sourceSheetName, importedBy, normalizedRows.length]
+      [sourceFileName, sourceSheetName, importedBy, normalizedRows.length, evaluationPeriodId]
     );
     const batch = batchRows[0];
 
@@ -2685,13 +3663,12 @@ app.post('/api/matching-imports', async (req, res) => {
       );
     }
 
-    let changedEvaluatorCount = 0;
+    // 매칭 reconcile 결과 집계 (파일=정답 기준)
     let createdEvaluations = 0;
-    let cancelledEvaluations = 0;
-    let cancelledEntries = 0;
-    let cancelledFeedbacks = 0;
-    let assignmentHistoryCount = 0;
-    let baselineAssignmentHistoryCount = 0;
+    let correctedAssignments = 0;
+    let removedStages = 0;
+    let ignoredDateStages = 0;
+    let unchangedStages = 0;
     const evaluatorAssignmentChanges = new Map();
     const evaluatorAssignmentReleases = new Map();
     const employeeAssignmentChanges = [];
@@ -2708,35 +3685,6 @@ app.post('/api/matching-imports', async (req, res) => {
       list.push(employeeName);
       evaluatorAssignmentReleases.set(evaluatorId, list);
     };
-
-    // 같은 직원의 매칭 행이 여러 개이면 시간순(근무시작일·소속순번 오름차순)으로
-    // 정렬해 평가자 변경 체인(이전 평가자 → 새 평가자)을 미리 계산한다.
-    // 예: 권오선 → [2026-01-01 김남엽, 2026-02-09 박판근]
-    //     → 김남엽 행 prev = null, 박판근 행 prev = 김남엽
-    const sortedRowsByEmployeeForChain = new Map();
-    for (const row of normalizedRows) {
-      if (!row.employee_id || row.validation_status === 'error') continue;
-      if (!sortedRowsByEmployeeForChain.has(row.employee_id)) {
-        sortedRowsByEmployeeForChain.set(row.employee_id, []);
-      }
-      sortedRowsByEmployeeForChain.get(row.employee_id).push(row);
-    }
-    for (const rs of sortedRowsByEmployeeForChain.values()) {
-      rs.sort((a, b) => {
-        const sa = a.work_start_date ? Date.parse(a.work_start_date) || 0 : 0;
-        const sb = b.work_start_date ? Date.parse(b.work_start_date) || 0 : 0;
-        if (sa !== sb) return sa - sb;
-        return (Number(a.org_sequence) || 0) - (Number(b.org_sequence) || 0);
-      });
-    }
-    const matchingChainPrev = new Map(); // row reference → previous evaluator id in chain
-    for (const rs of sortedRowsByEmployeeForChain.values()) {
-      let prev = null;
-      for (const row of rs) {
-        matchingChainPrev.set(row, prev);
-        if (row.evaluator_id && row.evaluator_id !== prev) prev = row.evaluator_id;
-      }
-    }
 
     for (const row of primaryRows) {
       const employeeRoles = evaluatorRefs.has(row.employee_id)
@@ -2803,204 +3751,44 @@ app.post('/api/matching-imports', async (req, res) => {
           batch.id,
         ]
       );
-      const upsertedEmployee = upsertedEmployeeRows[0] ?? null;
-
-      // 같은 임포트 내에 직전 시점 매칭 행이 있으면 그 평가자를 prev 로 사용.
-      // (예: 권오선 박판근 행의 prev = 김남엽). 체인에 없으면 DB의 기존 evaluator 사용.
-      const chainPreviousEvaluatorId = matchingChainPrev.get(row);
-      const previousEvaluatorId =
-        chainPreviousEvaluatorId !== undefined
-          ? chainPreviousEvaluatorId
-          : existingEmployees.get(row.employee_id)?.evaluator_id ?? null;
-      let ensuredEvaluation = { evaluation: null, created: false };
-
-      if ((previousEvaluatorId ?? null) !== (row.evaluator_id ?? null)) {
-        changedEvaluatorCount += 1;
-        if (row.evaluator_id) {
-          if ((previousEvaluatorId ?? null) === null) {
-            ensuredEvaluation = await ensureActiveEvaluationForImportedEmployee(
-              client,
-              upsertedEmployee
-            );
-            if (ensuredEvaluation.created) createdEvaluations += 1;
-          } else {
-            const assignmentEvaluation = await createDraftEvaluationForEmployeeAssignment(
-              client,
-              upsertedEmployee
-            );
-            ensuredEvaluation = { evaluation: assignmentEvaluation, created: Boolean(assignmentEvaluation) };
-            if (assignmentEvaluation) createdEvaluations += 1;
-          }
-          recordAssignmentChange(row.evaluator_id, row.employee_name ?? row.employee_id);
-          employeeAssignmentChanges.push({
-            employeeId: row.employee_id,
-            evaluatorName: row.evaluator_name ?? null,
-          });
-        } else if ((previousEvaluatorId ?? null) !== null) {
-          const cancelled = await cancelActiveEvaluationsForUnassignedEmployee(client, {
-            employeeId: row.employee_id,
-            actorId: importedBy,
-            reason: `Matching import: ${sourceFileName}`,
-          });
-          cancelledEvaluations += cancelled.cancelledEvaluations;
-          cancelledEntries += cancelled.cancelledEntries;
-          cancelledFeedbacks += cancelled.cancelledFeedbacks;
-        }
-        if (previousEvaluatorId && previousEvaluatorId !== (row.evaluator_id ?? null)) {
-          recordAssignmentRelease(previousEvaluatorId, row.employee_name ?? row.employee_id);
-        }
-
-        const assignmentHistory = await insertEvaluatorAssignmentHistory(client, {
-          employeeId: row.employee_id,
-          previousEvaluatorId: previousEvaluatorId ?? null,
-          newEvaluatorId: row.evaluator_id ?? null,
-          changedBy: importedBy,
-          reason: `Matching import: ${sourceFileName}`,
-          changeType: 'change',
-          evaluationId: ensuredEvaluation.evaluation?.id ?? null,
-          evaluationPeriodId: ensuredEvaluation.evaluation?.evaluation_period_id ?? null,
-        });
-        assignmentHistoryCount += 1;
-        if (assignmentHistory?.id && row.work_start_date) {
-          await client.query(
-            'UPDATE evaluator_assignment_history SET changed_at = $2 WHERE id = $1',
-            [assignmentHistory.id, row.work_start_date]
-          );
-        }
-        if (ensuredEvaluation.evaluation?.id && assignmentHistory?.id) {
-          await client.query(
-            'UPDATE evaluations SET assignment_history_id = $2, updated_at = NOW() WHERE id = $1',
-            [ensuredEvaluation.evaluation.id, assignmentHistory.id]
-          );
-        }
-      } else if (row.evaluator_id) {
-        ensuredEvaluation = await ensureActiveEvaluationForImportedEmployee(
-          client,
-          upsertedEmployee
-        );
-        if (ensuredEvaluation.created) createdEvaluations += 1;
-
-        const { rows: currentHistoryRows } = await client.query(
-          `
-            SELECT id
-            FROM evaluator_assignment_history
-            WHERE employee_id = $1
-              AND status = 'applied'
-              AND change_type <> 'cancel'
-              AND new_evaluator_id IS NOT DISTINCT FROM $2
-            ORDER BY changed_at DESC, id DESC
-            LIMIT 1
-          `,
-          [row.employee_id, row.evaluator_id]
-        );
-        if (!currentHistoryRows[0]) {
-          const assignmentHistory = await insertEvaluatorAssignmentHistory(client, {
-            employeeId: row.employee_id,
-            previousEvaluatorId: previousEvaluatorId ?? null,
-            newEvaluatorId: row.evaluator_id,
-            changedBy: importedBy,
-            reason: `Matching baseline import: ${sourceFileName}`,
-            changeType: 'change',
-            evaluationId: ensuredEvaluation.evaluation?.id ?? null,
-            evaluationPeriodId: ensuredEvaluation.evaluation?.evaluation_period_id ?? null,
-          });
-          assignmentHistoryCount += 1;
-          baselineAssignmentHistoryCount += 1;
-          if (assignmentHistory?.id && row.work_start_date) {
-            await client.query(
-              'UPDATE evaluator_assignment_history SET changed_at = $2 WHERE id = $1',
-              [assignmentHistory.id, row.work_start_date]
-            );
-          }
-          if (ensuredEvaluation.evaluation?.id && assignmentHistory?.id) {
-            await client.query(
-              'UPDATE evaluations SET assignment_history_id = $2, updated_at = NOW() WHERE id = $1',
-              [ensuredEvaluation.evaluation.id, assignmentHistory.id]
-            );
-          }
-        }
-      }
     }
 
-    let staleDraftsCancelled = 0;
-    for (const row of primaryRows) {
-      const cancelled = await cancelStaleEmptyDraftsForEvaluatorChange(client, {
-        employeeId: row.employee_id,
-        currentEvaluatorId: row.evaluator_id ?? null,
-      });
-      staleDraftsCancelled += cancelled;
-    }
-
-    let historicalToursCreated = 0;
-    const rowsByEmployee = new Map();
+    // ── 파일=정답 기준 reconcile: 직원별 평가자 단계 동기화 ──────────
+    const periodForReconcile = await getAssignmentEvaluationPeriod(client, evaluationPeriodId);
+    const stagesByEmployee = new Map();
     for (const row of normalizedRows) {
       if (!row.employee_id || row.validation_status === 'error') continue;
-      if (!rowsByEmployee.has(row.employee_id)) rowsByEmployee.set(row.employee_id, []);
-      rowsByEmployee.get(row.employee_id).push(row);
+      if (!stagesByEmployee.has(row.employee_id)) stagesByEmployee.set(row.employee_id, []);
+      stagesByEmployee.get(row.employee_id).push(row);
     }
-    for (const [employeeId, rows] of rowsByEmployee.entries()) {
-      if (rows.length <= 1) continue;
-      const primary = primaryByEmployee.get(employeeId);
-      if (!primary) continue;
-      const { rows: empRows } = await client.query(
-        'SELECT * FROM employees WHERE employee_id = $1 LIMIT 1',
-        [employeeId]
+    for (const [empId, empRows] of stagesByEmployee.entries()) {
+      const { rows: empRowResult } = await client.query(
+        'SELECT * FROM employees WHERE employee_id=$1 LIMIT 1',
+        [empId]
       );
-      const employeeRow = empRows[0];
+      const employeeRow = empRowResult[0];
       if (!employeeRow) continue;
-
-      const { rows: primaryEvalRows } = await client.query(
-        `SELECT id, evaluation_period_id, evaluation_year
-           FROM evaluations
-          WHERE evaluatee_id = $1 AND record_status = 'active'
-          ORDER BY created_at DESC LIMIT 1`,
-        [employeeId]
-      );
-      const periodId = primaryEvalRows[0]?.evaluation_period_id ?? null;
-      const periodYear =
-        primaryEvalRows[0]?.evaluation_year ?? new Date().getFullYear();
-
-      if (primary.evaluator_id) {
-        await client.query(
-          `
-            UPDATE evaluations ev
-               SET record_status = 'cancelled', updated_at = NOW()
-              FROM evaluator_assignment_history h
-             WHERE ev.assignment_history_id = h.id
-               AND ev.evaluatee_id = $1
-               AND ev.evaluation_status = 'completed'
-               AND ev.record_status = 'active'
-               AND COALESCE(ev.evaluation_period_id::text, '') = COALESCE($3::text, '')
-               AND h.new_evaluator_id = $2
-               AND NOT EXISTS (
-                 SELECT 1 FROM task_evaluation_entries te
-                  WHERE te.evaluation_id = ev.id
-                    AND COALESCE(te.status, 'active') = 'active'
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM tasks t
-                  WHERE t.evaluation_id = ev.id
-                    AND t.deleted_at IS NULL
-               )
-          `,
-          [employeeId, primary.evaluator_id, periodId]
-        );
-      }
-
-      for (const row of rows) {
-        if (row === primary) continue;
-        if (!row.evaluator_id) continue;
-        if (row.evaluator_id === primary.evaluator_id) continue;
-        const result = await createHistoricalTourEvaluation(client, {
-          employee: employeeRow,
-          historicalRow: row,
-          previousEvaluatorId: matchingChainPrev.get(row) ?? null,
-          importedBy,
-          sourceFileName,
-          evaluationPeriodId: periodId,
-          evaluationYear: periodYear,
-        });
-        if (result) historicalToursCreated += 1;
+      const stages = buildMatchingStagesForEmployee(empRows);
+      if (stages.length === 0) continue;
+      const r = await reconcileEmployeeMatchingStages(client, {
+        employee: employeeRow,
+        stages,
+        periodId: periodForReconcile?.id ?? evaluationPeriodId ?? null,
+        periodYear: periodForReconcile?.evaluation_year ?? getCurrentEvaluationYear(),
+        importedBy,
+        sourceFileName,
+      });
+      createdEvaluations += r.created;
+      correctedAssignments += r.corrected;
+      removedStages += r.removed;
+      ignoredDateStages += r.ignoredDate;
+      unchangedStages += r.unchanged;
+      const empName = employeeRow.name ?? empId;
+      for (const evId of new Set(r.assignedEvaluators)) recordAssignmentChange(evId, empName);
+      for (const evId of new Set(r.releasedEvaluators)) recordAssignmentRelease(evId, empName);
+      if (r.created || r.corrected) {
+        const finalEvaluatorName = stages[stages.length - 1]?.evaluatorName ?? null;
+        employeeAssignmentChanges.push({ employeeId: empId, evaluatorName: finalEvaluatorName });
       }
     }
 
@@ -3073,8 +3861,8 @@ app.post('/api/matching-imports', async (req, res) => {
         applied_count: primaryRows.length,
         evaluator_count: evaluatorRefs.size,
         created_evaluations: createdEvaluations,
-        cancelled_evaluations: cancelledEvaluations,
-        assignment_history_count: assignmentHistoryCount,
+        corrected_assignments: correctedAssignments,
+        removed_stages: removedStages,
       },
       reason: `Matching import: ${sourceFileName}`,
     });
@@ -3085,17 +3873,15 @@ app.post('/api/matching-imports', async (req, res) => {
       row_count: normalizedRows.length,
       applied_count: primaryRows.length,
       evaluator_count: evaluatorRefs.size,
-      changed_evaluator_count: changedEvaluatorCount,
+      changed_evaluator_count: createdEvaluations + correctedAssignments,
       warning_count: warningCount,
       error_count: errorCount,
       created_evaluations: createdEvaluations,
-      cancelled_evaluations: cancelledEvaluations,
-      cancelled_entries: cancelledEntries,
-      cancelled_feedbacks: cancelledFeedbacks,
-      assignment_history_count: assignmentHistoryCount,
-      baseline_assignment_history_count: baselineAssignmentHistoryCount,
-      historical_tours_created: historicalToursCreated,
-      stale_drafts_cancelled: staleDraftsCancelled,
+      corrected_assignments: correctedAssignments,
+      removed_stages: removedStages,
+      ignored_date_stages: ignoredDateStages,
+      unchanged_stages: unchangedStages,
+      assignment_history_count: createdEvaluations + correctedAssignments,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -3103,6 +3889,140 @@ app.post('/api/matching-imports', async (req, res) => {
     res.status(500).json({ error: 'Database error', detail: err.message });
   } finally {
     client.release();
+  }
+});
+
+// 매칭 업로드 변경 미리보기(dry-run): reconcile 규칙으로 분류만 하고 DB 는 건드리지 않는다.
+app.post('/api/matching-imports/preview', async (req, res) => {
+  const emptySummary = { new: 0, changed: 0, unchanged: 0, ignored: 0, error: 0, total: 0 };
+  if (!isDbAvailable) return res.json({ items: [], summary: emptySummary });
+  try {
+    const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const byEmp = new Map();
+    for (const r of rawRows) {
+      const id = (r.employee_id ?? '').toString().trim();
+      if (!id) continue;
+      if (!byEmp.has(id)) byEmp.set(id, []);
+      byEmp.get(id).push(r);
+    }
+    const empIds = [...byEmp.keys()];
+    const evIds = new Set();
+    for (const rows of byEmp.values())
+      for (const r of rows) if (r.evaluator_id) evIds.add(String(r.evaluator_id).trim());
+    const allIds = [...new Set([...empIds, ...evIds])];
+    const nameMap = new Map();
+    if (allIds.length) {
+      const { rows } = await pool.query(
+        'SELECT employee_id, name FROM employees WHERE employee_id = ANY($1::text[])',
+        [allIds]
+      );
+      for (const e of rows) nameMap.set(e.employee_id, e.name);
+    }
+    const evName = (id) => (id ? nameMap.get(id) ?? id : '평가자 없음');
+    const histByEmp = new Map();
+    if (empIds.length) {
+      const { rows: hist } = await pool.query(
+        `SELECT employee_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
+           FROM evaluator_assignment_history
+          WHERE employee_id = ANY($1::text[]) AND status='applied' AND change_type<>'cancel'
+          ORDER BY changed_at ASC, id ASC`,
+        [empIds]
+      );
+      for (const h of hist) {
+        if (!histByEmp.has(h.employee_id)) histByEmp.set(h.employee_id, []);
+        histByEmp.get(h.employee_id).push({ evaluator: h.new_evaluator_id, date: h.date_str });
+      }
+    }
+    const items = [];
+    for (const [empId, rowsForEmp] of byEmp.entries()) {
+      const name = rowsForEmp.find((r) => r.employee_name)?.employee_name ?? nameMap.get(empId) ?? empId;
+      const stages = buildMatchingStagesForEmployee(rowsForEmp);
+      const existing = histByEmp.get(empId) ?? [];
+      const existingMatched = new Array(existing.length).fill(false);
+      const stageMatched = new Array(stages.length).fill(false);
+      const changes = [];
+      let corrected = 0,
+        created = 0,
+        removed = 0,
+        ignored = 0;
+      stages.forEach((fs, si) => {
+        const ei = existing.findIndex(
+          (e, idx) => !existingMatched[idx] && e.date === fs.startDate && (e.evaluator ?? null) === (fs.evaluatorId ?? null)
+        );
+        if (ei >= 0) {
+          existingMatched[ei] = true;
+          stageMatched[si] = true;
+        }
+      });
+      for (let si = 0; si < stages.length; si += 1) {
+        if (stageMatched[si]) continue;
+        const fs = stages[si];
+        const ei = existing.findIndex(
+          (e, idx) => !existingMatched[idx] && e.date === fs.startDate && (e.evaluator ?? null) !== (fs.evaluatorId ?? null)
+        );
+        if (ei >= 0) {
+          existingMatched[ei] = true;
+          stageMatched[si] = true;
+          corrected += 1;
+          changes.push({ field: `정정 · ${fs.startDate}`, before: evName(existing[ei].evaluator), after: evName(fs.evaluatorId) });
+        }
+      }
+      for (let si = 0; si < stages.length; si += 1) {
+        if (stageMatched[si]) continue;
+        const fs = stages[si];
+        const ei = existing.findIndex((e, idx) => !existingMatched[idx] && (e.evaluator ?? null) === (fs.evaluatorId ?? null));
+        if (ei >= 0) {
+          existingMatched[ei] = true;
+          stageMatched[si] = true;
+          ignored += 1;
+          changes.push({ field: `발령일 무시 · ${evName(fs.evaluatorId)}`, before: existing[ei].date, after: `${fs.startDate} (평가자 동일)` });
+        }
+      }
+      for (let si = 0; si < stages.length; si += 1) {
+        if (stageMatched[si]) continue;
+        const fs = stages[si];
+        stageMatched[si] = true;
+        created += 1;
+        changes.push({ field: `신규 발령 · ${fs.startDate}`, before: '—', after: evName(fs.evaluatorId) });
+      }
+      for (let ei = 0; ei < existing.length; ei += 1) {
+        if (existingMatched[ei]) continue;
+        removed += 1;
+        changes.push({ field: `삭제 · ${existing[ei].date}`, before: evName(existing[ei].evaluator), after: '제거' });
+      }
+      // 파일에 평가자 단계가 하나도 없으면(예: 모든 행이 평가자 미지정) apply 는 SKIP 한다.
+      // 미리보기도 동일하게 "변동 없음"으로 표시한다.
+      let status;
+      if (stages.length === 0) {
+        status = 'unchanged';
+      } else if (existing.length === 0) {
+        status = 'new';
+      } else if (corrected || created || removed) {
+        status = 'changed';
+      } else if (ignored) {
+        status = 'ignored';
+      } else {
+        status = 'unchanged';
+      }
+      // stages 가 없으면 pass 5 에서 잘못 쌓인 "삭제" 안내도 비운다(실제 apply 는 skip 이므로).
+      if (stages.length === 0) {
+        items.push({ employeeId: empId, name, status, changes: [] });
+      } else {
+        items.push({ employeeId: empId, name, status, changes });
+      }
+    }
+    const summary = {
+      new: items.filter((i) => i.status === 'new').length,
+      changed: items.filter((i) => i.status === 'changed').length,
+      unchanged: items.filter((i) => i.status === 'unchanged').length,
+      ignored: items.filter((i) => i.status === 'ignored').length,
+      error: items.filter((i) => i.status === 'error').length,
+      total: items.length,
+    };
+    res.json({ items, summary });
+  } catch (err) {
+    console.error('Error previewing matching import:', err.message);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
@@ -3610,6 +4530,9 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
       );
     }
 
+    // 직원의 모든 applied 행 previous_evaluator_id 를 시간순 직전 행의 new_evaluator_id 로 보정.
+    await reconcilePreviousEvaluatorIds(client, history.employee_id);
+
     await client.query('COMMIT');
     res.json({
       cancelled: cancelledRows[0],
@@ -3766,9 +4689,35 @@ app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
       [history.id, actorId]
     );
 
-    // 3) 현재 반영된 배정일 때만 employees.evaluator_id + 하위 데이터 정합화
+    // 2.5) evaluation.record_status 를 history 상태에 자동 동기화.
+    //      applied 이력이 하나라도 남아있으면 active, 전부 cancelled 면 cancelled.
+    //      (정정으로 새 superseding 행이 applied 로 추가되었으므로 일반적으로 active 로 복구된다.)
+    if (history.evaluation_id) {
+      const { rows: appliedRows } = await client.query(
+        `
+          SELECT 1
+          FROM evaluator_assignment_history
+          WHERE evaluation_id = $1
+            AND status = 'applied'
+            AND change_type <> 'cancel'
+          LIMIT 1
+        `,
+        [history.evaluation_id]
+      );
+      const nextStatus = appliedRows.length > 0 ? 'active' : 'cancelled';
+      await client.query(
+        `
+          UPDATE evaluations
+          SET record_status = $2, updated_at = NOW()
+          WHERE id = $1
+            AND COALESCE(record_status, 'active') <> $2
+        `,
+        [history.evaluation_id, nextStatus]
+      );
+    }
+
+    // 3) employees.evaluator_id 마스터 갱신은 현재 반영된 배정일 때만.
     let updatedEmployee = null;
-    let correctionResult = { transferredEntries: [], mergedEntries: [], transferredFeedbackCount: 0 };
     if (isCurrentAssignment) {
       const { rows: employeeRows } = await client.query(
         `
@@ -3780,15 +4729,24 @@ app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
         [history.employee_id, newEvaluatorId ?? null]
       );
       updatedEmployee = employeeRows[0] ?? null;
-
-      correctionResult = await transferEvaluatorEntriesForCorrection(client, {
-        employeeId: history.employee_id,
-        previousEvaluatorId: history.new_evaluator_id ?? null,
-        newEvaluatorId: newEvaluatorId ?? null,
-        actorId,
-        reason,
-      });
     }
+
+    // 3.1) 점수/피드백 ownership 이전: 정정의 의미 그대로 ownership 도 새 평가자로.
+    //      (cancelled 원본 행의 evaluator 가 그 evaluation 에 매긴 entries 를 superseding new_evaluator
+    //       로 이전. 점수 값 자체는 보존됨.)
+    //      이건 정정 흐름(과거/현재 무관)에서 항상 호출되어야 정정 후에도 그 평가자가 과거 평가자
+    //      그룹에 잘못 노출되지 않는다. 단 evaluation 범위로 제한된 안전한 이전.
+    const correctionResult = await transferEvaluatorEntriesForCorrectionScoped(client, {
+      evaluationId: history.evaluation_id ?? null,
+      previousEvaluatorId: history.new_evaluator_id ?? null,
+      newEvaluatorId: newEvaluatorId ?? null,
+      actorId,
+      reason,
+    });
+
+    // 3.5) 같은 직원의 모든 applied 행 previous_evaluator_id 를 시간순 직전 행의 new_evaluator_id 로 보정.
+    //      정정으로 직전 평가자가 바뀌면 그 다음 추가된 평가자 변경 행들의 prev 도 자동 따라가도록.
+    await reconcilePreviousEvaluatorIds(client, history.employee_id);
 
     // 4) 감사 로그
     await insertAdminAuditLog(client, {
@@ -3886,7 +4844,12 @@ app.post('/api/admin/reset/employees', async (req, res) => {
       return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
     }
     await client.query('BEGIN');
-    // 종속 테이블부터 모두 비움 (TRUNCATE CASCADE)
+    // employees 가 import_batches 를 FK 참조하므로, batches 를 TRUNCATE CASCADE 하면
+    // employees(admin 포함)까지 cascade 삭제된다. 이를 막기 위해 먼저 참조를 끊는다.
+    await client.query(
+      `UPDATE employees SET last_matching_batch_id = NULL, last_profile_batch_id = NULL`
+    );
+    // batches 를 제외한 종속 테이블만 TRUNCATE CASCADE (employees 로 전파되지 않음).
     await client.query(`
       TRUNCATE TABLE
         feedback_history,
@@ -3897,12 +4860,13 @@ app.post('/api/admin/reset/employees', async (req, res) => {
         final_assessment,
         admin_audit_logs,
         employee_profile_import_rows,
-        employee_profile_import_batches,
         matching_import_rows,
-        matching_import_batches,
         evaluations
       RESTART IDENTITY CASCADE
     `);
+    // batches 는 참조를 끊었으므로 DELETE 로 안전하게 비운다.
+    await client.query('DELETE FROM employee_profile_import_batches');
+    await client.query('DELETE FROM matching_import_batches');
     // employees 에서 admin 외 모두 제거. self-FK 는 ON DELETE SET NULL 이라 안전.
     const { rowCount } = await client.query(
       `DELETE FROM employees WHERE employee_id <> 'admin'`
@@ -3941,7 +4905,10 @@ app.post('/api/admin/reset/matching', async (req, res) => {
       return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
     }
     await client.query('BEGIN');
-    // 평가/과업/엔트리/피드백/이력/임포트 — 매칭으로부터 파생된 것들 모두 비움
+    // employees 가 matching_import_batches 를 FK 참조하므로, 먼저 참조를 끊어
+    // batches TRUNCATE CASCADE 가 employees 로 전파되지 않도록 한다.
+    await client.query(`UPDATE employees SET last_matching_batch_id = NULL`);
+    // 평가/과업/엔트리/피드백/이력/임포트(batches 제외) — 매칭으로부터 파생된 것들 모두 비움
     await client.query(`
       TRUNCATE TABLE
         feedback_history,
@@ -3951,10 +4918,11 @@ app.post('/api/admin/reset/matching', async (req, res) => {
         notifications,
         final_assessment,
         matching_import_rows,
-        matching_import_batches,
         evaluations
       RESTART IDENTITY CASCADE
     `);
+    // batches 는 참조를 끊었으므로 DELETE 로 안전하게 비운다.
+    await client.query('DELETE FROM matching_import_batches');
     // employees 의 매칭 임포트로 갱신되는 컬럼만 NULL 로 리셋. 프로필 정보는 보존.
     const { rowCount } = await client.query(
       `UPDATE employees
@@ -3995,6 +4963,25 @@ app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
     // Simple query ??the `evaluations` table has an `id` column.
     // No `evaluation_id` column exists, so we just select all fields.
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
+    const requestedEvaluatorId =
+      typeof req.query.evaluatorId === 'string' && req.query.evaluatorId.trim()
+        ? req.query.evaluatorId.trim()
+        : null;
+    const evaluatorIndex = 2 + filter.values.length;
+    const evaluatorClause = requestedEvaluatorId
+      ? `AND latest_ah.new_evaluator_id = $${evaluatorIndex}`
+      : '';
+    const params = requestedEvaluatorId
+      ? [req.params.employeeId, ...filter.values, requestedEvaluatorId]
+      : [req.params.employeeId, ...filter.values];
+    const orderClause = requestedEvaluatorId
+      ? 'ORDER BY ev.created_at DESC'
+      : `ORDER BY
+          CASE
+            WHEN latest_ah.new_evaluator_id IS NOT DISTINCT FROM emp.evaluator_id THEN 0
+            ELSE 1
+          END,
+          ev.created_at DESC`;
     const { rows } = await pool.query(
       `
         SELECT
@@ -4019,17 +5006,20 @@ app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
         LEFT JOIN employees ev_emp ON ev_emp.employee_id = latest_ah.new_evaluator_id
         WHERE ev.evaluatee_id = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
-          AND COALESCE(ev.record_status, 'active') = 'active'
-          AND latest_ah.id IS NOT NULL
-        ORDER BY
-          CASE
-            WHEN latest_ah.new_evaluator_id IS NOT DISTINCT FROM emp.evaluator_id THEN 0
-            ELSE 1
-          END,
-          ev.created_at DESC
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )          ${evaluatorClause}
+        ${orderClause}
         LIMIT 1
       `,
-      [req.params.employeeId, ...filter.values]
+      params
     );
     res.json(rows[0] ?? null);
   } catch (err) {
@@ -4176,6 +5166,91 @@ app.put('/api/evaluation-periods/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/evaluation-periods/:id', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'SELECT * FROM evaluation_periods WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const period = rows[0];
+    if (!period) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Evaluation period not found' });
+    }
+    if (period.status === 'locked') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '잠금된 평가기간은 삭제할 수 없습니다. 먼저 잠금을 해제하세요.' });
+    }
+    if (period.is_default) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '기본 평가기간은 삭제할 수 없습니다.' });
+    }
+
+    // 실제 과업/점수 데이터가 입력된 evaluation 이 하나라도 있으면 삭제 차단.
+    // (직원 등록 트리거가 자동 생성한 '빈 draft evaluation' 은 데이터로 보지 않는다.)
+    const { rows: dataRows } = await client.query(
+      `
+        SELECT 1
+        FROM evaluations ev
+        WHERE ev.evaluation_period_id = $1
+          AND (
+            EXISTS (SELECT 1 FROM tasks t WHERE t.evaluation_id = ev.id AND t.deleted_at IS NULL)
+            OR EXISTS (SELECT 1 FROM task_evaluation_entries tee WHERE tee.evaluation_id = ev.id)
+          )
+        LIMIT 1
+      `,
+      [req.params.id]
+    );
+    if (dataRows[0]) {
+      await client.query('ROLLBACK');
+      return res
+        .status(409)
+        .json({ error: '과업·점수가 입력된 평가가 있어 삭제할 수 없습니다.' });
+    }
+
+    // 빈 evaluation 들과 그에 묶인 부수 데이터를 정리한 뒤 평가기간 삭제.
+    await client.query(
+      `DELETE FROM feedback_history WHERE evaluation_id IN (SELECT id FROM evaluations WHERE evaluation_period_id = $1)`,
+      [req.params.id]
+    );
+    await client.query(
+      `DELETE FROM task_evaluation_entries WHERE evaluation_id IN (SELECT id FROM evaluations WHERE evaluation_period_id = $1)`,
+      [req.params.id]
+    );
+    await client.query(
+      `DELETE FROM tasks WHERE evaluation_id IN (SELECT id FROM evaluations WHERE evaluation_period_id = $1)`,
+      [req.params.id]
+    );
+    // evaluation 의 assignment_history_id 참조 해제 후 평가기간/평가건 단위 이력 정리.
+    await client.query(
+      `UPDATE evaluations SET assignment_history_id = NULL WHERE evaluation_period_id = $1`,
+      [req.params.id]
+    );
+    await client.query(
+      `DELETE FROM evaluator_assignment_history
+        WHERE evaluation_period_id = $1
+           OR evaluation_id IN (SELECT id FROM evaluations WHERE evaluation_period_id = $1)`,
+      [req.params.id]
+    );
+    await client.query('DELETE FROM evaluations WHERE evaluation_period_id = $1', [req.params.id]);
+    await client.query('DELETE FROM evaluation_periods WHERE id = $1', [req.params.id]);
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted_id: req.params.id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting evaluation period:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/evaluations', async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query);
@@ -4229,9 +5304,7 @@ app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
         LEFT JOIN employees ev_emp ON ev_emp.employee_id = latest_ah.new_evaluator_id
         WHERE ev.evaluatee_id = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
-          AND COALESCE(ev.record_status, 'active') = 'active'
-          AND latest_ah.id IS NOT NULL
-        ORDER BY
+          AND COALESCE(ev.record_status, 'active') = 'active'        ORDER BY
           CASE WHEN ev.evaluation_status = 'draft' THEN 0 ELSE 1 END,
           latest_ah.changed_at DESC NULLS LAST,
           ev.created_at DESC
@@ -4269,9 +5342,7 @@ app.get('/api/evaluation/:id', async (req, res) => {
         ) latest_ah ON TRUE
         LEFT JOIN employees ev_emp ON ev_emp.employee_id = latest_ah.new_evaluator_id
         WHERE ev.id = $1
-          AND COALESCE(ev.record_status, 'active') = 'active'
-          AND latest_ah.id IS NOT NULL
-        LIMIT 1
+          AND COALESCE(ev.record_status, 'active') = 'active'        LIMIT 1
       `,
       [req.params.id]
     );
@@ -4306,8 +5377,24 @@ app.post('/api/evaluation', async (req, res) => {
           LEFT JOIN evaluator_assignment_history h
             ON h.evaluation_id = ev.id
             AND h.status = 'cancelled'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = h.evaluation_id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
           WHERE ${existingFilter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year').replaceAll('evaluatee_id', 'ev.evaluatee_id')}
-            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND (
+              COALESCE(ev.record_status, 'active') = 'active'
+              OR EXISTS (
+                SELECT 1
+                FROM evaluator_assignment_history live
+                WHERE live.evaluation_id = ev.id
+                  AND live.status = 'applied'
+                  AND live.change_type <> 'cancel'
+              )
+            )
             AND h.id IS NULL
           ORDER BY ev.created_at DESC
           LIMIT 1
@@ -4339,21 +5426,81 @@ app.put('/api/evaluation/:id', async (req, res) => {
     return sendDbUnavailable(res);
   }
 
+  const client = await pool.connect();
   try {
     await assertEvaluationWritableById(req.params.id);
+    await client.query('BEGIN');
+
+    const { rows: priorRows } = await client.query(
+      `
+        SELECT ev.id, ev.evaluatee_id, ev.evaluatee_name, ev.evaluation_status,
+               ah.new_evaluator_id AS evaluator_id,
+               ev_emp.name AS evaluator_name
+        FROM evaluations ev
+        LEFT JOIN evaluator_assignment_history ah ON ah.id = ev.assignment_history_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
+        WHERE ev.id = $1
+        LIMIT 1
+      `,
+      [req.params.id]
+    );
+    const prior = priorRows[0];
+
     const updates = req.body;
     const set = Object.keys(updates)
       .map((k, i) => `${k} = $${i + 1}`)
       .join(', ');
     const values = [...Object.values(updates), req.params.id];
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `UPDATE evaluations SET ${set}, updated_at = NOW() WHERE id = $${values.length} RETURNING *`,
       values
     );
-    res.json(rows[0]);
+    const after = rows[0];
+
+    // 상태 전이 알림 — 평가의 owner 평가자/피평가자를 사용해 과거 평가자도 정상 수신
+    if (prior && after && prior.evaluation_status !== after.evaluation_status) {
+      const beforeStatus = prior.evaluation_status;
+      const afterStatus = after.evaluation_status;
+      const evaluatorId = prior.evaluator_id;
+      const evaluatorName = prior.evaluator_name || '평가자';
+      const evaluateeId = prior.evaluatee_id;
+      const evaluateeName = prior.evaluatee_name || '피평가자';
+
+      if (afterStatus === 'submitted' && evaluatorId) {
+        await insertNotificationRow(client, {
+          notificationType: 'evaluation_submitted',
+          title: '피평가자가 평가를 최종제출했습니다',
+          message: `${evaluateeName}님이 평가를 최종제출했습니다. 검토를 시작해 주세요.`,
+          priority: 'high',
+          senderId: evaluateeId,
+          senderName: evaluateeName,
+          recipientId: evaluatorId,
+          relatedEvaluationId: req.params.id,
+        });
+      }
+
+      if (afterStatus === 'completed' && beforeStatus !== 'completed' && evaluatorId) {
+        await insertNotificationRow(client, {
+          notificationType: 'evaluation_completed',
+          title: '평가자가 평가를 완료했습니다',
+          message: `${evaluatorName}님이 평가를 완료했습니다.`,
+          priority: 'medium',
+          senderId: evaluatorId,
+          senderName: evaluatorName,
+          recipientId: evaluateeId,
+          relatedEvaluationId: req.params.id,
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json(after);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating evaluation:', err);
     res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -4457,9 +5604,10 @@ app.post('/api/evaluation/:id/reopen', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Evaluation not found' });
     }
-    if (evaluation.evaluation_status !== 'completed') {
+    // submitted/evaluating/completed 모두 돌려보내기 허용 (평가자가 시작 전이어도 가능)
+    if (!['completed', 'submitted', 'evaluating'].includes(evaluation.evaluation_status)) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Evaluation is not in completed state' });
+      return res.status(400).json({ error: 'Evaluation is not in a reviewable state' });
     }
     await client.query(
       `
@@ -4553,9 +5701,25 @@ app.get('/api/evaluations/status/:status', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE ev.evaluation_status = $1
           AND ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
-          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )
           AND h.id IS NULL
         ORDER BY ev.created_at DESC
       `,
@@ -4600,6 +5764,20 @@ app.get('/api/tasks/evaluation/:evaluationId', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         LEFT JOIN LATERAL (
           SELECT COUNT(*) AS total_count
           FROM task_evaluation_entries tee
@@ -4620,7 +5798,16 @@ app.get('/api/tasks/evaluation/:evaluationId', async (req, res) => {
           LIMIT 1
         ) latest ON true
         WHERE t.evaluation_id = $1
-          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )
           AND h.id IS NULL
         ORDER BY t.created_at DESC
       `,
@@ -4667,6 +5854,13 @@ app.get('/api/tasks/current-year', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         LEFT JOIN LATERAL (
           SELECT COUNT(*) AS total_count
           FROM task_evaluation_entries tee
@@ -4687,7 +5881,16 @@ app.get('/api/tasks/current-year', async (req, res) => {
           LIMIT 1
         ) latest ON true
         WHERE ${filter.clause.replaceAll('evaluation_period_id', 't.evaluation_period_id').replaceAll('evaluation_year', 't.evaluation_year')}
-          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )
           AND h.id IS NULL
         ORDER BY t.created_at DESC
       `,
@@ -4716,9 +5919,25 @@ app.get('/api/task-evaluation-entries/evaluation/:evaluationId', async (req, res
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE tee.evaluation_id = $1
           AND COALESCE(tee.status, 'active') = 'active'
-          AND COALESCE(ev.record_status, 'active') = 'active'
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )
           AND h.id IS NULL
         ORDER BY tee.updated_at DESC, tee.created_at DESC
       `,
@@ -4983,6 +6202,13 @@ app.get('/api/feedbacks', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE COALESCE(fh.status, 'active') = 'active'
           AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
           AND h.id IS NULL
@@ -5006,6 +6232,13 @@ app.get('/api/feedback/:id', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE fh.id = $1
           AND COALESCE(fh.status, 'active') = 'active'
           AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
@@ -5087,6 +6320,13 @@ app.get('/api/feedbacks/task/:taskId', async (req, res) => {
         LEFT JOIN evaluator_assignment_history h
           ON h.evaluation_id = ev.id
           AND h.status = 'cancelled'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM evaluator_assignment_history live
+            WHERE live.evaluation_id = h.evaluation_id
+              AND live.status = 'applied'
+              AND live.change_type <> 'cancel'
+          )
         WHERE fh.task_id = $1
           AND COALESCE(fh.status, 'active') = 'active'
           AND (ev.id IS NULL OR COALESCE(ev.record_status, 'active') = 'active')
@@ -5404,11 +6644,11 @@ app.put('/api/prompt/:key', async (req, res) => {
   try {
     const { content, description } = req.body;
     const key = req.params.key;
-    
+
     // UPSERT: Insert if not exists, Update if exists
     // Default description if not provided
     const desc = description || '?ъ슜???뺤쓽 ?꾨＼?꾪듃';
-    
+
     const { rows } = await pool.query(
       `INSERT INTO prompt_templates (key, description, content)
        VALUES ($1, $2, $3)
@@ -5426,13 +6666,29 @@ app.put('/api/prompt/:key', async (req, res) => {
   }
 });
 
+app.delete('/api/prompt/:key', async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM prompt_templates WHERE key = $1',
+      [req.params.key]
+    );
+    if (!rowCount) {
+      return res.status(404).json({ error: 'Prompt not found' });
+    }
+    res.json({ ok: true, deleted_key: req.params.key });
+  } catch (err) {
+    console.error('Error deleting prompt:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Health?멵heck endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 /* ==================== Server Start ==================== */
 
-const PORT = 5000;
+const PORT = Number(process.env.PORT) || 5000;
 app.listen(PORT, () => {
   console.log(`?윟 API server listening on http://localhost:${PORT}`);
 });

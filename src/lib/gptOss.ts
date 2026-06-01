@@ -23,6 +23,15 @@ const DEFAULT_PROMPTS: PromptTemplate[] = [
 구체적 행동, 결과, 협업/영향, 다음 개선 방향을 포함하고 평가 기준과 무관한 표현은 넣지 마세요.`,
   },
   {
+    key: 'performance_report_draft',
+    description: '피평가자 성과보고 내용 초안 생성',
+    content: `당신은 피평가자가 성과보고 내용을 구체적으로 작성하도록 돕는 AI입니다.
+입력된 과업명, 기간, 가중치, 기존 내용을 바탕으로 500자 이내의 성과보고 초안을 작성하세요.
+업무 목적, 본인의 역할, 수행 내용, 결과/영향, 협업 내용을 자연스러운 문단으로 정리하세요.
+입력에 없는 정량 성과나 사실은 만들지 말고, 확인이 필요한 부분은 완곡하게 표현하세요.
+평가자가 기여방식과 기여범위를 판단할 수 있도록 행동 중심으로 작성하세요.`,
+  },
+  {
     key: 'feedback_improvement',
     description: '평가 피드백 문장 교정',
     content: `당신은 문서 교정 전문가입니다.
@@ -62,6 +71,34 @@ const DEFAULT_PROMPTS: PromptTemplate[] = [
     key: 'ai_connection_test',
     description: 'AI 연결 상태 테스트',
     content: 'AI 연결 상태를 확인하기 위한 짧은 응답을 한국어로 작성하세요.',
+  },
+  {
+    key: 'growth_suggestion',
+    description: '피평가자 과업 점수·기여 맥락 기반 성장 제안',
+    content: `당신은 OK금융그룹 기여도평가 시스템의 피평가자 성장 코치입니다.
+주어진 과업 정보·점수·기여 맥락을 보고 다음 평가에서 한 단계 더 성장하기 위한 구체적 조언을 250자 이내로 작성하세요.
+- 잘된 점은 한두 문장으로 짧게, 보완해야 할 점과 다음 행동을 명확히 제시하세요.
+- 점수에 대한 일반론적 격려는 피하고, 기여방식(총괄/리딩/실무/지원)·기여범위(의존적/독립적/상호적/전략적)를 활용한 구체적 제안을 하세요.
+- 한국어 존댓말로 작성하고, 별표·이모지·머리표는 쓰지 마세요.`,
+  },
+  {
+    key: 'feedback_summary_evaluatee',
+    description: '피평가자 본인이 받은 전체 피드백 요약',
+    content: `당신은 피평가자에게 받은 피드백을 정리해 보여 주는 코칭 도우미입니다.
+주어진 피드백 목록을 종합해 280자 이내로 요약하세요.
+- 반복적으로 칭찬받은 강점 1~2개를 키워드 중심으로 정리합니다.
+- 두 번 이상 지적된 약점이나 보완 영역 1개를 구체적으로 언급합니다.
+- 다음 평가 라운드에서 시도해 볼 행동 1개를 한 문장으로 제안합니다.
+- 한국어 존댓말, 평이한 표현. 별표·머리표·이모지는 쓰지 마세요.`,
+  },
+  {
+    key: 'feedback_summary_evaluator',
+    description: '평가자가 한 피평가자에게 작성한 피드백 요약',
+    content: `당신은 평가자의 피드백 작성 결과를 정리하는 분석 도우미입니다.
+평가자가 특정 피평가자에게 작성한 피드백들을 종합해 280자 이내로 요약하세요.
+- 평가자가 일관되게 강조한 강점 키워드와 점수 분포 요지를 정리하세요.
+- 피드백에서 누락된 측면(예: 기여범위 확장·후속 행동·정량적 결과 등)이 있으면 평가자에게 보완하라고 제안하세요.
+- 한국어 존댓말, 평가자 시점. 별표·머리표·이모지는 쓰지 마세요.`,
   },
   {
     key: 'evaluator_qna_assistant',
@@ -154,6 +191,23 @@ export function updatePrompt(key: string, content: string, description?: string)
     });
 }
 
+// 새 프롬프트 생성 — 서버 PUT 이 upsert 라 동일 엔드포인트 사용. 키 중복 시 덮어쓰기 방지를 위해
+// 호출부(폼)에서 사전에 fetchAllPrompts 로 키 중복을 검사한다.
+export function createPrompt(key: string, content: string, description?: string): Promise<PromptTemplate> {
+  return updatePrompt(key, content, description);
+}
+
+export function deletePrompt(key: string): Promise<{ ok: true; deleted_key: string }> {
+  return fetch(`/api/prompt/${encodeURIComponent(key)}`, { method: 'DELETE' })
+    .then(async (res) => {
+      if (!res.ok) {
+        const message = await res.text().catch(() => '');
+        throw new Error(`Failed to delete prompt "${key}": ${res.status} ${message}`);
+      }
+      return res.json();
+    });
+}
+
 // GPT‑OSS API 설정 (인증 없이 로컬 엔드포인트)
 const GPT_OSS_URL = `http://172.17.170.201:8000/v1/chat/completions`;
 
@@ -229,6 +283,41 @@ async function callGptOss(prompt: string, options: { timeoutMs?: number } = {}):
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+/**
+ * 피평가자 성과보고 내용 초안 생성
+ */
+export async function generatePerformanceReportDraft(input: {
+  taskTitle: string;
+  currentDescription?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  weight?: number | null;
+}): Promise<string> {
+  const template = await fetchPrompt('performance_report_draft');
+  const guide = await fetchPrompt('evaluation_guide');
+  const period =
+    input.startDate || input.endDate
+      ? `${input.startDate || '시작일 미기재'} ~ ${input.endDate || '종료일 미기재'}`
+      : '미기재';
+  const prompt = `${template}
+
+[평가 기준]
+${guide}
+
+**과업명:** ${input.taskTitle}
+**기간:** ${period}
+**가중치:** ${input.weight == null ? '미기재' : `${input.weight}%`}
+${input.currentDescription?.trim() ? `**기존 작성 내용:** ${input.currentDescription.trim()}` : ''}
+
+**요구사항:**
+1. 피평가자 본인이 작성한 성과보고 문장처럼 작성
+2. 기존 작성 내용이 있으면 핵심 사실은 유지하고 더 명확하게 보완
+3. 과장된 표현, 없는 수치, 평가자 관점의 점수 판단은 제외
+4. 500자 이내, 한국어 존댓말 또는 보고서 문체로 완성`;
+
+  return await callGptOss(prompt);
 }
 
 /**
@@ -361,6 +450,97 @@ export async function chatWithAI(
 }
 
 /**
+ * 피평가자 과업 맥락 기반 성장 제안 (피평가자 화면 AI 성장 제안)
+ */
+export async function generateGrowthSuggestion(input: {
+  taskTitle: string;
+  taskDescription?: string | null;
+  score: number | null;
+  contributionMethod?: string | null;
+  contributionScope?: string | null;
+  feedback?: string | null;
+  growthLevel?: number | null;
+}): Promise<string> {
+  const template = await fetchPrompt('growth_suggestion');
+  const guide = await fetchPrompt('evaluation_guide');
+  const prompt = `${template}
+
+[평가 기준]
+${guide}
+
+**과업명:** ${input.taskTitle}
+**과업내용:** ${input.taskDescription || '(미기재)'}
+**기여방식:** ${input.contributionMethod || '(미기재)'}
+**기여범위:** ${input.contributionScope || '(미기재)'}
+**점수:** ${input.score == null ? '평가 전' : `${input.score}점`}
+${input.growthLevel != null ? `**피평가자 성장레벨:** Lv.${input.growthLevel}` : ''}
+${input.feedback ? `**받은 피드백:** ${input.feedback}` : ''}
+
+위 정보를 바탕으로 다음 평가에서 한 단계 성장하기 위한 제안을 250자 이내로 작성하세요.`;
+  return await callGptOss(prompt);
+}
+
+/**
+ * 피평가자 본인이 받은 피드백 목록 요약 (피평가자 피드백 이력 화면)
+ */
+export type FeedbackForSummary = {
+  taskTitle: string;
+  content: string;
+  score?: number | null;
+  evaluatorName?: string | null;
+};
+
+export async function generateFeedbackSummaryForEvaluatee(
+  feedbacks: FeedbackForSummary[],
+): Promise<string> {
+  if (feedbacks.length === 0) return '아직 받은 피드백이 없습니다.';
+  const template = await fetchPrompt('feedback_summary_evaluatee');
+  const list = feedbacks
+    .slice(0, 30)
+    .map(
+      (f, i) =>
+        `${i + 1}. [${f.taskTitle}${f.score != null ? ` · ${f.score}점` : ''}] ${f.content}`,
+    )
+    .join('\n');
+  const prompt = `${template}
+
+[받은 피드백 목록]
+${list}
+
+위 피드백을 종합한 요약을 280자 이내로 작성하세요.`;
+  return await callGptOss(prompt);
+}
+
+/**
+ * 평가자가 특정 피평가자에게 작성한 피드백 요약 (평가자 피드백 내역 화면)
+ */
+export async function generateFeedbackSummaryForEvaluator(
+  evaluateeName: string,
+  feedbacks: FeedbackForSummary[],
+): Promise<string> {
+  if (feedbacks.length === 0) {
+    return `${evaluateeName}님에게 아직 작성한 피드백이 없습니다.`;
+  }
+  const template = await fetchPrompt('feedback_summary_evaluator');
+  const list = feedbacks
+    .slice(0, 30)
+    .map(
+      (f, i) =>
+        `${i + 1}. [${f.taskTitle}${f.score != null ? ` · ${f.score}점` : ''}] ${f.content}`,
+    )
+    .join('\n');
+  const prompt = `${template}
+
+**피평가자:** ${evaluateeName}
+
+[작성한 피드백 목록]
+${list}
+
+위 피드백을 종합한 요약을 280자 이내로 작성하세요.`;
+  return await callGptOss(prompt);
+}
+
+/**
  * Gemini API 키 확인 (인증이 없으므로 항상 true 반환)
  */
 export function checkGeminiKey(): boolean {
@@ -377,6 +557,29 @@ export async function testGeminiConnection(): Promise<{ success: boolean; respon
     return { success: true, response };
   } catch (error) {
     console.error('❌ GPT‑OSS 연결 실패:', error);
+    return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
+  }
+}
+
+/**
+ * 작성 중인 프롬프트 초안을 저장하지 않고 즉석에서 LLM에 보내 응답을 받아온다.
+ * HR 프롬프트 관리 화면의 "테스트" 버튼이 사용.
+ */
+export async function testPromptDraft(
+  systemPrompt: string,
+  userInput?: string,
+): Promise<{ success: boolean; response?: string; error?: string }> {
+  const trimmed = systemPrompt.trim();
+  if (!trimmed) {
+    return { success: false, error: '프롬프트 내용이 비어 있습니다.' };
+  }
+  const sample = userInput?.trim() || '위 지시 사항이 정상적으로 적용되는지 한 문단으로 답해 주세요.';
+  try {
+    const merged = `${trimmed}\n\n[테스트 입력]\n${sample}`;
+    const response = await callGptOss(merged);
+    return { success: true, response };
+  } catch (error) {
+    console.error('❌ 프롬프트 초안 테스트 실패:', error);
     return { success: false, error: error instanceof Error ? error.message : '알 수 없는 오류' };
   }
 }
