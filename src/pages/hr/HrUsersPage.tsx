@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSearch, Pill } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
@@ -16,9 +16,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import EvaluatorHistoryModal from '@/components/hr/EvaluatorHistoryModal';
+import AddEmployeeModal, { type NewEmployeeInput } from '@/components/hr/AddEmployeeModal';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
+import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
+import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
+  Evaluation,
   EvaluationStatus,
   EvaluatorAssignmentHistory,
   UserRole,
@@ -56,14 +60,6 @@ const roleLabel = (role: UserRole) => {
   return '피평가자';
 };
 
-const statusOptions: Array<{ id: EvaluationStatus; label: string }> = [
-  { id: 'in-progress', label: '작성 중' },
-  { id: 'submitted', label: '검토 대기' },
-  { id: 'evaluating', label: '평가 중' },
-  { id: 'completed', label: '완료' },
-  { id: 'locked', label: '잠금' },
-];
-
 const statusLabel = (status?: EvaluationStatus | null) => {
   if (status === 'submitted') return '검토 대기';
   if (status === 'evaluating') return '평가 중';
@@ -87,23 +83,12 @@ type EmployeeEditForm = {
   position: string;
   department: string;
   growthLevel: string;
-  evaluatorId: string;
-  assignmentStartDate: string;
-  evaluationPeriodId: string;
   roles: UserRole[];
 };
 
 type AssignmentChangeOptions = {
   startDate: string;
   evaluationPeriodId: string | null;
-};
-
-const todayInputValue = () => {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 };
 
 const toCellText = (value: unknown) => {
@@ -288,12 +273,21 @@ const buildEmployeeProfileRows = (
     .filter((row) => row.employee_id || row.employee_name);
 };
 
+type PendingUpload =
+  | { kind: 'profile'; fileName: string; rows: EmployeeProfileImportRowInput[]; result: DiffResult }
+  | {
+      kind: 'matching';
+      fileName: string;
+      sheetName: string;
+      rows: MatchingImportRowInput[];
+      result: DiffResult;
+    };
+
 const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
-  const [statusDrafts, setStatusDrafts] = useState<Record<string, EvaluationStatus>>({});
   const [updatingEvaluationId, setUpdatingEvaluationId] = useState<string | null>(null);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
@@ -305,10 +299,24 @@ const HrUsersPage = () => {
   >({});
   const [loadingHistoryEmployeeId, setLoadingHistoryEmployeeId] = useState<string | null>(null);
   const [historyActionId, setHistoryActionId] = useState<string | null>(null);
+  const [evaluationsByEmployee, setEvaluationsByEmployee] = useState<Record<string, Evaluation[]>>({});
+  const [loadingEvaluationsEmployeeId, setLoadingEvaluationsEmployeeId] = useState<string | null>(null);
   const [isImportingProfiles, setIsImportingProfiles] = useState(false);
   const [isImportingMatching, setIsImportingMatching] = useState(false);
   const [isExportingProfiles, setIsExportingProfiles] = useState(false);
   const [isExportingMatching, setIsExportingMatching] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
+  const [isApplyingUpload, setIsApplyingUpload] = useState(false);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
+  // 다중 선택 + 페이지네이션
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEvaluatorId, setBulkEvaluatorId] = useState('');
+  const [bulkChangeDate, setBulkChangeDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bulkActionRunning, setBulkActionRunning] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [pageIndex, setPageIndex] = useState(0);
   const { employees, records, isLoading, error, reload } = useAllEmployees();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -329,6 +337,8 @@ const HrUsersPage = () => {
     () =>
       employees
         .filter((employee) => employee.employee_id !== 'admin')
+        // 사번이 영문자로 시작하는 잘못된 데이터는 평가자 후보에서 숨김.
+        .filter((employee) => !/^[A-Za-z]/.test(employee.employee_id))
         .filter((employee) => employee.available_roles.includes('evaluator'))
         .sort((a, b) => a.department.localeCompare(b.department) || a.name.localeCompare(b.name)),
     [employees],
@@ -338,6 +348,15 @@ const HrUsersPage = () => {
     () =>
       [...employees]
         .filter((employee) => employee.employee_id !== 'admin')
+        // 표시 대상:
+        //  - 평가 대상자(evaluatee): 선택한 평가기간에 evaluation 이 있는 직원만.
+        //    (대상자 업로드 시 그 평가기간에 evaluation 이 생성되므로, 업로드한 평가기간 화면에만 나온다.)
+        //  - 평가자/HR 전용(evaluatee 아님): 평가 대상이 아니므로 평가기간과 무관하게 항상 표시.
+        .filter((employee) => {
+          const isEvaluatee = employee.available_roles.includes('evaluatee');
+          if (!isEvaluatee) return true;
+          return Boolean(recordMap.get(employee.employee_id)?.evaluation);
+        })
         .filter((employee) => {
           const normalizedQuery = query.trim().toLowerCase();
           const matchesQuery =
@@ -351,8 +370,43 @@ const HrUsersPage = () => {
           return matchesQuery && matchesRole;
         })
         .sort((a, b) => a.department.localeCompare(b.department) || a.name.localeCompare(b.name)),
-    [employees, query, selectedRole],
+    [employees, recordMap, query, selectedRole],
   );
+
+  // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
+  const totalFiltered = filteredEmployees.length;
+  const pageCount = Math.max(1, Math.ceil(totalFiltered / pageSize));
+  const currentPage = Math.min(pageIndex, pageCount - 1);
+  const pagedEmployees = useMemo(
+    () => filteredEmployees.slice(currentPage * pageSize, currentPage * pageSize + pageSize),
+    [filteredEmployees, currentPage, pageSize],
+  );
+  // 검색·역할·평가기간·페이지크기가 바뀌면 첫 페이지로.
+  useEffect(() => {
+    setPageIndex(0);
+  }, [query, selectedRole, selectedPeriodId, pageSize]);
+
+  // 다중 선택 (현재 페이지 기준 전체선택, 선택 자체는 페이지 넘어가도 유지).
+  const pageIds = useMemo(() => pagedEmployees.map((e) => e.employee_id), [pagedEmployees]);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const somePageSelected = pageIds.some((id) => selectedIds.has(id));
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleSelectPage = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  const clearSelection = () => setSelectedIds(new Set());
 
   const getEvaluatorLabel = (evaluatorId?: string | null, evaluatorName?: string | null) => {
     if (evaluatorName) return evaluatorName;
@@ -379,9 +433,27 @@ const HrUsersPage = () => {
     }
   };
 
+  const loadEmployeeEvaluations = async (employeeId: string, force = false) => {
+    if (!force && evaluationsByEmployee[employeeId]) return;
+    setLoadingEvaluationsEmployeeId(employeeId);
+    try {
+      const list = await evaluationService.getEvaluationsByEmployeeId(employeeId);
+      setEvaluationsByEmployee((prev) => ({ ...prev, [employeeId]: list }));
+    } catch (error) {
+      console.error('평가 목록 조회 실패:', error);
+      toast({
+        title: '평가 목록 조회 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingEvaluationsEmployeeId((prev) => (prev === employeeId ? null : prev));
+    }
+  };
+
   const openAssignmentHistory = async (employeeId: string) => {
     setHistoryModalEmployeeId(employeeId);
-    await loadAssignmentHistory(employeeId);
+    await Promise.all([loadAssignmentHistory(employeeId), loadEmployeeEvaluations(employeeId)]);
   };
 
   const closeAssignmentHistory = () => {
@@ -395,9 +467,6 @@ const HrUsersPage = () => {
       position: employee.position,
       department: employee.department,
       growthLevel: employee.growth_level == null ? '' : String(employee.growth_level),
-      evaluatorId: employee.evaluator_id ?? '',
-      assignmentStartDate: todayInputValue(),
-      evaluationPeriodId: selectedPeriodId ?? periods[0]?.id ?? '',
       roles: employee.available_roles as UserRole[],
     });
   };
@@ -420,18 +489,13 @@ const HrUsersPage = () => {
     });
   };
 
-  const saveEmployeeEdit = async (
-    employee: Employee,
-    evaluatorMode: 'assignment' | 'direct' = 'assignment',
-  ) => {
+  const saveEmployeeEdit = async (employee: Employee) => {
     if (!editForm) return;
 
     const name = editForm.name.trim();
     const position = editForm.position.trim();
     const department = editForm.department.trim();
     const growthLevel = editForm.growthLevel.trim();
-    const nextEvaluatorId = editForm.evaluatorId || null;
-    const evaluatorChanged = (employee.evaluator_id ?? null) !== nextEvaluatorId;
 
     if (!name || !position || !department) {
       toast({
@@ -464,72 +528,15 @@ const HrUsersPage = () => {
       return;
     }
 
-    if (evaluatorChanged && (!editForm.assignmentStartDate || !editForm.evaluationPeriodId)) {
-      toast({
-        title: '평가자 변경 기준을 선택해주세요.',
-        description: '변경 시작일과 평가기간을 모두 선택해야 합니다.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (evaluatorMode === 'direct' && !evaluatorChanged) {
-      toast({
-        title: '평가자 수정 대상이 없습니다.',
-        description: '현재 평가자와 다른 평가자를 선택한 뒤 실행해주세요.',
-      });
-      return;
-    }
-
-    if (evaluatorMode === 'direct') {
-      const ok = window.confirm(
-        `${employee.name}님의 평가자를 이력 없이 수정할까요?\n\n기존 평가자가 입력한 평가/피드백은 수정한 평가자에게 그대로 승계됩니다.`,
-      );
-      if (!ok) return;
-    } else if (evaluatorChanged) {
-      const ok = window.confirm(
-        `${employee.name}님의 평가자 변경 이력을 남기고 새 평가건을 생성할까요?\n\n잘못 매칭을 바로잡는 경우라면 "평가자 수정"을 사용하세요.`,
-      );
-      if (!ok) return;
-    }
-
     setSavingEmployeeId(employee.employee_id);
     try {
-      const baseUpdates = {
+      await employeeService.updateEmployee(employee.employee_id, {
         name,
         position,
         department,
         growth_level: parsedGrowthLevel,
         available_roles: editForm.roles,
         changed_by: actorId,
-      };
-
-      if (evaluatorMode === 'direct') {
-        await employeeService.updateEmployee(employee.employee_id, baseUpdates);
-        const result = await employeeService.editEvaluator(employee.employee_id, {
-          evaluator_id: nextEvaluatorId,
-          changed_by: actorId,
-          changed_at: editForm.assignmentStartDate,
-          evaluation_period_id: editForm.evaluationPeriodId,
-          reason: 'HR evaluator edit',
-        });
-        await reload();
-        cancelEditing();
-        toast({
-          title: '평가자가 수정되었습니다.',
-          description:
-            result.transferred_entries + result.merged_entries > 0
-              ? `기존 평가 ${result.transferred_entries + result.merged_entries}건을 수정한 평가자에게 넘겼습니다.`
-              : '평가자 변경 이력 없이 현재 평가자만 수정했습니다.',
-        });
-        return;
-      }
-
-      await employeeService.updateEmployee(employee.employee_id, {
-        ...baseUpdates,
-        evaluator_id: nextEvaluatorId,
-        changed_at: editForm.assignmentStartDate,
-        evaluation_period_id: editForm.evaluationPeriodId,
       });
       await reload();
       cancelEditing();
@@ -693,8 +700,8 @@ const HrUsersPage = () => {
     evaluationId: string,
     employeeName: string,
     currentStatus: EvaluationStatus,
+    nextStatus: EvaluationStatus,
   ) => {
-    const nextStatus = statusDrafts[evaluationId] ?? currentStatus;
     if (nextStatus === currentStatus) return;
 
     const ok = window.confirm(
@@ -704,15 +711,23 @@ const HrUsersPage = () => {
 
     setUpdatingEvaluationId(evaluationId);
     try {
-      await evaluationService.updateEvaluation(evaluationId, {
+      const updated = await evaluationService.updateEvaluation(evaluationId, {
         evaluation_status: nextStatus,
         last_modified: new Date().toISOString(),
       });
-      setStatusDrafts((prev) => {
-        const next = { ...prev };
-        delete next[evaluationId];
-        return next;
-      });
+      // 모달의 평가 목록도 즉시 동기화.
+      if (historyModalEmployeeId) {
+        setEvaluationsByEmployee((prev) => {
+          const list = prev[historyModalEmployeeId];
+          if (!list) return prev;
+          return {
+            ...prev,
+            [historyModalEmployeeId]: list.map((ev) =>
+              ev.id === evaluationId ? { ...ev, ...updated, evaluation_status: nextStatus } : ev,
+            ),
+          };
+        });
+      }
       await reload();
       toast({
         title: '평가 단계가 변경되었습니다.',
@@ -730,6 +745,139 @@ const HrUsersPage = () => {
     }
   };
 
+  const handleCreateUser = async (data: NewEmployeeInput) => {
+    setIsAddingUser(true);
+    try {
+      await employeeService.createEmployee({ ...data, evaluation_period_id: selectedPeriodId });
+      await reload();
+      setShowAddModal(false);
+      toast({ title: '사용자가 추가되었습니다.', description: `${data.name} (${data.employee_id})` });
+    } catch (error) {
+      console.error('사용자 추가 실패:', error);
+      toast({
+        title: '사용자 추가 실패',
+        description: error instanceof Error ? error.message : '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (employee: Employee) => {
+    const ok = window.confirm(
+      `${employee.name}(${employee.employee_id}) 사용자를 삭제할까요?\n\n이 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다.\n되돌릴 수 없습니다.`,
+    );
+    if (!ok) return;
+    setDeletingEmployeeId(employee.employee_id);
+    try {
+      await employeeService.deleteEmployee(employee.employee_id);
+      await reload();
+      toast({ title: '사용자가 삭제되었습니다.', description: `${employee.name} (${employee.employee_id})` });
+    } catch (error) {
+      console.error('사용자 삭제 실패:', error);
+      toast({
+        title: '사용자 삭제 실패',
+        description: error instanceof Error ? error.message : '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingEmployeeId(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const ok = window.confirm(
+      `선택한 ${ids.length}명의 사용자를 삭제할까요?\n\n각 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다.\n되돌릴 수 없습니다.`,
+    );
+    if (!ok) return;
+    setBulkActionRunning(true);
+    let success = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await employeeService.deleteEmployee(id);
+        success += 1;
+      } catch (err) {
+        console.error('일괄 삭제 실패:', id, err);
+        failed.push(id);
+      }
+    }
+    await reload();
+    clearSelection();
+    setBulkActionRunning(false);
+    toast({
+      title: '일괄 삭제 완료',
+      description: `${success}명 삭제${failed.length ? ` · 실패 ${failed.length}명` : ''}`,
+      variant: failed.length ? 'destructive' : undefined,
+    });
+  };
+
+  const handleBulkEvaluatorChange = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length || !bulkEvaluatorId) return;
+    if (!selectedPeriodId) {
+      toast({
+        title: '평가기간을 선택해 주세요.',
+        description: '평가자 일괄 변경은 평가기간 기준으로 이력이 기록됩니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!bulkChangeDate) {
+      toast({
+        title: '변경일을 선택해 주세요.',
+        description: '평가자 변경(발령) 시작일 기준으로 이력이 기록됩니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const toLabel = getEvaluatorLabel(bulkEvaluatorId);
+    const ok = window.confirm(
+      `선택한 ${ids.length}명의 평가자를 "${toLabel}"(으)로 ${bulkChangeDate}부로 일괄 변경할까요?`,
+    );
+    if (!ok) return;
+    setBulkActionRunning(true);
+    let success = 0;
+    let skipped = 0;
+    const failed: string[] = [];
+    for (const id of ids) {
+      const emp = employeeMap.get(id);
+      if (!emp) {
+        failed.push(id);
+        continue;
+      }
+      if ((emp.evaluator_id ?? '') === bulkEvaluatorId) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await employeeService.updateEmployee(id, {
+          evaluator_id: bulkEvaluatorId,
+          changed_by: actorId,
+          changed_at: bulkChangeDate,
+          evaluation_period_id: selectedPeriodId,
+          reason: 'HR bulk assignment',
+        });
+        success += 1;
+      } catch (err) {
+        console.error('일괄 평가자 변경 실패:', id, err);
+        failed.push(id);
+      }
+    }
+    await reload();
+    clearSelection();
+    setBulkEvaluatorId('');
+    setBulkActionRunning(false);
+    toast({
+      title: '평가자 일괄 변경 완료',
+      description: `${success}명 변경${skipped ? ` · 동일 ${skipped}명` : ''}${failed.length ? ` · 실패 ${failed.length}명` : ''}`,
+      variant: failed.length ? 'destructive' : undefined,
+    });
+  };
+
   const openMatchingFileDialog = () => {
     if (isImportingMatching) return;
     matchingFileInputRef.current?.click();
@@ -743,7 +891,7 @@ const HrUsersPage = () => {
   const exportProfileFile = async () => {
     setIsExportingProfiles(true);
     try {
-      const result = await downloadEmployeeProfileUploadWorkbook();
+      const result = await downloadEmployeeProfileUploadWorkbook({ periodId: selectedPeriodId });
       toast({
         title: '대상자 다운로드가 완료되었습니다.',
         description: `${result.targetCount}명의 현재 대상자를 업로드 양식 그대로 받았습니다.`,
@@ -763,7 +911,7 @@ const HrUsersPage = () => {
   const exportMatchingFile = async () => {
     setIsExportingMatching(true);
     try {
-      const result = await downloadMatchingUploadWorkbook();
+      const result = await downloadMatchingUploadWorkbook({ periodId: selectedPeriodId });
       toast({
         title: '매칭 다운로드가 완료되었습니다.',
         description: `${result.rowCount ?? 0}건의 현재/이전 평가자 매칭 이력을 업로드 양식 그대로 받았습니다.`,
@@ -819,17 +967,9 @@ const HrUsersPage = () => {
         throw new Error('평가대상자 양식의 시트를 찾을 수 없습니다.');
       }
 
-      const result = await employeeService.importEmployeeProfiles({
-        source_file_name: file.name,
-        changed_by: actorId,
-        rows,
-      });
-      await reload();
-
-      toast({
-        title: '대상자 업로드가 완료되었습니다.',
-        description: `${result.applied_count}명 등록 · 평가자 ${result.evaluator_count}명 · 경고 ${result.warning_count}건`,
-      });
+      // 바로 반영하지 않고 변경 미리보기를 띄운다(증분 병합 · 미리보기 후 적용).
+      const result = diffProfileRows(rows, employees);
+      setPendingUpload({ kind: 'profile', fileName: file.name, rows, result });
     } catch (error) {
       console.error('평가대상자 엑셀 업로드 실패:', error);
       toast({
@@ -882,18 +1022,9 @@ const HrUsersPage = () => {
         throw new Error('업로드할 매칭 데이터가 없습니다.');
       }
 
-      const result = await employeeService.importMatchingRows({
-        source_file_name: file.name,
-        source_sheet_name: sheetName,
-        changed_by: actorId,
-        rows,
-      });
-      await reload();
-
-      toast({
-        title: '매칭 업로드가 완료되었습니다.',
-        description: `${result.applied_count}명 반영 · 이력 ${result.assignment_history_count ?? 0}건 · 경고 ${result.warning_count}건`,
-      });
+      // 바로 반영하지 않고, 서버 dry-run 으로 reconcile 분류(신규/변경/정정/무시/삭제)를 받아 미리보기.
+      const result = await employeeService.previewMatchingRows({ rows });
+      setPendingUpload({ kind: 'matching', fileName: file.name, sheetName: sheetName ?? '', rows, result });
     } catch (error) {
       console.error('매칭 엑셀 업로드 실패:', error);
       toast({
@@ -906,11 +1037,55 @@ const HrUsersPage = () => {
     }
   };
 
+  // 미리보기에서 "적용"을 누르면 실제 업로드를 수행한다(기존 검증된 서버 로직 사용).
+  const handleConfirmUpload = async () => {
+    if (!pendingUpload) return;
+    setIsApplyingUpload(true);
+    try {
+      if (pendingUpload.kind === 'profile') {
+        const r = await employeeService.importEmployeeProfiles({
+          source_file_name: pendingUpload.fileName,
+          changed_by: actorId,
+          evaluation_period_id: selectedPeriodId,
+          rows: pendingUpload.rows,
+        });
+        await reload();
+        toast({
+          title: '대상자 업로드가 완료되었습니다.',
+          description: `${r.applied_count}명 등록 · 평가자 ${r.evaluator_count}명 · 경고 ${r.warning_count}건`,
+        });
+      } else {
+        const r = await employeeService.importMatchingRows({
+          source_file_name: pendingUpload.fileName,
+          source_sheet_name: pendingUpload.sheetName,
+          changed_by: actorId,
+          evaluation_period_id: selectedPeriodId,
+          rows: pendingUpload.rows,
+        });
+        await reload();
+        toast({
+          title: '매칭 업로드가 완료되었습니다.',
+          description: `${r.applied_count}명 반영 · 이력 ${r.assignment_history_count ?? 0}건 · 경고 ${r.warning_count}건`,
+        });
+      }
+      setPendingUpload(null);
+    } catch (error) {
+      console.error('업로드 적용 실패:', error);
+      toast({
+        title: '업로드 적용 실패',
+        description: error instanceof Error ? error.message : '파일을 처리하지 못했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsApplyingUpload(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="사용자 관리"
-        subtitle={`${employees.length}명 · 평가 권한 & 매핑 관리`}
+        subtitle={`이 평가기간 대상자 ${records.filter((r) => r.evaluation).length}명 · 전체 등록 ${employees.length}명`}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -955,7 +1130,9 @@ const HrUsersPage = () => {
               onChange={importMatchingFile}
               style={{ display: 'none' }}
             />
-            <button className="sd-btn sd-btn-primary sd-btn-sm">+ 사용자 추가</button>
+            <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={() => setShowAddModal(true)}>
+              + 사용자 추가
+            </button>
           </div>
         }
       />
@@ -1018,6 +1195,69 @@ const HrUsersPage = () => {
             </div>
           </div>
 
+          {/* 다중 선택 일괄 작업 바 */}
+          {selectedCount > 0 && (
+            <div
+              style={{
+                padding: '12px 20px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--ok-orange-50)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <strong style={{ fontSize: 'var(--fs-body)' }}>{selectedCount}명 선택됨</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
+                  평가자 일괄 변경:
+                </span>
+                <EvaluatorPicker
+                  options={evaluatorOptions}
+                  value={bulkEvaluatorId}
+                  onChange={setBulkEvaluatorId}
+                  placeholder="평가자 선택…"
+                  minWidth={200}
+                />
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
+                  변경일
+                </span>
+                <input
+                  type="date"
+                  className="sd-input"
+                  value={bulkChangeDate}
+                  onChange={(e) => setBulkChangeDate(e.target.value)}
+                  style={{ width: 150 }}
+                />
+                <button
+                  className="sd-btn sd-btn-primary sd-btn-sm"
+                  onClick={handleBulkEvaluatorChange}
+                  disabled={bulkActionRunning || !bulkEvaluatorId}
+                >
+                  {bulkActionRunning ? '처리 중' : '적용'}
+                </button>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button
+                  className="sd-btn sd-btn-ghost sd-btn-sm"
+                  onClick={handleBulkDelete}
+                  disabled={bulkActionRunning}
+                  style={{ color: 'var(--danger, #B91C1C)' }}
+                >
+                  {bulkActionRunning ? '처리 중' : '선택 삭제'}
+                </button>
+                <button
+                  className="sd-btn sd-btn-ghost sd-btn-sm"
+                  onClick={clearSelection}
+                  disabled={bulkActionRunning}
+                >
+                  선택 해제
+                </button>
+              </div>
+            </div>
+          )}
+
           {isLoading ? (
             <div style={{ padding: 20, color: 'var(--fg-muted)' }}>직원 목록을 불러오는 중입니다.</div>
           ) : error ? (
@@ -1026,43 +1266,50 @@ const HrUsersPage = () => {
             <Table>
               <TableHeader style={{ background: 'var(--bg-muted)' }}>
                 <TableRow>
-                  <TableHead>사번</TableHead>
-                  <TableHead>이름</TableHead>
-                  <TableHead>직급</TableHead>
-                  <TableHead>부서</TableHead>
-                  <TableHead>직무</TableHead>
-                  <TableHead>레벨</TableHead>
-                  <TableHead>역할</TableHead>
-                  <TableHead>평가자</TableHead>
-                  <TableHead>평가 상태</TableHead>
-                  <TableHead>단계 변경</TableHead>
-                  <TableHead className="text-right"></TableHead>
+                  <TableHead style={{ width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={allPageSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = somePageSelected && !allPageSelected;
+                      }}
+                      onChange={toggleSelectPage}
+                      aria-label="현재 페이지 전체 선택"
+                    />
+                  </TableHead>
+                  <TableHead style={{ width: 96 }}>사번</TableHead>
+                  <TableHead style={{ width: 130 }}>이름</TableHead>
+                  <TableHead style={{ width: 100 }}>직급</TableHead>
+                  <TableHead style={{ width: 150 }}>부서</TableHead>
+                  <TableHead style={{ width: 120 }}>직무</TableHead>
+                  <TableHead style={{ width: 92 }}>레벨</TableHead>
+                  <TableHead style={{ width: 220 }}>역할</TableHead>
+                  <TableHead style={{ width: 140 }}>평가자</TableHead>
+                  <TableHead style={{ width: 110 }}>평가 상태</TableHead>
+                  <TableHead className="text-right" style={{ minWidth: 140 }}></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredEmployees.map((employee) => {
+                {pagedEmployees.map((employee) => {
                   const evaluatorName = employee.evaluator_id
                     ? (employeeMap.get(employee.evaluator_id)?.name ?? employee.evaluator_id)
                     : '-';
                   const record = recordMap.get(employee.employee_id);
                   const evaluation = record?.evaluation;
                   const currentStatus = evaluation?.evaluation_status;
-                  const selectableCurrentStatus =
-                    currentStatus === 'draft' ? 'in-progress' : currentStatus;
-                  const draftStatus = evaluation
-                    ? statusDrafts[evaluation.id] ?? selectableCurrentStatus ?? 'in-progress'
-                    : 'in-progress';
-                  const canChangeStatus = Boolean(evaluation?.id && employee.available_roles.includes('evaluatee'));
-                  const isUpdating = updatingEvaluationId === evaluation?.id;
                   const isEditing = editingEmployeeId === employee.employee_id && Boolean(editForm);
                   const isSaving = savingEmployeeId === employee.employee_id;
-                  const hasEvaluatorChange =
-                    isEditing &&
-                    Boolean(editForm) &&
-                    (employee.evaluator_id ?? '') !== editForm.evaluatorId;
                   return (
                     <Fragment key={employee.id}>
-                    <TableRow>
+                    <TableRow style={selectedIds.has(employee.employee_id) ? { background: 'var(--ok-orange-50)' } : undefined}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(employee.employee_id)}
+                          onChange={() => toggleSelect(employee.employee_id)}
+                          aria-label={`${employee.name} 선택`}
+                        />
+                      </TableCell>
                       <TableCell
                         style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}
                       >
@@ -1128,15 +1375,18 @@ const HrUsersPage = () => {
                       </TableCell>
                       <TableCell>
                         {isEditing && editForm ? (
-                          <input
+                          <select
                             className="sd-input"
-                            type="number"
-                            min={1}
-                            step={1}
                             value={editForm.growthLevel}
                             onChange={(event) => updateEditForm('growthLevel', event.target.value)}
-                            style={{ width: 72 }}
-                          />
+                            style={{ width: 84 }}
+                          >
+                            <option value="">해당없음</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                          </select>
                         ) : employee.growth_level ? (
                           <span
                             style={{
@@ -1156,14 +1406,14 @@ const HrUsersPage = () => {
                       </TableCell>
                       <TableCell>
                         {isEditing && editForm ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
                             {editableRoleOptions.map((role) => (
                               <label
                                 key={role.id}
                                 style={{
-                                  display: 'flex',
+                                  display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: 6,
+                                  gap: 4,
                                   fontSize: 'var(--fs-sm)',
                                   fontWeight: 700,
                                   color: 'var(--fg-muted)',
@@ -1180,7 +1430,7 @@ const HrUsersPage = () => {
                             ))}
                           </div>
                         ) : (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4 }}>
                             {employee.available_roles.map((role) => (
                               <span
                                 key={role}
@@ -1201,96 +1451,23 @@ const HrUsersPage = () => {
                         )}
                       </TableCell>
                       <TableCell style={{ color: isEditing ? 'var(--fg)' : 'var(--fg-muted)' }}>
-                        {isEditing && editForm ? (
-                          <EvaluatorPicker
-                            options={evaluatorOptions.filter(
-                              (option) => option.employee_id !== employee.employee_id,
-                            )}
-                            value={editForm.evaluatorId}
-                            onChange={(id) => updateEditForm('evaluatorId', id)}
-                            placeholder="이름·부서·사번으로 검색…"
-                            allowEmpty
-                            emptyLabel="평가자 없음"
-                            minWidth={180}
-                          />
-                        ) : (
-                          evaluatorName
-                        )}
+                        {evaluatorName}
                       </TableCell>
                       <TableCell>
                         <Pill tone={statusTone(currentStatus)}>
                           {statusLabel(currentStatus)}
                         </Pill>
                       </TableCell>
-                      <TableCell>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-start' }}>
-                          <select
-                            value={draftStatus}
-                            disabled={!canChangeStatus || isUpdating || isEditing}
-                            onChange={(event) =>
-                              evaluation &&
-                              setStatusDrafts((prev) => ({
-                                ...prev,
-                                [evaluation.id]: event.target.value as EvaluationStatus,
-                              }))
-                            }
-                            title={!canChangeStatus ? '평가 레코드가 있는 피평가자만 단계 변경이 가능합니다.' : undefined}
-                            style={{
-                              minWidth: 104,
-                              padding: '6px 8px',
-                              borderRadius: 8,
-                              border: '1px solid var(--border)',
-                              background: 'var(--bg-card)',
-                              color: 'var(--fg)',
-                              fontSize: 'var(--fs-sm)',
-                              fontWeight: 700,
-                              opacity: canChangeStatus && !isEditing ? 1 : 0.55,
-                            }}
-                          >
-                            {statusOptions.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            className="sd-btn sd-btn-outline sd-btn-xs"
-                            disabled={!canChangeStatus || isUpdating || isEditing || draftStatus === currentStatus}
-                            onClick={() =>
-                              evaluation &&
-                              currentStatus &&
-                              changeEvaluationStatus(evaluation.id, employee.name, currentStatus)
-                            }
-                          >
-                            {isUpdating ? '변경 중' : '변경'}
-                          </button>
-                        </div>
-                      </TableCell>
                       <TableCell className="text-right">
                         {isEditing ? (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
                             <button
                               className="sd-btn sd-btn-primary sd-btn-sm"
-                              onClick={() => saveEmployeeEdit(employee, 'assignment')}
+                              onClick={() => saveEmployeeEdit(employee)}
                               disabled={isSaving}
-                              title={
-                                hasEvaluatorChange
-                                  ? '발령/담당 변경처럼 평가자 변경 이력을 남깁니다.'
-                                  : undefined
-                              }
                             >
-                              {isSaving ? '저장 중' : hasEvaluatorChange ? '평가자 변경' : '저장'}
+                              {isSaving ? '저장 중' : '저장'}
                             </button>
-                            {hasEvaluatorChange && (
-                              <button
-                                className="sd-btn sd-btn-outline sd-btn-sm"
-                                onClick={() => saveEmployeeEdit(employee, 'direct')}
-                                disabled={isSaving}
-                                title="잘못된 초기 매칭을 이력 없이 바로잡고 기존 평가를 새 평가자에게 넘깁니다."
-                              >
-                                평가자 수정
-                              </button>
-                            )}
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
                               onClick={cancelEditing}
@@ -1313,44 +1490,18 @@ const HrUsersPage = () => {
                             >
                               편집
                             </button>
+                            <button
+                              className="sd-btn sd-btn-ghost sd-btn-sm"
+                              onClick={() => handleDeleteUser(employee)}
+                              disabled={deletingEmployeeId === employee.employee_id}
+                              style={{ color: 'var(--danger, #B91C1C)' }}
+                            >
+                              {deletingEmployeeId === employee.employee_id ? '삭제 중' : '삭제'}
+                            </button>
                           </div>
                         )}
                       </TableCell>
                     </TableRow>
-                    {isEditing && editForm && hasEvaluatorChange && (
-                      <TableRow>
-                        <TableCell colSpan={11} style={{ background: 'var(--bg-muted)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
-                              변경 시작일
-                              <input
-                                className="sd-input"
-                                type="date"
-                                value={editForm.assignmentStartDate}
-                                onChange={(event) => updateEditForm('assignmentStartDate', event.target.value)}
-                                style={{ width: 150 }}
-                              />
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
-                              평가기간
-                              <select
-                                className="sd-input"
-                                value={editForm.evaluationPeriodId}
-                                onChange={(event) => updateEditForm('evaluationPeriodId', event.target.value)}
-                                style={{ minWidth: 190 }}
-                              >
-                                <option value="">선택</option>
-                                {periods.map((period) => (
-                                  <option key={period.id} value={period.id}>
-                                    {period.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
                     </Fragment>
                   );
                 })}
@@ -1358,12 +1509,64 @@ const HrUsersPage = () => {
                 {!filteredEmployees.length && (
                   <TableRow>
                     <TableCell colSpan={11} style={{ color: 'var(--fg-muted)' }}>
-                      조건에 맞는 사용자가 없습니다.
+                      {records.filter((r) => r.evaluation).length === 0
+                        ? '선택한 평가기간에 매칭된 직원이 없습니다. 대상자/매칭 엑셀을 업로드하세요.'
+                        : '조건에 맞는 사용자가 없습니다.'}
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+          )}
+
+          {!isLoading && !error && totalFiltered > 0 && (
+            <div
+              style={{
+                padding: '12px 20px',
+                borderTop: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                전체 {totalFiltered}명 · {currentPage * pageSize + 1}–
+                {Math.min(currentPage * pageSize + pageSize, totalFiltered)} 표시
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>페이지당</span>
+                <select
+                  className="sd-input"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  style={{ width: 80 }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  className="sd-btn sd-btn-ghost sd-btn-sm"
+                  onClick={() => setPageIndex(Math.max(0, currentPage - 1))}
+                  disabled={currentPage <= 0}
+                >
+                  이전
+                </button>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 600, minWidth: 72, textAlign: 'center' }}>
+                  {currentPage + 1} / {pageCount}
+                </span>
+                <button
+                  className="sd-btn sd-btn-ghost sd-btn-sm"
+                  onClick={() => setPageIndex(Math.min(pageCount - 1, currentPage + 1))}
+                  disabled={currentPage >= pageCount - 1}
+                >
+                  다음
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -1377,11 +1580,40 @@ const HrUsersPage = () => {
           defaultPeriodId={selectedPeriodId ?? periods[0]?.id ?? ''}
           isLoading={loadingHistoryEmployeeId === historyModalEmployeeId}
           actionId={historyActionId}
+          employeeEvaluations={evaluationsByEmployee[historyModalEmployeeId] ?? []}
+          isLoadingEvaluations={loadingEvaluationsEmployeeId === historyModalEmployeeId}
+          updatingEvaluationId={updatingEvaluationId}
+          onChangeEvaluationStatus={(evaluationId, employeeName, currentStatus, nextStatus) =>
+            changeEvaluationStatus(evaluationId, employeeName, currentStatus, nextStatus)
+          }
           onAddChange={addAssignmentChange}
           onCorrect={correctAssignmentChange}
           onCancelChange={cancelAssignmentChange}
-          onRefresh={() => loadAssignmentHistory(historyModalEmployeeId, true)}
+          onRefresh={() => {
+            void loadAssignmentHistory(historyModalEmployeeId, true);
+            void loadEmployeeEvaluations(historyModalEmployeeId, true);
+          }}
           onClose={closeAssignmentHistory}
+        />
+      )}
+
+      {showAddModal && (
+        <AddEmployeeModal
+          evaluatorOptions={evaluatorOptions}
+          isSaving={isAddingUser}
+          onSubmit={handleCreateUser}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {pendingUpload && (
+        <UploadPreviewModal
+          title={pendingUpload.kind === 'profile' ? '대상자 업로드' : '매칭 업로드'}
+          fileName={pendingUpload.fileName}
+          result={pendingUpload.result}
+          isApplying={isApplyingUpload}
+          onConfirm={handleConfirmUpload}
+          onClose={() => setPendingUpload(null)}
         />
       )}
     </>

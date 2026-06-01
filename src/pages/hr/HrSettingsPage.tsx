@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, CalendarDays } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { NotificationSettings } from '@/components/Settings/NotificationSettings';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
 import { employeeService } from '@/lib/services';
+import type { EvaluationPeriodStatus } from '@/types';
 
 const ROLE_CARDS = [
   { id: 'hr', label: 'HR', desc: '시스템 설정 전체', borderColor: '#2563EB', color: '#EFF6FF' },
@@ -12,12 +16,33 @@ const ROLE_CARDS = [
   { id: 'evaluatee', label: '피평가자', desc: '과업 등록 · 피드백 열람', borderColor: 'var(--border)', color: 'var(--bg-muted)' },
 ];
 
+const PERIOD_STATUS_LABEL: Record<EvaluationPeriodStatus, string> = {
+  draft: '작성 전',
+  active: '진행 중',
+  closed: '마감',
+  locked: '잠금',
+};
+
+const PERIOD_STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: string; border: string }> = {
+  draft: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)', border: 'var(--border)' },
+  active: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange-700)', border: 'var(--ok-orange-100)' },
+  closed: { bg: '#EFF6FF', fg: '#1D4ED8', border: '#BFDBFE' },
+  locked: { bg: '#F8FAFC', fg: '#334155', border: '#CBD5E1' },
+};
+
+const formatDate = (value: string | null | undefined) =>
+  value ? value.slice(0, 10).replace(/-/g, '.') : '-';
+
 const HrSettingsPage = () => {
+  const navigate = useNavigate();
   const { employees, reload } = useAllEmployees();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { periods, selectedPeriod } = useEvaluationPeriod();
   const actorId = user?.employeeId ?? user?.id ?? null;
   const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching'>(null);
+
+  const activePeriodCount = periods.filter((p) => p.status === 'active').length;
 
   const counts = {
     hr: employees.filter((e) => e.available_roles.includes('hr')).length,
@@ -93,52 +118,98 @@ const HrSettingsPage = () => {
       />
 
       <div className="flex flex-col gap-6" style={{ padding: '24px 32px 32px' }}>
-        {/* 평가 주기 */}
+        {/* 활성 평가기간 요약 */}
         <section className="sd-card sd-card-lg">
-          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>평가 주기</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-            <div>
-              <label
-                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
-              >
-                평가 주기
-              </label>
-              <select
-                className="sd-input"
-                defaultValue="연간"
-                style={{ width: '100%' }}
-              >
-                <option value="연간">연간 (연 1회)</option>
-                <option value="반기">반기 (연 2회)</option>
-                <option value="분기">분기 (연 4회)</option>
-              </select>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginBottom: 18,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <CalendarDays size={20} color="var(--ok-orange)" />
+              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>활성 평가기간</h3>
             </div>
-            <div>
-              <label
-                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
-              >
-                현재 라운드
-              </label>
-              <input
-                className="sd-input"
-                defaultValue="2026"
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div>
-              <label
-                style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)', display: 'block', marginBottom: 6 }}
-              >
-                마감일
-              </label>
-              <input
-                className="sd-input"
-                type="date"
-                defaultValue="2026-12-31"
-                style={{ width: '100%' }}
-              />
-            </div>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => navigate('/hr/periods')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              평가기간 관리
+              <ArrowRight size={14} />
+            </button>
           </div>
+
+          {selectedPeriod ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 16,
+              }}
+            >
+              <SummaryField label="평가기간">
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>{selectedPeriod.name}</div>
+                <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}>
+                  {selectedPeriod.code}
+                </div>
+              </SummaryField>
+              <SummaryField label="상태">
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '4px 12px',
+                    borderRadius: 999,
+                    background: PERIOD_STATUS_STYLE[selectedPeriod.status].bg,
+                    color: PERIOD_STATUS_STYLE[selectedPeriod.status].fg,
+                    border: `1px solid ${PERIOD_STATUS_STYLE[selectedPeriod.status].border}`,
+                    fontSize: 'var(--fs-sm)',
+                    fontWeight: 800,
+                  }}
+                >
+                  {PERIOD_STATUS_LABEL[selectedPeriod.status]}
+                </span>
+                {selectedPeriod.is_default && (
+                  <div style={{ marginTop: 6, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                    기본 평가기간
+                  </div>
+                )}
+              </SummaryField>
+              <SummaryField label="시작일">
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>{formatDate(selectedPeriod.starts_on)}</div>
+              </SummaryField>
+              <SummaryField label="종료일">
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>{formatDate(selectedPeriod.ends_on)}</div>
+              </SummaryField>
+              <SummaryField label="등록된 라운드">
+                <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
+                  전체 {periods.length}개{' '}
+                  <span style={{ fontWeight: 500, color: 'var(--fg-muted)' }}>
+                    · 진행 {activePeriodCount}개
+                  </span>
+                </div>
+              </SummaryField>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '20px 22px',
+                borderRadius: 10,
+                background: 'var(--bg-muted)',
+                border: '1px dashed var(--border)',
+                color: 'var(--fg-muted)',
+                fontSize: 'var(--fs-sm)',
+                lineHeight: 1.6,
+              }}
+            >
+              현재 선택된 평가기간이 없습니다. <strong>평가기간 관리</strong>에서 라운드를 생성하고 활성화해 주세요.
+            </div>
+          )}
         </section>
 
         {/* 알림 설정 */}
@@ -283,5 +354,21 @@ const HrSettingsPage = () => {
     </>
   );
 };
+
+const SummaryField = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div>
+    <div
+      style={{
+        fontSize: 'var(--fs-sm)',
+        fontWeight: 700,
+        color: 'var(--fg-muted)',
+        marginBottom: 8,
+      }}
+    >
+      {label}
+    </div>
+    {children}
+  </div>
+);
 
 export default HrSettingsPage;

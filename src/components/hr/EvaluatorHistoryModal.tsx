@@ -1,10 +1,14 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
-import type { Employee, EvaluationPeriod, EvaluatorAssignmentHistory } from '@/types';
+import type {
+  Employee,
+  Evaluation,
+  EvaluationPeriod,
+  EvaluationStatus,
+  EvaluatorAssignmentHistory,
+} from '@/types';
 import {
-  assignmentStatusLabel,
-  assignmentStatusTone,
   assignmentTypeLabel,
   formatAssignmentDate,
   isBulkMatchingHistory,
@@ -19,6 +23,15 @@ interface Props {
   defaultPeriodId: string;
   isLoading: boolean;
   actionId: string | null;
+  employeeEvaluations: Evaluation[];
+  isLoadingEvaluations?: boolean;
+  updatingEvaluationId: string | null;
+  onChangeEvaluationStatus: (
+    evaluationId: string,
+    employeeName: string,
+    currentStatus: EvaluationStatus,
+    nextStatus: EvaluationStatus,
+  ) => Promise<void> | void;
   onAddChange: (
     employee: Employee,
     newEvaluatorId: string,
@@ -75,6 +88,53 @@ const periodLabel = (history: EvaluatorAssignmentHistory) => {
   return '-';
 };
 
+const EVALUATION_STATUS_OPTIONS: { id: EvaluationStatus; label: string }[] = [
+  { id: 'in-progress', label: '작성 중' },
+  { id: 'submitted', label: '검토 대기' },
+  { id: 'evaluating', label: '평가 중' },
+  { id: 'completed', label: '완료' },
+  { id: 'locked', label: '잠금' },
+];
+
+const evaluationStatusLabel = (status?: EvaluationStatus | null) => {
+  switch (status) {
+    case 'submitted':
+      return '검토 대기';
+    case 'evaluating':
+      return '평가 중';
+    case 'completed':
+      return '완료';
+    case 'locked':
+      return '잠금';
+    case 'draft':
+    case 'in-progress':
+      return '작성 중';
+    default:
+      return '평가 없음';
+  }
+};
+
+const evaluationStatusTone = (status?: EvaluationStatus | null) => {
+  switch (status) {
+    case 'submitted':
+      return 'orange' as const;
+    case 'evaluating':
+      return 'info' as const;
+    case 'completed':
+      return 'success' as const;
+    case 'locked':
+      return 'neutral' as const;
+    case 'draft':
+    case 'in-progress':
+      return 'warning' as const;
+    default:
+      return 'neutral' as const;
+  }
+};
+
+const normalizeEvaluationStatus = (status?: EvaluationStatus | null): EvaluationStatus =>
+  status === 'draft' ? 'in-progress' : status ?? 'in-progress';
+
 const EvaluatorHistoryModal = ({
   employee,
   historyItems,
@@ -83,6 +143,10 @@ const EvaluatorHistoryModal = ({
   defaultPeriodId,
   isLoading,
   actionId,
+  employeeEvaluations,
+  isLoadingEvaluations,
+  updatingEvaluationId,
+  onChangeEvaluationStatus,
   onAddChange,
   onCorrect,
   onCancelChange,
@@ -98,22 +162,92 @@ const EvaluatorHistoryModal = ({
   const [addValue, setAddValue] = useState<string>('');
   const [addStartDate, setAddStartDate] = useState<string>(todayInputValue());
   const [addPeriodId, setAddPeriodId] = useState<string>(defaultPeriodId);
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, EvaluationStatus>>({});
 
   // 매칭 일괄 임포트 행과 일반 행을 분리.
-  // 타임라인에는 "지금 실제로 적용된 행"만 표시 — cancelled/superseded 는 DB 로그로만 남긴다.
+  // 타임라인에는 다음을 표시한다:
+  //   - 적용 중인 평가자 변경 행 (status='applied' && change_type='change')
+  //   - 정정으로 superseded 된 원본 행 (cancel_reason='Superseded by correction')
+  // 그 외 cancelled / superseded 는 DB 로그로만 남기고 표시하지 않는다.
+  // 정렬: 정정 행(supersedes_history_id 보유)은 원본 행의 changed_at 키를 따라가
+  //       원본 바로 아래에 오도록 한다.
+  const evaluationById = useMemo(() => {
+    const map = new Map<string, Evaluation>();
+    for (const ev of employeeEvaluations) map.set(ev.id, ev);
+    return map;
+  }, [employeeEvaluations]);
+
   const { timelineRows, bulkRows } = useMemo(() => {
+    // bulk/timeline 분류 시 정정 체인의 root 원본을 따라가서 그룹을 결정한다.
+    // (bulk import 행을 정정하면 정정 행도 같은 bulk 그룹에 묶여야 함.)
+    const allById = new Map(historyItems.map((row) => [row.id, row]));
+    const rootOf = (row: EvaluatorAssignmentHistory) => {
+      let current = row;
+      const visited = new Set<string>();
+      while (current.supersedes_history_id && !visited.has(current.id)) {
+        visited.add(current.id);
+        const parent = allById.get(current.supersedes_history_id);
+        if (!parent) break;
+        current = parent;
+      }
+      return current;
+    };
+
     const timeline: EvaluatorAssignmentHistory[] = [];
     const bulk: EvaluatorAssignmentHistory[] = [];
     for (const h of historyItems) {
-      if (isBulkMatchingHistory(h)) {
+      // evaluation_id 가 없거나, 그 evaluation 이 직원의 평가 목록에 없는 행 → 표시 제외.
+      // (직원의 현재/과거 평가에 연결되지 않은 이력은 모달 사용자가 처리할 수 없는 데이터.)
+      if (!h.evaluation_id || !evaluationById.has(h.evaluation_id)) continue;
+
+      const isAppliedChange = h.status === 'applied' && h.change_type === 'change';
+      const isSupersededOriginal =
+        h.status === 'cancelled' &&
+        h.change_type === 'change' &&
+        h.cancel_reason === 'Superseded by correction';
+      const isVisible = isBulkMatchingHistory(h) || isAppliedChange || isSupersededOriginal;
+      if (!isVisible) continue;
+
+      // root 원본이 bulk 면 그 정정 체인 전체를 bulk 로 분류.
+      if (isBulkMatchingHistory(rootOf(h))) {
         bulk.push(h);
-        continue;
+      } else {
+        timeline.push(h);
       }
-      if (h.status !== 'applied' || h.change_type !== 'change') continue;
-      timeline.push(h);
     }
+
+    const visibleById = new Map([...timeline, ...bulk].map((row) => [row.id, row]));
+    const sortKeyFor = (row: EvaluatorAssignmentHistory) => {
+      // 정정 체인을 root 원본까지 따라가서 root 의 changed_at 을 primary key 로 쓴다.
+      // secondary = depth (원본=0, 1차 정정=1, 2차 정정=2 ...)
+      //   → 원본 → 1차 정정 → 2차 정정 ... 순으로 인접 표시.
+      let current = row;
+      let depth = 0;
+      const visited = new Set<string>();
+      while (current.supersedes_history_id && !visited.has(current.id)) {
+        visited.add(current.id);
+        const parent = visibleById.get(current.supersedes_history_id);
+        if (!parent) break;
+        current = parent;
+        depth += 1;
+      }
+      return { primary: new Date(current.changed_at).getTime(), secondary: depth };
+    };
+
+    const sortRows = (rows: EvaluatorAssignmentHistory[]) =>
+      rows.sort((a, b) => {
+        const ka = sortKeyFor(a);
+        const kb = sortKeyFor(b);
+        if (kb.primary !== ka.primary) return kb.primary - ka.primary;
+        if (ka.secondary !== kb.secondary) return ka.secondary - kb.secondary;
+        return new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime();
+      });
+
+    sortRows(timeline);
+    sortRows(bulk);
+
     return { timelineRows: timeline, bulkRows: bulk };
-  }, [historyItems]);
+  }, [historyItems, evaluationById]);
 
   const latestApplied = useMemo(
     () =>
@@ -240,7 +374,7 @@ const EvaluatorHistoryModal = ({
         }}
       >
         <td style={cellStyle}>
-          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)', whiteSpace: 'nowrap' }}>
             {formatAssignmentDate(history.changed_at)}
           </span>
         </td>
@@ -248,16 +382,32 @@ const EvaluatorHistoryModal = ({
           <div
             style={{
               fontWeight: 700,
-              textDecoration: isCancelled ? 'line-through' : 'none',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
             }}
           >
-            {prev} → {next}
-          </div>
-          {isCorrectionHistory(history) && (
-            <span style={{ fontSize: 'var(--fs-2xs)', color: 'var(--ok-orange)', fontWeight: 700 }}>
-              ↳ 정정
+            {history.supersedes_history_id && (
+              <span style={{ color: 'var(--fg-muted)', fontWeight: 500, marginRight: 2 }}>
+                ㄴ
+              </span>
+            )}
+            <span style={{ textDecoration: isCancelled ? 'line-through' : 'none' }}>
+              {prev} → {next}
             </span>
-          )}
+            {isCorrectionHistory(history) && (
+              <span
+                style={{
+                  fontSize: 'var(--fs-2xs)',
+                  color: 'var(--ok-orange)',
+                  fontWeight: 700,
+                }}
+              >
+                (정정)
+              </span>
+            )}
+          </div>
         </td>
         <td style={cellStyle}>
           <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
@@ -265,24 +415,8 @@ const EvaluatorHistoryModal = ({
           </span>
         </td>
         <td style={cellStyle}>
-          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
             {periodLabel(history)}
-          </span>
-        </td>
-        <td style={cellStyle}>
-          <span
-            style={{
-              fontSize: 'var(--fs-sm)',
-              color: 'var(--fg-muted)',
-              display: 'block',
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={history.reason ?? undefined}
-          >
-            {history.reason ?? '-'}
           </span>
         </td>
         <td style={cellStyle}>
@@ -291,9 +425,96 @@ const EvaluatorHistoryModal = ({
           </Pill>
         </td>
         <td style={cellStyle}>
-          <Pill tone={assignmentStatusTone(history.status)}>
-            {assignmentStatusLabel(history.status)}
-          </Pill>
+          {(() => {
+            const linkedEvaluation = history.evaluation_id
+              ? evaluationById.get(history.evaluation_id) ?? null
+              : null;
+            if (!linkedEvaluation) {
+              return (
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                  연결된 평가 없음
+                </span>
+              );
+            }
+            const currentStatus = linkedEvaluation.evaluation_status;
+            const selectable = normalizeEvaluationStatus(currentStatus);
+            const draft = statusDrafts[linkedEvaluation.id] ?? selectable;
+            const isUpdating = updatingEvaluationId === linkedEvaluation.id;
+            const isLockedByHistory = isCancelled;
+            return (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexWrap: 'nowrap',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    justifyContent: 'center',
+                    minWidth: 76,
+                  }}
+                >
+                  <Pill tone={evaluationStatusTone(currentStatus)}>
+                    {evaluationStatusLabel(currentStatus)}
+                  </Pill>
+                </span>
+                <select
+                  value={draft}
+                  disabled={isUpdating || isLockedByHistory}
+                  onChange={(event) =>
+                    setStatusDrafts((prev) => ({
+                      ...prev,
+                      [linkedEvaluation.id]: event.target.value as EvaluationStatus,
+                    }))
+                  }
+                  style={{
+                    minWidth: 104,
+                    padding: '4px 6px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-card)',
+                    color: 'var(--fg)',
+                    fontSize: 'var(--fs-sm)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {EVALUATION_STATUS_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="sd-btn sd-btn-outline sd-btn-xs"
+                  disabled={isUpdating || isLockedByHistory || draft === selectable}
+                  title={
+                    isLockedByHistory
+                      ? '취소된 변경 이력의 평가는 수정할 수 없습니다.'
+                      : '선택한 단계로 평가를 변경합니다.'
+                  }
+                  onClick={async () => {
+                    await onChangeEvaluationStatus(
+                      linkedEvaluation.id,
+                      employee.name,
+                      selectable,
+                      draft,
+                    );
+                    setStatusDrafts((prev) => {
+                      const next = { ...prev };
+                      delete next[linkedEvaluation.id];
+                      return next;
+                    });
+                  }}
+                >
+                  {isUpdating ? '변경 중' : '변경'}
+                </button>
+              </div>
+            );
+          })()}
         </td>
         <td style={{ ...cellStyle, textAlign: 'right' }}>
           {isCorrecting ? (
@@ -340,7 +561,7 @@ const EvaluatorHistoryModal = ({
       </tr>
       {isCorrecting && (
         <tr style={{ background: 'var(--ok-orange-50)' }}>
-          <td colSpan={8} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+          <td colSpan={7} style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
                 새 평가자
@@ -361,22 +582,6 @@ const EvaluatorHistoryModal = ({
                   onChange={(event) => setCorrectStartDate(event.target.value)}
                   style={{ width: 160 }}
                 />
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
-                평가기간
-                <select
-                  className="sd-input"
-                  value={correctPeriodId}
-                  onChange={(event) => setCorrectPeriodId(event.target.value)}
-                  style={{ minWidth: 200 }}
-                >
-                  <option value="">선택</option>
-                  {periods.map((period) => (
-                    <option key={period.id} value={period.id}>
-                      {period.name}
-                    </option>
-                  ))}
-                </select>
               </label>
             </div>
           </td>
@@ -496,22 +701,6 @@ const EvaluatorHistoryModal = ({
                 style={{ width: 150 }}
               />
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 700 }}>
-              평가기간
-              <select
-                className="sd-input"
-                value={addPeriodId}
-                onChange={(event) => setAddPeriodId(event.target.value)}
-                style={{ minWidth: 180 }}
-              >
-                <option value="">선택</option>
-                {periods.map((period) => (
-                  <option key={period.id} value={period.id}>
-                    {period.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             <button
               className="sd-btn sd-btn-primary sd-btn-xs"
               disabled={
@@ -519,7 +708,7 @@ const EvaluatorHistoryModal = ({
                 !addValue ||
                 addValue === employee.evaluator_id ||
                 !addStartDate ||
-                !addPeriodId
+                !defaultPeriodId
               }
               onClick={submitAdd}
             >
@@ -552,16 +741,15 @@ const EvaluatorHistoryModal = ({
                   <th style={headStyle}>변경 (이전 → 이후)</th>
                   <th style={headStyle}>근무기간</th>
                   <th style={headStyle}>평가기간</th>
-                  <th style={headStyle}>사유 / 출처</th>
                   <th style={headStyle}>유형</th>
-                  <th style={headStyle}>상태</th>
+                  <th style={{ ...headStyle, minWidth: 280 }}>평가 단계</th>
                   <th style={{ ...headStyle, textAlign: 'right' }}>작업</th>
                 </tr>
               </thead>
               <tbody>
                 {timelineRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ ...cellStyle, color: 'var(--fg-muted)' }}>
+                    <td colSpan={7} style={{ ...cellStyle, color: 'var(--fg-muted)' }}>
                       개별 변경 이력이 없습니다.
                     </td>
                   </tr>
@@ -572,7 +760,7 @@ const EvaluatorHistoryModal = ({
                 {bulkRows.length > 0 && (
                   <>
                     <tr>
-                      <td colSpan={8} style={{ ...cellStyle, background: 'var(--bg-muted)' }}>
+                      <td colSpan={7} style={{ ...cellStyle, background: 'var(--bg-muted)' }}>
                         <button
                           type="button"
                           onClick={() => setBulkExpanded((v) => !v)}

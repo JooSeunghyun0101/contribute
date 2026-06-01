@@ -1,6 +1,9 @@
 import { apiFetch } from '@/lib/api';
 import { Employee, EvaluatorAssignmentHistory } from '@/types';
 import { apiErrorHandler } from '@/utils/errorHandler';
+import type { DiffResult } from '@/lib/uploadDiff';
+
+export type MatchingPreviewResult = DiffResult;
 
 type EmployeeUpdatePayload = Partial<Employee> & {
   changed_by?: string | null;
@@ -211,10 +214,13 @@ export const employeeService = {
     }
   },
 
-  async getLatestEmployeeProfileImportRows(): Promise<EmployeeProfileImportStoredRow[]> {
+  async getLatestEmployeeProfileImportRows(
+    periodId?: string | null,
+  ): Promise<EmployeeProfileImportStoredRow[]> {
     try {
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
       return await apiFetch<EmployeeProfileImportStoredRow[]>(
-        '/api/employee-profile-imports/latest-rows',
+        `/api/employee-profile-imports/latest-rows${qs}`,
       );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
@@ -222,9 +228,14 @@ export const employeeService = {
   },
 
   // 평가대상자 엑셀 업로드 반영
-  async getLatestMatchingImportRows(): Promise<MatchingImportStoredRow[]> {
+  async getLatestMatchingImportRows(
+    periodId?: string | null,
+  ): Promise<MatchingImportStoredRow[]> {
     try {
-      return await apiFetch<MatchingImportStoredRow[]>('/api/matching-imports/latest-rows');
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
+      return await apiFetch<MatchingImportStoredRow[]>(
+        `/api/matching-imports/latest-rows${qs}`,
+      );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }
@@ -233,6 +244,7 @@ export const employeeService = {
   async importEmployeeProfiles(payload: {
     source_file_name: string;
     changed_by?: string | null;
+    evaluation_period_id?: string | null;
     rows: EmployeeProfileImportRowInput[];
   }): Promise<EmployeeProfileImportResult> {
     try {
@@ -251,6 +263,7 @@ export const employeeService = {
     source_file_name: string;
     source_sheet_name?: string | null;
     changed_by?: string | null;
+    evaluation_period_id?: string | null;
     rows: MatchingImportRowInput[];
   }): Promise<MatchingImportResult> {
     try {
@@ -264,23 +277,40 @@ export const employeeService = {
     }
   },
 
-  // 새로운 직원 생성 (평가 자동 생성)
-  async createEmployee(
-    newEmployee: Partial<Employee>
-  ): Promise<{ employee: Employee; evaluationId: string }> {
+  // 매칭 업로드 변경 미리보기(dry-run): 적용 전 신규/변경/정정/무시/삭제 분류만 받아온다.
+  async previewMatchingRows(payload: {
+    rows: MatchingImportRowInput[];
+  }): Promise<MatchingPreviewResult> {
     try {
-      // 1. 직원 레코드 생성
-      const employee = await apiFetch<Employee>('/api/employees', {
+      return await apiFetch<MatchingPreviewResult>('/api/matching-imports/preview', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 새로운 직원 생성. evaluation_period_id 를 주면 그 평가기간 기준으로 evaluation 을 맞춘다.
+  async createEmployee(
+    newEmployee: Partial<Employee> & { evaluation_period_id?: string | null },
+  ): Promise<Employee> {
+    try {
+      return await apiFetch<Employee>('/api/employees', {
         method: 'POST',
         body: JSON.stringify(newEmployee),
         headers: { 'Content-Type': 'application/json' },
       });
- 
-      // 2. 트리거에 의해 자동 생성된 평가 레코드 조회
-      // (예시 엔드포인트: /api/evaluations/by-employee/:employeeId)
-      const evalResult = await apiFetch<{ id: string }>(`/api/evaluations/by-employee/${employee.employee_id}`);
- 
-      return { employee, evaluationId: evalResult.id };
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 단건 직원 삭제 (admin 제외, 관련 데이터 cascade)
+  async deleteEmployee(employeeId: string): Promise<void> {
+    try {
+      await apiFetch(`/api/employee/${employeeId}`, { method: 'DELETE' });
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

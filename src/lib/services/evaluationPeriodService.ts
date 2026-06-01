@@ -55,8 +55,16 @@ export const evaluationPeriodService = {
     }
   },
 
+  async deletePeriod(id: string): Promise<void> {
+    try {
+      await apiFetch(`/api/evaluation-periods/${id}`, { method: 'DELETE' });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   async activatePeriod(id: string): Promise<EvaluationPeriod> {
-    return this.updatePeriod(id, { status: 'active', is_default: true });
+    return this.updatePeriod(id, { status: 'active' });
   },
 
   async closePeriod(id: string): Promise<EvaluationPeriod> {

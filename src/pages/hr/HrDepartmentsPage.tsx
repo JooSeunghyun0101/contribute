@@ -1,13 +1,61 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { Pill } from '@/components/brand';
+import { IconSearch, Pill } from '@/components/brand';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useToast } from '@/hooks/use-toast';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
-import { getScoreColor } from '@/lib/evaluationMatrix';
+import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
 
-const scoreBands = [4, 3, 2, 1] as const;
+type SortKey =
+  | 'completion-asc'
+  | 'completion-desc'
+  | 'achievement-desc'
+  | 'achievement-asc'
+  | 'score-desc'
+  | 'score-asc'
+  | 'name-asc';
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'completion-asc', label: '완료율 낮은 순' },
+  { value: 'completion-desc', label: '완료율 높은 순' },
+  { value: 'achievement-desc', label: '목표달성률 높은 순' },
+  { value: 'achievement-asc', label: '목표달성률 낮은 순' },
+  { value: 'score-desc', label: '평균 점수 높은 순' },
+  { value: 'score-asc', label: '평균 점수 낮은 순' },
+  { value: 'name-asc', label: '부서명 가나다순' },
+];
+
+const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
+  record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
 
 const HrDepartmentsPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
+  const [openDepartment, setOpenDepartment] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
+
+  const recordsByDepartment = useMemo(() => {
+    const map = new Map<string, EmployeeEvaluationRecord[]>();
+    for (const record of records) {
+      const key = record.employee.department || '미지정';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(record);
+    }
+    return map;
+  }, [records]);
+
+  const openDepartmentRecords = openDepartment
+    ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
+        // 평가 미확정 우선, 그 다음 직급순.
+        const aFinal = isEvaluationFinalized(a);
+        const bFinal = isEvaluationFinalized(b);
+        if (aFinal && !bFinal) return 1;
+        if (!aFinal && bFinal) return -1;
+        return a.employee.name.localeCompare(b.employee.name);
+      })
+    : [];
 
   const departments = useMemo(
     () =>
@@ -18,10 +66,10 @@ const HrDepartmentsPage = () => {
             {
               name: string;
               totalMembers: number;
-              completedMembers: number;
+              finalizedMembers: number;
               achievedMembers: number;
               totalProgress: number;
-              totalScore: number;
+              finalizedScoreSum: number;
               scoreCounts: Record<1 | 2 | 3 | 4, number>;
             }
           >
@@ -32,23 +80,28 @@ const HrDepartmentsPage = () => {
             acc[key] = {
               name: key,
               totalMembers: 0,
-              completedMembers: 0,
+              finalizedMembers: 0,
               achievedMembers: 0,
               totalProgress: 0,
-              totalScore: 0,
+              finalizedScoreSum: 0,
               scoreCounts: { 1: 0, 2: 0, 3: 0, 4: 0 },
             };
           }
 
-          acc[key].totalMembers += 1;
-          acc[key].completedMembers += record.status === 'completed' ? 1 : 0;
-          acc[key].achievedMembers += record.achieved ? 1 : 0;
-          acc[key].totalProgress += record.progress;
-          acc[key].totalScore += record.weightedScore;
+          const finalized = isEvaluationFinalized(record);
 
-          const rounded = Math.round(record.weightedScore);
-          if (rounded >= 1 && rounded <= 4) {
-            acc[key].scoreCounts[rounded as 1 | 2 | 3 | 4] += 1;
+          acc[key].totalMembers += 1;
+          acc[key].totalProgress += record.progress;
+
+          if (finalized) {
+            acc[key].finalizedMembers += 1;
+            acc[key].finalizedScoreSum += record.weightedScore;
+            if (record.achieved) acc[key].achievedMembers += 1;
+
+            const rounded = Math.round(record.weightedScore);
+            if (rounded >= 1 && rounded <= 4) {
+              acc[key].scoreCounts[rounded as 1 | 2 | 3 | 4] += 1;
+            }
           }
 
           return acc;
@@ -57,7 +110,7 @@ const HrDepartmentsPage = () => {
         .map((department) => {
           const completionRate =
             department.totalMembers > 0
-              ? Math.round((department.completedMembers / department.totalMembers) * 100)
+              ? Math.round((department.finalizedMembers / department.totalMembers) * 100)
               : 0;
           const achievementRate =
             department.totalMembers > 0
@@ -68,9 +121,9 @@ const HrDepartmentsPage = () => {
               ? Math.round(department.totalProgress / department.totalMembers)
               : 0;
           const averageScore =
-            department.totalMembers > 0
-              ? (department.totalScore / department.totalMembers).toFixed(1)
-              : '0.0';
+            department.finalizedMembers > 0
+              ? (department.finalizedScoreSum / department.finalizedMembers).toFixed(1)
+              : '-';
 
           return {
             ...department,
@@ -79,15 +132,44 @@ const HrDepartmentsPage = () => {
             averageProgress,
             averageScore,
           };
-        })
-        .sort((a, b) => b.totalMembers - a.totalMembers),
+        }),
     [records],
   );
 
-  const averageCompletion =
-    departments.length > 0
-      ? Math.round(departments.reduce((sum, department) => sum + department.completionRate, 0) / departments.length)
-      : 0;
+  const visibleDepartments = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const filtered = normalizedQuery
+      ? departments.filter((dept) => dept.name.toLowerCase().includes(normalizedQuery))
+      : departments;
+
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'completion-asc':
+          return a.completionRate - b.completionRate || a.name.localeCompare(b.name);
+        case 'completion-desc':
+          return b.completionRate - a.completionRate || a.name.localeCompare(b.name);
+        case 'achievement-desc':
+          return b.achievementRate - a.achievementRate || a.name.localeCompare(b.name);
+        case 'achievement-asc':
+          return a.achievementRate - b.achievementRate || a.name.localeCompare(b.name);
+        case 'score-desc': {
+          const av = a.averageScore === '-' ? -1 : Number(a.averageScore);
+          const bv = b.averageScore === '-' ? -1 : Number(b.averageScore);
+          return bv - av || a.name.localeCompare(b.name);
+        }
+        case 'score-asc': {
+          const av = a.averageScore === '-' ? Number.POSITIVE_INFINITY : Number(a.averageScore);
+          const bv = b.averageScore === '-' ? Number.POSITIVE_INFINITY : Number(b.averageScore);
+          return av - bv || a.name.localeCompare(b.name);
+        }
+        case 'name-asc':
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+
+    return sorted;
+  }, [departments, searchQuery, sortKey]);
 
   return (
     <>
@@ -105,12 +187,98 @@ const HrDepartmentsPage = () => {
             {error}
           </div>
         ) : (
-          <section
-            className="grid gap-4"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
-          >
-            {departments.map((department) => (
-              <div key={department.name} className="sd-card sd-card-lg">
+          <>
+            <div
+              className="sd-card"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexWrap: 'wrap',
+                padding: '14px 18px',
+              }}
+            >
+              <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 360 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: 11,
+                    color: 'var(--fg-subtle)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <IconSearch width={16} height={16} />
+                </span>
+                <input
+                  className="sd-input"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="부서명 검색"
+                  style={{ paddingLeft: 36, width: '100%' }}
+                />
+              </div>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  color: 'var(--fg-muted)',
+                }}
+              >
+                정렬
+                <select
+                  className="sd-input"
+                  value={sortKey}
+                  onChange={(event) => setSortKey(event.target.value as SortKey)}
+                  style={{ minWidth: 220, width: 220, whiteSpace: 'nowrap' }}
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 'var(--fs-sm)',
+                  color: 'var(--fg-muted)',
+                }}
+              >
+                {visibleDepartments.length}/{departments.length}개 부서
+              </div>
+            </div>
+
+            <section
+              className="grid gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
+            >
+              {visibleDepartments.map((department) => (
+              <button
+                key={department.name}
+                type="button"
+                onClick={() => setOpenDepartment(department.name)}
+                className="sd-card sd-card-lg"
+                style={{
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'transform 120ms ease, box-shadow 120ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(245,80,0,0.12)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = '';
+                  e.currentTarget.style.transform = '';
+                }}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <h3>{department.name}</h3>
                   <Pill
@@ -131,7 +299,7 @@ const HrDepartmentsPage = () => {
                     className="tnum"
                     style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
                   >
-                    {department.completedMembers}
+                    {department.finalizedMembers}
                   </span>
                   <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-h4)' }}>
                     / {department.totalMembers}
@@ -140,7 +308,7 @@ const HrDepartmentsPage = () => {
                 <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>평가 완료 인원</div>
 
                 <div className="sd-bar" style={{ marginTop: 12, height: 8 }}>
-                  <div className="sd-bar-fill" style={{ width: `${department.averageProgress}%` }} />
+                  <div className="sd-bar-fill" style={{ width: `${department.completionRate}%` }} />
                 </div>
 
                 <div
@@ -152,7 +320,11 @@ const HrDepartmentsPage = () => {
                   }}
                 >
                   {[
-                    { label: '평균 진행률', value: `${department.averageProgress}%` },
+                    {
+                      label: '완료율',
+                      value: `${department.completionRate}%`,
+                      sub: `${department.finalizedMembers}/${department.totalMembers}`,
+                    },
                     { label: '목표 달성', value: `${department.achievementRate}%` },
                     { label: '평균 점수', value: department.averageScore },
                   ].map((item) => (
@@ -162,59 +334,348 @@ const HrDepartmentsPage = () => {
                     >
                       <div className="sd-label-mini">{item.label}</div>
                       <div style={{ marginTop: 4, fontWeight: 800 }}>{item.value}</div>
+                      {item.sub && (
+                        <div style={{ marginTop: 2, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                          {item.sub}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
 
-                <div
-                  style={{
-                    marginTop: 16,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                    gap: 8,
-                    alignItems: 'end',
-                  }}
-                >
-                  {scoreBands.map((score) => {
-                    const count = department.scoreCounts[score];
-                    const ratio =
-                      department.totalMembers > 0
-                        ? Math.round((count / department.totalMembers) * 100)
-                        : 0;
+                {(() => {
+                  const missedMembers = Math.max(
+                    0,
+                    department.finalizedMembers - department.achievedMembers,
+                  );
+                  const pendingMembers = Math.max(
+                    0,
+                    department.totalMembers - department.finalizedMembers,
+                  );
+                  const denom = department.totalMembers || 1;
+                  const achievedRatio = (department.achievedMembers / denom) * 100;
+                  const missedRatio = (missedMembers / denom) * 100;
+                  const pendingRatio = (pendingMembers / denom) * 100;
 
-                    return (
-                      <div key={score} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: 44,
-                            display: 'flex',
-                            alignItems: 'flex-end',
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: '100%',
-                              height: `${Math.max(6, Math.round(ratio * 0.44))}px`,
-                              borderRadius: 4,
-                              background: getScoreColor(score),
-                            }}
-                          />
-                        </div>
-                        <div className="sd-label-mini">{score}점</div>
-                        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{ratio}%</div>
+                  const segments: { key: string; ratio: number; color: string; label: string; count: number }[] = [
+                    {
+                      key: 'achieved',
+                      ratio: achievedRatio,
+                      color: 'var(--ok-orange)',
+                      label: '달성',
+                      count: department.achievedMembers,
+                    },
+                    {
+                      key: 'missed',
+                      ratio: missedRatio,
+                      color: '#FFAA00',
+                      label: '미달성',
+                      count: missedMembers,
+                    },
+                    {
+                      key: 'pending',
+                      ratio: pendingRatio,
+                      color: 'var(--border)',
+                      label: '미평가',
+                      count: pendingMembers,
+                    },
+                  ];
+
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span className="sd-label-mini">달성 현황</span>
+                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                          {department.achievementRate}% 달성
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          height: 12,
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          background: 'var(--bg-muted)',
+                        }}
+                      >
+                        {segments.map((seg) =>
+                          seg.ratio > 0 ? (
+                            <div
+                              key={seg.key}
+                              style={{ width: `${seg.ratio}%`, background: seg.color }}
+                              title={`${seg.label} ${seg.count}명`}
+                            />
+                          ) : null,
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginTop: 8,
+                          fontSize: 'var(--fs-xs)',
+                        }}
+                      >
+                        {segments.map((seg) => (
+                          <div
+                            key={seg.key}
+                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                          >
+                            <span
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: 2,
+                                background: seg.color,
+                                display: 'inline-block',
+                              }}
+                            />
+                            <span style={{ color: 'var(--fg-muted)' }}>
+                              {seg.label} {seg.count}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </button>
             ))}
 
-            {!departments.length && <div className="sd-card">표시할 부서 데이터가 없습니다.</div>}
-          </section>
+              {!visibleDepartments.length && (
+                <div className="sd-card" style={{ gridColumn: '1 / -1' }}>
+                  {departments.length === 0
+                    ? '표시할 부서 데이터가 없습니다.'
+                    : '검색 조건에 맞는 부서가 없습니다.'}
+                </div>
+              )}
+            </section>
+          </>
         )}
       </div>
+
+      {openDepartment && (
+        <DepartmentMembersModal
+          name={openDepartment}
+          records={openDepartmentRecords}
+          onClose={() => setOpenDepartment(null)}
+        />
+      )}
     </>
+  );
+};
+
+type DepartmentMembersModalProps = {
+  name: string;
+  records: EmployeeEvaluationRecord[];
+  onClose: () => void;
+};
+
+const REVIEW_STATUS_LABEL: Record<EmployeeEvaluationRecord['reviewStatus'], string> = {
+  'not-started': '시작 전',
+  draft: '작성 중',
+  submitted: '검토 대기',
+  evaluating: '평가 중',
+  completed: '완료',
+  locked: '잠금',
+};
+
+const REVIEW_STATUS_TONE: Record<
+  EmployeeEvaluationRecord['reviewStatus'],
+  'success' | 'orange' | 'warning' | 'info' | 'neutral'
+> = {
+  'not-started': 'warning',
+  draft: 'warning',
+  submitted: 'orange',
+  evaluating: 'info',
+  completed: 'success',
+  locked: 'neutral',
+};
+
+const DepartmentMembersModal = ({ name, records, onClose }: DepartmentMembersModalProps) => {
+  const { toast } = useToast();
+  const finalizedRecords = records.filter(isEvaluationFinalized);
+  const finalized = finalizedRecords.length;
+  const achieved = finalizedRecords.filter((r) => r.achieved).length;
+  const averageScore =
+    finalized > 0
+      ? (finalizedRecords.reduce((sum, r) => sum + r.weightedScore, 0) / finalized).toFixed(1)
+      : '-';
+
+  const handleDownload = () => {
+    try {
+      const members: DepartmentExportMember[] = records.map((record) => ({
+        employeeId: record.employee.employee_id,
+        name: record.employee.name,
+        position: record.employee.position,
+        department: record.employee.department,
+        jobRole: record.employee.job_role ?? null,
+        growthLevel: record.employee.growth_level,
+        evaluatorName: record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? null,
+        reviewStatusLabel: REVIEW_STATUS_LABEL[record.reviewStatus],
+        weightedScore: record.weightedScore,
+        isFinalized: isEvaluationFinalized(record),
+        achieved: record.achieved,
+        progress: record.progress,
+      }));
+      const result = downloadDepartmentMembersWorkbook(name, members);
+      toast({
+        title: '부서 명단 다운로드 완료',
+        description: `${name} · ${result.memberCount}명 명단을 받았습니다.`,
+      });
+    } catch (error) {
+      console.error('부서 명단 다운로드 실패:', error);
+      toast({
+        title: '부서 명단 다운로드 실패',
+        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="sd-card sd-card-lg"
+        style={{
+          width: 'min(960px, 100%)',
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          padding: 0,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            padding: '20px 24px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div>
+            <div className="sd-label-mini">부서</div>
+            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{name}</h2>
+            <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+              {records.length}명 · 평가 완료 {finalized} · 목표 달성 {achieved} · 평균 점수{' '}
+              {averageScore}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={handleDownload}
+              disabled={records.length === 0}
+            >
+              <Download size={14} />
+              엑셀 다운로드
+            </button>
+            <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>
+              <X size={16} />
+              닫기
+            </button>
+          </div>
+        </div>
+
+        <div style={{ overflow: 'auto', padding: '0 4px 4px' }}>
+          {records.length === 0 ? (
+            <div style={{ padding: 24, color: 'var(--fg-muted)' }}>
+              이 부서에는 표시할 평가 대상자가 없습니다.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader style={{ background: 'var(--bg-muted)' }}>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead>직급</TableHead>
+                  <TableHead>레벨</TableHead>
+                  <TableHead>평가자</TableHead>
+                  <TableHead>점수</TableHead>
+                  <TableHead>달성</TableHead>
+                  <TableHead>상태</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((record) => {
+                  const finalized = isEvaluationFinalized(record);
+                  return (
+                    <TableRow key={record.employee.id}>
+                      <TableCell>
+                        <div style={{ fontWeight: 800 }}>{record.employee.name}</div>
+                        <div
+                          style={{
+                            marginTop: 2,
+                            fontSize: 'var(--fs-xs)',
+                            color: 'var(--fg-muted)',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          {record.employee.employee_id}
+                        </div>
+                      </TableCell>
+                      <TableCell>{record.employee.position}</TableCell>
+                      <TableCell>
+                        {record.employee.growth_level ? `Lv.${record.employee.growth_level}` : '-'}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)' }}>
+                        {record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? '-'}
+                      </TableCell>
+                      <TableCell className="tnum">
+                        {finalized ? (
+                          <span style={{ fontWeight: 800 }}>{record.weightedScore.toFixed(1)}</span>
+                        ) : (
+                          <span style={{ color: 'var(--fg-muted)' }}>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {finalized ? (
+                          record.achieved ? (
+                            <Pill tone="success">달성</Pill>
+                          ) : (
+                            <Pill tone="warning">미달성</Pill>
+                          )
+                        ) : (
+                          <span style={{ color: 'var(--fg-muted)' }}>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Pill tone={REVIEW_STATUS_TONE[record.reviewStatus]}>
+                          {REVIEW_STATUS_LABEL[record.reviewStatus]}
+                        </Pill>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 

@@ -379,10 +379,13 @@ const buildProfileSummaryRows = (
   }),
 ];
 
-export const createEmployeeProfileUploadWorkbook = async () => {
+export const createEmployeeProfileUploadWorkbook = async (
+  options: { periodId?: string | null } = {},
+) => {
+  const periodId = options.periodId ?? null;
   const [employees, latestImportRows] = await Promise.all([
     employeeService.getAllEmployees(),
-    employeeService.getLatestEmployeeProfileImportRows().catch(() => []),
+    employeeService.getLatestEmployeeProfileImportRows(periodId).catch(() => []),
   ]);
   const profileEmployees = getProfileEmployees(employees);
   const summaryImportRows = latestImportRows.filter(isSummaryProfileImportRow);
@@ -391,15 +394,21 @@ export const createEmployeeProfileUploadWorkbook = async () => {
       .filter((row) => row.employee_id)
       .map((row) => [row.employee_id, row]),
   );
+
+  // 평가기간이 지정되었는데 그 기간에 대상자 업로드 기록이 없으면 빈 양식만 반환.
+  // (다른 평가기간의 직원 명단이 섞여 내려가지 않도록.)
+  const hasPeriodFilter = Boolean(periodId);
   const targets =
     summaryImportRows.length > 0
       ? orderProfileEmployees(profileEmployees, summaryImportRows, false)
-      : profileEmployees.sort(
-          (a, b) =>
-            (a.department ?? '').localeCompare(b.department ?? '') ||
-            (a.name ?? '').localeCompare(b.name ?? '') ||
-            a.employee_id.localeCompare(b.employee_id),
-        );
+      : hasPeriodFilter
+        ? []
+        : profileEmployees.sort(
+            (a, b) =>
+              (a.department ?? '').localeCompare(b.department ?? '') ||
+              (a.name ?? '').localeCompare(b.name ?? '') ||
+              a.employee_id.localeCompare(b.employee_id),
+          );
   const wb = XLSX.utils.book_new();
 
   appendAoaSheet(wb, 'Sheet1', buildProfileSummaryRows(targets, sourceRowsByEmployee));
@@ -407,8 +416,10 @@ export const createEmployeeProfileUploadWorkbook = async () => {
   return { wb, targetCount: targets.length };
 };
 
-export const downloadEmployeeProfileUploadWorkbook = async (): Promise<ExportResult> => {
-  const { wb, targetCount } = await createEmployeeProfileUploadWorkbook();
+export const downloadEmployeeProfileUploadWorkbook = async (
+  options: { periodId?: string | null } = {},
+): Promise<ExportResult> => {
+  const { wb, targetCount } = await createEmployeeProfileUploadWorkbook(options);
   const fileName = writeWorkbook(wb, `평가대상자_업로드양식_${todayText()}.xlsx`);
   return { fileName, targetCount, rowCount: targetCount };
 };
@@ -468,8 +479,10 @@ const buildMatchingHistoryRow = (
   history.status === 'cancelled' ? '취소' : employee.matching_result ?? '',
 ];
 
+// 매칭 업로드 출처 이력(예전 'Matching import:' 변형 + 신 'Matching reconcile:').
+// 매칭 source 행과 짝지을 때, 그리고 수동 추가 이력과 구분할 때 쓴다.
 const isBulkMatchingHistory = (history: EvaluatorAssignmentHistory) =>
-  /^Matching (import|past tour|baseline import):/i.test((history.reason ?? '').trim());
+  /^Matching (import|past tour|baseline import|reconcile):/i.test((history.reason ?? '').trim());
 
 const previousDateText = (value?: string | null) => {
   const text = dateText(value);
@@ -703,12 +716,22 @@ const buildMatchingRowsFromImportRows = (
   return rows;
 };
 
-export const createMatchingUploadWorkbook = async () => {
+export const createMatchingUploadWorkbook = async (
+  options: { periodId?: string | null } = {},
+) => {
+  const periodId = options.periodId ?? null;
   const [employees, latestImportRows] = await Promise.all([
     employeeService.getAllEmployees(),
-    employeeService.getLatestMatchingImportRows().catch(() => []),
+    employeeService.getLatestMatchingImportRows(periodId).catch(() => []),
   ]);
   const employeeMap = getEmployeeMap(employees);
+
+  // 평가기간이 지정되었는데 그 기간에 매칭 업로드 기록이 없으면 빈 양식(헤더만)을 반환.
+  if (!latestImportRows.length && periodId) {
+    const wb = XLSX.utils.book_new();
+    appendAoaSheet(wb, MATCHING_IMPORT_SHEET_NAME, [MATCHING_IMPORT_HEADERS]);
+    return { wb, targetCount: 0, rowCount: 0 };
+  }
 
   if (latestImportRows.length > 0) {
     const sourceEmployeeIds = [
@@ -771,8 +794,10 @@ export const createMatchingUploadWorkbook = async () => {
   return { wb, targetCount: targets.length, rowCount: Math.max(0, rows.length - 1) };
 };
 
-export const downloadMatchingUploadWorkbook = async (): Promise<ExportResult> => {
-  const { wb, targetCount, rowCount } = await createMatchingUploadWorkbook();
+export const downloadMatchingUploadWorkbook = async (
+  options: { periodId?: string | null } = {},
+): Promise<ExportResult> => {
+  const { wb, targetCount, rowCount } = await createMatchingUploadWorkbook(options);
   const fileName = writeWorkbook(wb, `개인별매칭결과_업로드양식_${todayText()}_이력포함.xlsx`);
   return { fileName, targetCount, rowCount };
 };
@@ -1192,4 +1217,59 @@ export const downloadHrBackupWorkbook = async (
   const suffix = options.includePastEvaluations === false ? '' : '_이전평가포함';
   const fileName = writeWorkbook(result.wb, `HR_전체데이터_${todayText()}${suffix}.xlsx`);
   return { fileName, rowCount: result.matchingRowCount, ...result };
+};
+
+const DEPARTMENT_MEMBER_HEADERS = [
+  '사번',
+  '이름',
+  '직급',
+  '부서',
+  '직무',
+  '성장레벨',
+  '평가자',
+  '평가 상태',
+  '점수',
+  '달성',
+  '진행률(%)',
+];
+
+export type DepartmentExportMember = {
+  employeeId: string;
+  name: string;
+  position: string;
+  department: string;
+  jobRole: string | null;
+  growthLevel: number | null;
+  evaluatorName: string | null;
+  reviewStatusLabel: string;
+  weightedScore: number;
+  isFinalized: boolean;
+  achieved: boolean;
+  progress: number;
+};
+
+export const downloadDepartmentMembersWorkbook = (
+  departmentName: string,
+  members: DepartmentExportMember[],
+): { fileName: string; memberCount: number } => {
+  const rows = members.map((m) => ({
+    사번: m.employeeId,
+    이름: m.name,
+    직급: m.position,
+    부서: m.department,
+    직무: m.jobRole ?? '',
+    성장레벨: m.growthLevel ?? '',
+    평가자: m.evaluatorName ?? '',
+    '평가 상태': m.reviewStatusLabel,
+    점수: m.isFinalized ? Number(m.weightedScore.toFixed(1)) : '',
+    달성: m.isFinalized ? (m.achieved ? '달성' : '미달성') : '',
+    '진행률(%)': m.progress,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  appendObjectSheet(wb, '부서명단', DEPARTMENT_MEMBER_HEADERS, rows);
+
+  const safeName = departmentName.replace(/[\\/:*?"<>|]/g, '_');
+  const fileName = writeWorkbook(wb, `부서명단_${safeName}_${todayText()}.xlsx`);
+  return { fileName, memberCount: members.length };
 };

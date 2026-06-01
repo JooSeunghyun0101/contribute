@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, CalendarDays, CheckCircle2, LockKeyhole, Plus, RefreshCw } from 'lucide-react';
+import { Archive, CalendarDays, CheckCircle2, LockKeyhole, LockKeyholeOpen, Pencil, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { evaluationPeriodService } from '@/lib/services';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { EvaluationPeriod, EvaluationPeriodStatus } from '@/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DateRangePicker } from '@/components/ui/date-picker';
 import { useToast } from '@/hooks/use-toast';
 
 type PeriodForm = {
@@ -43,6 +44,27 @@ const STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: string; bor
 };
 
 const formatDate = (value: string | null) => (value ? value.slice(0, 10).replace(/-/g, '.') : '-');
+
+const isValidPeriodDateInput = (value: string) => {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return (
+    year >= 1000 &&
+    year <= 9999 &&
+    month >= 1 &&
+    month <= 12 &&
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+};
+
+const normalizeYearInput = (value: string) => value.replace(/\D/g, '').slice(0, 4);
+
+const isValidYearInput = (value: string) => /^\d{4}$/.test(value);
 
 const StatusBadge = ({ status }: { status: EvaluationPeriodStatus }) => {
   const style = STATUS_STYLE[status];
@@ -91,6 +113,17 @@ const HrPeriodsPage = () => {
   const [showForm, setShowForm] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [form, setForm] = useState<PeriodForm>(() => getDefaultForm());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    name: string;
+    code: string;
+    evaluation_year: string;
+    starts_on: string;
+    ends_on: string;
+  } | null>(null);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
+  const [defaultPendingId, setDefaultPendingId] = useState<string | null>(null);
+  const [deletePendingId, setDeletePendingId] = useState<string | null>(null);
 
   const loadPeriods = useCallback(async () => {
     try {
@@ -130,24 +163,29 @@ const HrPeriodsPage = () => {
   );
 
   const handleYearChange = (value: string) => {
+    const nextYear = normalizeYearInput(value);
     setForm((prev) => {
       const previousDefaultCode = `${prev.evaluation_year}-annual`;
       const previousDefaultName = `${prev.evaluation_year} 연간 기여도 평가`;
       return {
         ...prev,
-        evaluation_year: value,
-        code: !prev.code || prev.code === previousDefaultCode ? `${value}-annual` : prev.code,
-        name: !prev.name || prev.name === previousDefaultName ? `${value} 연간 기여도 평가` : prev.name,
-        starts_on: `${value}-01-01`,
-        ends_on: `${value}-12-31`,
+        evaluation_year: nextYear,
+        code: !prev.code || prev.code === previousDefaultCode ? `${nextYear}-annual` : prev.code,
+        name: !prev.name || prev.name === previousDefaultName ? `${nextYear} 연간 기여도 평가` : prev.name,
+        starts_on: isValidYearInput(nextYear) ? `${nextYear}-01-01` : '',
+        ends_on: isValidYearInput(nextYear) ? `${nextYear}-12-31` : '',
       };
     });
   };
 
   const handleCreate = async () => {
     const year = Number(form.evaluation_year);
-    if (!Number.isInteger(year)) {
-      toast({ title: '연도를 숫자로 입력해 주세요.', variant: 'destructive' });
+    if (!isValidYearInput(form.evaluation_year) || !Number.isInteger(year)) {
+      toast({ title: '연도는 4자리 숫자로 입력해 주세요.', variant: 'destructive' });
+      return;
+    }
+    if (!isValidPeriodDateInput(form.starts_on) || !isValidPeriodDateInput(form.ends_on)) {
+      toast({ title: '날짜는 YYYY-MM-DD 형식으로 입력해 주세요.', variant: 'destructive' });
       return;
     }
     if (form.starts_on && form.ends_on && form.starts_on > form.ends_on) {
@@ -185,9 +223,126 @@ const HrPeriodsPage = () => {
     }
   };
 
-  const updateStatus = async (period: EvaluationPeriod, status: EvaluationPeriodStatus) => {
-    if (status === 'locked' && period.status !== 'locked' && !window.confirm(`${period.name} 기간을 잠그시겠습니까?`)) {
+  const startEdit = (period: EvaluationPeriod) => {
+    setEditingId(period.id);
+    setEditDraft({
+      name: period.name,
+      code: period.code,
+      evaluation_year: String(period.evaluation_year),
+      starts_on: period.starts_on ? period.starts_on.slice(0, 10) : '',
+      ends_on: period.ends_on ? period.ends_on.slice(0, 10) : '',
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft(null);
+  };
+
+  const saveEdit = async (period: EvaluationPeriod) => {
+    if (!editDraft) return;
+
+    const year = Number(editDraft.evaluation_year);
+    if (!isValidYearInput(editDraft.evaluation_year) || !Number.isInteger(year)) {
+      toast({ title: '연도는 4자리 숫자로 입력해 주세요.', variant: 'destructive' });
       return;
+    }
+    if (!isValidPeriodDateInput(editDraft.starts_on) || !isValidPeriodDateInput(editDraft.ends_on)) {
+      toast({ title: '날짜는 YYYY-MM-DD 형식으로 입력해 주세요.', variant: 'destructive' });
+      return;
+    }
+    if (editDraft.starts_on && editDraft.ends_on && editDraft.starts_on > editDraft.ends_on) {
+      toast({ title: '종료일은 시작일 이후여야 합니다.', variant: 'destructive' });
+      return;
+    }
+    const name = editDraft.name.trim();
+    const code = editDraft.code.trim();
+    if (!name || !code) {
+      toast({ title: '평가기간명과 코드는 비워둘 수 없습니다.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setSavingEditId(period.id);
+      await evaluationPeriodService.updatePeriod(period.id, {
+        name,
+        code,
+        evaluation_year: year,
+        starts_on: editDraft.starts_on || null,
+        ends_on: editDraft.ends_on || null,
+      });
+      await loadPeriods();
+      await reloadPeriods();
+      cancelEdit();
+      toast({ title: '평가기간이 수정되었습니다.' });
+    } catch (error) {
+      toast({
+        title: '평가기간 수정에 실패했습니다.',
+        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingEditId(null);
+    }
+  };
+
+  const setAsDefault = async (period: EvaluationPeriod) => {
+    if (period.is_default) return;
+    try {
+      setDefaultPendingId(period.id);
+      await evaluationPeriodService.updatePeriod(period.id, { is_default: true });
+      setSelectedPeriodId(period.id);
+      await loadPeriods();
+      await reloadPeriods();
+      toast({ title: `${period.name}이(가) 기본 평가기간으로 지정되었습니다.` });
+    } catch (error) {
+      toast({
+        title: '기본 평가기간 지정 실패',
+        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDefaultPendingId(null);
+    }
+  };
+
+  const deletePeriod = async (period: EvaluationPeriod) => {
+    if (
+      !window.confirm(
+        `"${period.name}" 평가기간을 삭제할까요?\n평가 데이터가 연결되지 않은 평가기간만 삭제됩니다.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      setDeletePendingId(period.id);
+      await evaluationPeriodService.deletePeriod(period.id);
+      await loadPeriods();
+      await reloadPeriods();
+      toast({ title: '평가기간이 삭제되었습니다.' });
+    } catch (error) {
+      toast({
+        title: '평가기간 삭제 실패',
+        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletePendingId(null);
+    }
+  };
+
+  const updateStatus = async (period: EvaluationPeriod, status: EvaluationPeriodStatus) => {
+    if (status === 'locked' && period.status !== 'locked') {
+      if (!window.confirm(`${period.name} 기간을 잠그시겠습니까?`)) return;
+    }
+    if (period.status === 'locked' && status !== 'locked') {
+      if (
+        !window.confirm(
+          `${period.name} 기간의 잠금을 해제하시겠습니까?\n\n해제 후 ${STATUS_LABEL[status]} 상태로 돌아갑니다.`,
+        )
+      ) {
+        return;
+      }
     }
 
     try {
@@ -272,6 +427,7 @@ const HrPeriodsPage = () => {
                   value={form.evaluation_year}
                   onChange={(event) => handleYearChange(event.target.value)}
                   inputMode="numeric"
+                  maxLength={4}
                 />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
@@ -290,22 +446,16 @@ const HrPeriodsPage = () => {
                   onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                 />
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
-                시작일
-                <input
-                  className="sd-input"
-                  type="date"
-                  value={form.starts_on}
-                  onChange={(event) => setForm((prev) => ({ ...prev, starts_on: event.target.value }))}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
-                종료일
-                <input
-                  className="sd-input"
-                  type="date"
-                  value={form.ends_on}
-                  onChange={(event) => setForm((prev) => ({ ...prev, ends_on: event.target.value }))}
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
+                기간
+                <DateRangePicker
+                  startValue={form.starts_on}
+                  endValue={form.ends_on}
+                  onChange={({ startDate, endDate }) =>
+                    setForm((prev) => ({ ...prev, starts_on: startDate, ends_on: endDate }))
+                  }
+                  startPlaceholder="시작일"
+                  endPlaceholder="종료일"
                 />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
@@ -355,49 +505,203 @@ const HrPeriodsPage = () => {
                   const isPending = pendingId === period.id;
                   const isActive = period.status === 'active';
                   const isLocked = period.status === 'locked';
+                  const isEditing = editingId === period.id && Boolean(editDraft);
+                  const isSavingEdit = savingEditId === period.id;
+                  const isSettingDefault = defaultPendingId === period.id;
+                  const isDeleting = deletePendingId === period.id;
+                  const rowBusy = isPending || isSavingEdit || isSettingDefault || isDeleting;
 
                   return (
                     <TableRow key={period.id}>
                       <TableCell>
-                        <strong>{period.name}</strong>
-                        <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-                          생성 {formatDate(period.created_at)}
-                        </div>
+                        {isEditing && editDraft ? (
+                          <input
+                            className="sd-input"
+                            value={editDraft.name}
+                            onChange={(event) =>
+                              setEditDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))
+                            }
+                            style={{ minWidth: 200 }}
+                          />
+                        ) : (
+                          <>
+                            <strong>{period.name}</strong>
+                            <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                              생성 {formatDate(period.created_at)}
+                            </div>
+                          </>
+                        )}
                       </TableCell>
-                      <TableCell style={{ fontFamily: 'monospace', fontSize: 'var(--fs-sm)' }}>{period.code}</TableCell>
-                      <TableCell>{period.evaluation_year}</TableCell>
-                      <TableCell>{formatDate(period.starts_on)}</TableCell>
-                      <TableCell>{formatDate(period.ends_on)}</TableCell>
+                      <TableCell style={{ fontFamily: 'monospace', fontSize: 'var(--fs-sm)' }}>
+                        {isEditing && editDraft ? (
+                          <input
+                            className="sd-input"
+                            value={editDraft.code}
+                            onChange={(event) =>
+                              setEditDraft((prev) => (prev ? { ...prev, code: event.target.value } : prev))
+                            }
+                            style={{ minWidth: 130, fontFamily: 'monospace' }}
+                          />
+                        ) : (
+                          period.code
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {isEditing && editDraft ? (
+                          <input
+                            className="sd-input"
+                            inputMode="numeric"
+                            maxLength={4}
+                            value={editDraft.evaluation_year}
+                            onChange={(event) =>
+                              setEditDraft((prev) =>
+                                prev ? { ...prev, evaluation_year: normalizeYearInput(event.target.value) } : prev,
+                              )
+                            }
+                            style={{ width: 80 }}
+                          />
+                        ) : (
+                          period.evaluation_year
+                        )}
+                      </TableCell>
+                      <TableCell colSpan={isEditing && editDraft ? 2 : undefined}>
+                        {isEditing && editDraft ? (
+                          <DateRangePicker
+                            startValue={editDraft.starts_on}
+                            endValue={editDraft.ends_on}
+                            onChange={({ startDate, endDate }) =>
+                              setEditDraft((prev) =>
+                                prev ? { ...prev, starts_on: startDate, ends_on: endDate } : prev,
+                              )
+                            }
+                            className="w-[310px]"
+                            startPlaceholder="시작일"
+                            endPlaceholder="종료일"
+                          />
+                        ) : (
+                          formatDate(period.starts_on)
+                        )}
+                      </TableCell>
+                      {!(isEditing && editDraft) && (
+                        <TableCell>
+                          {formatDate(period.ends_on)}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <StatusBadge status={period.status} />
                       </TableCell>
-                      <TableCell>{period.is_default ? '예' : '-'}</TableCell>
+                      <TableCell>
+                        {period.is_default ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: 'var(--ok-orange-50)',
+                              color: 'var(--ok-orange-700)',
+                              border: '1px solid var(--ok-orange-100)',
+                              fontSize: 'var(--fs-sm)',
+                              fontWeight: 800,
+                            }}
+                          >
+                            <Star size={12} fill="currentColor" />
+                            기본
+                          </span>
+                        ) : (
+                          <button
+                            className="sd-btn sd-btn-ghost sd-btn-xs"
+                            onClick={() => setAsDefault(period)}
+                            disabled={rowBusy || isLocked || isEditing}
+                            title={
+                              isLocked
+                                ? '잠금된 평가기간은 기본으로 지정할 수 없습니다.'
+                                : '클릭하면 이 평가기간을 기본으로 지정합니다.'
+                            }
+                          >
+                            {isSettingDefault ? '지정 중' : '기본 지정'}
+                          </button>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
-                          <button
-                            className="sd-btn sd-btn-outline sd-btn-xs"
-                            onClick={() => updateStatus(period, 'active')}
-                            disabled={isPending || isActive || isLocked}
-                          >
-                            <CheckCircle2 size={14} />
-                            활성화
-                          </button>
-                          <button
-                            className="sd-btn sd-btn-outline sd-btn-xs"
-                            onClick={() => updateStatus(period, 'closed')}
-                            disabled={isPending || period.status === 'closed' || isLocked}
-                          >
-                            <Archive size={14} />
-                            마감
-                          </button>
-                          <button
-                            className="sd-btn sd-btn-outline sd-btn-xs"
-                            onClick={() => updateStatus(period, 'locked')}
-                            disabled={isPending || isLocked}
-                          >
-                            <LockKeyhole size={14} />
-                            잠금
-                          </button>
+                          {isEditing ? (
+                            <>
+                              <button
+                                className="sd-btn sd-btn-primary sd-btn-xs"
+                                onClick={() => saveEdit(period)}
+                                disabled={isSavingEdit}
+                              >
+                                {isSavingEdit ? '저장 중' : '저장'}
+                              </button>
+                              <button
+                                className="sd-btn sd-btn-ghost sd-btn-xs"
+                                onClick={cancelEdit}
+                                disabled={isSavingEdit}
+                              >
+                                <X size={14} />
+                                취소
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="sd-btn sd-btn-outline sd-btn-xs"
+                                onClick={() => startEdit(period)}
+                                disabled={rowBusy || isLocked}
+                                title={isLocked ? '잠금된 평가기간은 수정할 수 없습니다.' : undefined}
+                              >
+                                <Pencil size={14} />
+                                편집
+                              </button>
+                              <button
+                                className="sd-btn sd-btn-outline sd-btn-xs"
+                                onClick={() => updateStatus(period, 'active')}
+                                disabled={rowBusy || isActive || isLocked}
+                              >
+                                <CheckCircle2 size={14} />
+                                활성화
+                              </button>
+                              <button
+                                className="sd-btn sd-btn-outline sd-btn-xs"
+                                onClick={() => updateStatus(period, 'closed')}
+                                disabled={rowBusy || period.status === 'closed' || isLocked}
+                              >
+                                <Archive size={14} />
+                                마감
+                              </button>
+                              <button
+                                className="sd-btn sd-btn-outline sd-btn-xs"
+                                onClick={() => updateStatus(period, isLocked ? 'closed' : 'locked')}
+                                disabled={rowBusy}
+                                title={
+                                  isLocked
+                                    ? '잠금을 해제하고 마감 상태로 되돌립니다.'
+                                    : '평가기간을 잠그면 모든 수정이 차단됩니다.'
+                                }
+                              >
+                                {isLocked ? <LockKeyholeOpen size={14} /> : <LockKeyhole size={14} />}
+                                {isLocked ? '잠금 해제' : '잠금'}
+                              </button>
+                              <button
+                                className="sd-btn sd-btn-ghost sd-btn-xs"
+                                onClick={() => deletePeriod(period)}
+                                disabled={rowBusy || isLocked || period.is_default}
+                                title={
+                                  period.is_default
+                                    ? '기본 평가기간은 삭제할 수 없습니다.'
+                                    : isLocked
+                                      ? '잠금된 평가기간은 삭제할 수 없습니다.'
+                                      : '평가 데이터가 없는 평가기간을 삭제합니다.'
+                                }
+                                style={{ color: 'var(--danger, #B91C1C)' }}
+                              >
+                                <Trash2 size={14} />
+                                {isDeleting ? '삭제 중' : '삭제'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
