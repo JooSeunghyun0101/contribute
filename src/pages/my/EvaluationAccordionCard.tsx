@@ -1,14 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plus, Save } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Plus, RefreshCw, Save, Sparkles, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { DateRangePicker, isValidDateValue } from '@/components/ui/date-picker';
 import { IconSparkle, NumBadge, Pill } from '@/components/brand';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
+import { generateGrowthSuggestion, generatePerformanceReportDraft } from '@/lib/gptOss';
 import type { Task } from '@/types/evaluation';
 import {
+  formatScore,
   getMatrixScore,
   getMatrixMethodIndex,
   getMatrixScopeIndex,
@@ -68,13 +73,91 @@ const EvaluationAccordionCard = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');
-  const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
+  // 옵션 B — task별 draft 유지. 다른 과업으로 전환해도 unsaved 변경사항이 메모리에 유지됨.
+  const NEW_DRAFT_KEY = '__new__';
+  const [drafts, setDrafts] = useState<Record<string, TaskDraft>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [reportAiLoading, setReportAiLoading] = useState(false);
+  const [reportAiSuggestion, setReportAiSuggestion] = useState<string | null>(null);
 
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null,
     [selectedTaskId, tasks],
+  );
+
+  const currentDraftKey = mode === 'create' ? NEW_DRAFT_KEY : (selectedTaskId ?? '');
+  const baseDraft: TaskDraft = useMemo(() => {
+    if (mode === 'create') return EMPTY_DRAFT;
+    if (!selectedTask) return EMPTY_DRAFT;
+    return {
+      title: selectedTask.title ?? '',
+      description: selectedTask.description ?? '',
+      weight: selectedTask.weight ?? 0,
+      startDate: toDateInput(selectedTask.startDate),
+      endDate: toDateInput(selectedTask.endDate),
+    };
+  }, [mode, selectedTask]);
+  const draft = drafts[currentDraftKey] ?? baseDraft;
+  const setDraft = useCallback(
+    (next: TaskDraft) => {
+      setDrafts((prev) => ({ ...prev, [currentDraftKey]: next }));
+    },
+    [currentDraftKey],
+  );
+  const clearDraft = useCallback((key: string) => {
+    setDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _omit, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  // 특정 task에 unsaved 변경이 있는지 확인
+  const isTaskDirty = useCallback(
+    (taskId: string): boolean => {
+      const d = drafts[taskId];
+      if (!d) return false;
+      const t = tasks.find((x) => x.id === taskId);
+      if (!t) return false;
+      const original: TaskDraft = {
+        title: t.title ?? '',
+        description: t.description ?? '',
+        weight: t.weight ?? 0,
+        startDate: toDateInput(t.startDate),
+        endDate: toDateInput(t.endDate),
+      };
+      return JSON.stringify(d) !== JSON.stringify(original);
+    },
+    [drafts, tasks],
+  );
+
+  // 다른 과업 클릭 시 — 현재 과업에 unsaved 변경이 있으면 토스트로 알림
+  const handleSelectTask = useCallback(
+    (nextTaskId: string) => {
+      if (mode === 'view' && selectedTaskId && selectedTaskId !== nextTaskId) {
+        const currentDraft = drafts[selectedTaskId];
+        const prevTask = tasks.find((t) => t.id === selectedTaskId);
+        if (currentDraft && prevTask) {
+          const original: TaskDraft = {
+            title: prevTask.title ?? '',
+            description: prevTask.description ?? '',
+            weight: prevTask.weight ?? 0,
+            startDate: toDateInput(prevTask.startDate),
+            endDate: toDateInput(prevTask.endDate),
+          };
+          if (JSON.stringify(currentDraft) !== JSON.stringify(original)) {
+            toast({
+              title: `${prevTask.title || '과업'} 임시저장`,
+              description: '변경 사항이 임시저장되었습니다. 최종 저장은 우측 상단 임시저장/최종제출 버튼을 눌러주세요.',
+            });
+          }
+        }
+      }
+      setSelectedTaskId(nextTaskId);
+      setMode('view');
+    },
+    [mode, selectedTaskId, drafts, tasks, toast],
   );
   const getCurrentScore = (task: {
     contributionMethod?: string | null;
@@ -83,6 +166,46 @@ const EvaluationAccordionCard = ({
   }) =>
     getMatrixScore(task.contributionMethod, task.contributionScope, matrix) ?? task.score ?? null;
   const selectedScore = selectedTask ? getCurrentScore(selectedTask) : null;
+
+  // AI 성장 제안 (자동 호출 + 수동 재생성)
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiRefreshKey, setAiRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!selectedTask) {
+      setAiSuggestion(null);
+      setAiError(null);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    setAiError(null);
+    generateGrowthSuggestion({
+      taskTitle: selectedTask.title || '제목 없음',
+      taskDescription: selectedTask.description,
+      score: selectedScore,
+      contributionMethod: selectedTask.contributionMethod,
+      contributionScope: selectedTask.contributionScope,
+      feedback: selectedTask.feedback,
+      growthLevel: evaluationData?.growthLevel,
+    })
+      .then((text) => {
+        if (!cancelled) setAiSuggestion(text);
+      })
+      .catch((err) => {
+        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 호출에 실패했습니다');
+      })
+      .finally(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTaskId, aiRefreshKey, evaluationData?.growthLevel]);
+
   const totalWeight = tasks.reduce((sum, task) => sum + task.weight, 0);
   const otherTasksWeight =
     mode === 'create' ? totalWeight : totalWeight - (selectedTask?.weight ?? 0);
@@ -91,11 +214,10 @@ const EvaluationAccordionCard = ({
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
   const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
-  // 'completed'는 어떤 경우(현재/과거)든 항상 잠금 — 평가자가 돌려보내야만 다시 편집 가능.
-  // 현재 평가는 submitted/evaluating 등도 잠금. 과거 평가는 completed가 아닌 한 편집 허용.
-  const isTaskEditingLocked = isCurrent
-    ? EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus)
-    : evaluationStatus === 'completed';
+  // 현재/과거 모두 동일하게 EVALUATEE_TASK_LOCKED_STATUSES (submitted/evaluating/completed/locked) 에서 잠금.
+  // "제출 완료" 라벨이 뜨면 더 이상 피평가자 단에서 수정할 수 없도록 일관 처리.
+  // 수정이 필요하면 평가자/HR 단에서 단계를 되돌려야 한다.
+  const isTaskEditingLocked = EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
   const taskEditMessage = isTaskEditingLocked
     ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 수정을 요청하세요.'
     : periodEditMessage;
@@ -105,8 +227,14 @@ const EvaluationAccordionCard = ({
 
   const evaluatorName = evaluationData?.evaluatorName ?? null;
   const headerLabel = isCurrent ? '현재 평가' : '이전 평가';
-  const headerTitle = evaluatorName ?? (isCurrent ? user?.name ?? '평가자' : '이전 평가자');
-  const headerInitial = headerTitle.charAt(0);
+  const evaluatorDisplayName = evaluatorName ?? (isCurrent ? user?.name ?? null : null);
+  const headerTitle = evaluatorDisplayName
+    ? `평가자 ${evaluatorDisplayName}`
+    : isCurrent
+      ? '평가자'
+      : '이전 평가자';
+  // 아바타 이니셜은 평가자 이름 기준 (헤더 prefix "평가자" 제외)
+  const headerInitial = (evaluatorDisplayName ?? headerTitle).charAt(0);
   const accentColor = isCurrent ? 'var(--ok-orange)' : 'var(--fg-muted)';
   const isCompleted = evaluationStatus === 'completed';
   const [isRequestingReturn, setIsRequestingReturn] = useState(false);
@@ -162,6 +290,47 @@ const EvaluationAccordionCard = ({
     });
   };
 
+  const handleGenerateReportDescription = async () => {
+    if (!canEditTasks) {
+      showTaskEditLockedToast();
+      return;
+    }
+    if (!draft.title.trim()) {
+      toast({ title: '과업 제목을 먼저 입력해 주세요.', variant: 'destructive' });
+      return;
+    }
+
+    setReportAiLoading(true);
+    try {
+      const generated = await generatePerformanceReportDraft({
+        taskTitle: draft.title.trim(),
+        currentDescription: draft.description,
+        startDate: draft.startDate,
+        endDate: draft.endDate,
+        weight: draft.weight,
+      });
+      const nextDescription = generated.trim();
+      if (!nextDescription || nextDescription.startsWith('⚠')) {
+        throw new Error(nextDescription || 'AI 응답이 비어 있습니다.');
+      }
+      setReportAiSuggestion(nextDescription);
+      toast({ title: 'AI 성과보고 의견을 생성했습니다.' });
+    } catch (error) {
+      console.error('성과보고 AI 생성 실패:', error);
+      toast({
+        title: 'AI 성과보고 생성 실패',
+        description: error instanceof Error ? error.message : 'AI 호출 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setReportAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setReportAiSuggestion(null);
+  }, [currentDraftKey]);
+
   useEffect(() => {
     if (!tasks.length) {
       setSelectedTaskId(null);
@@ -172,19 +341,7 @@ const EvaluationAccordionCard = ({
     }
   }, [selectedTaskId, tasks]);
 
-  useEffect(() => {
-    if (mode === 'view') {
-      const taskForDraft = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null;
-      if (!taskForDraft) return;
-      setDraft({
-        title: taskForDraft.title ?? '',
-        description: taskForDraft.description ?? '',
-        weight: taskForDraft.weight ?? 0,
-        startDate: toDateInput(taskForDraft.startDate),
-        endDate: toDateInput(taskForDraft.endDate),
-      });
-    }
-  }, [mode, selectedTaskId, tasks]);
+  // 옵션 B에서는 task별 drafts에 변경사항 유지되므로 selectedTaskId 변경 시 별도 reset 불필요.
 
   const startCreate = () => {
     if (!canEditTasks) {
@@ -192,22 +349,12 @@ const EvaluationAccordionCard = ({
       return;
     }
     setMode('create');
-    setDraft(EMPTY_DRAFT);
+    // 새 과업 입력은 별도 키. 기존 NEW_DRAFT_KEY draft가 있으면 그대로 복원.
   };
 
   const cancelCreate = () => {
     setMode('view');
-    if (selectedTask) {
-      setDraft({
-        title: selectedTask.title ?? '',
-        description: selectedTask.description ?? '',
-        weight: selectedTask.weight ?? 0,
-        startDate: toDateInput(selectedTask.startDate),
-        endDate: toDateInput(selectedTask.endDate),
-      });
-    } else {
-      setDraft(EMPTY_DRAFT);
-    }
+    clearDraft(NEW_DRAFT_KEY);
   };
 
   const computeNextTaskId = () => {
@@ -262,6 +409,14 @@ const EvaluationAccordionCard = ({
       });
       return;
     }
+    if (!isValidDateValue(draft.startDate) || !isValidDateValue(draft.endDate)) {
+      toast({ title: '기간은 YYYY-MM-DD 형식으로 입력해 주세요.', variant: 'destructive' });
+      return;
+    }
+    if (draft.startDate && draft.endDate && draft.startDate > draft.endDate) {
+      toast({ title: '종료일은 시작일 이후여야 합니다.', variant: 'destructive' });
+      return;
+    }
     if (!evaluationData) return;
 
     setIsSaving(true);
@@ -301,11 +456,13 @@ const EvaluationAccordionCard = ({
         toast({ title: isFinal ? '과업 등록 및 최종제출 완료' : '과업이 임시저장되었습니다.' });
         await reloadData();
         setMode('view');
+        clearDraft(NEW_DRAFT_KEY);
         setSelectedTaskId(newTaskId);
       } else {
         if (!selectedTask) return;
+        const editedTaskId = selectedTask.id;
         await taskService.updateTask(
-          selectedTask.id,
+          editedTaskId,
           {
             title: draft.title.trim(),
             description: draft.description?.trim() || null,
@@ -318,11 +475,44 @@ const EvaluationAccordionCard = ({
         if (isFinal) await maybeFinalizeEvaluation();
         toast({ title: isFinal ? '최종제출이 완료되었습니다.' : '임시저장되었습니다.' });
         await reloadData();
+        // 저장된 draft는 캐시에서 비워 다음 진입 시 서버 데이터로 동기화
+        clearDraft(editedTaskId);
       }
     } catch (err) {
       console.error(err);
       toast({
         title: '저장 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (mode !== 'view' || !selectedTask) return;
+    if (!canEditTasks) {
+      showTaskEditLockedToast();
+      return;
+    }
+    const ok = window.confirm(
+      `"${selectedTask.title || '제목 없음'}" 과업을 삭제할까요?\n삭제 후에는 복구할 수 없습니다.`,
+    );
+    if (!ok) return;
+
+    setIsSaving(true);
+    try {
+      await taskService.softDeleteTask(selectedTask.id, { past: isPastEvalEditing });
+      toast({ title: '과업이 삭제되었습니다.' });
+      const deletedId = selectedTask.id;
+      setSelectedTaskId(null);
+      clearDraft(deletedId);
+      await reloadData();
+    } catch (err) {
+      console.error('과업 삭제 실패:', err);
+      toast({
+        title: '과업 삭제 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
@@ -428,9 +618,9 @@ const EvaluationAccordionCard = ({
           <div style={{ textAlign: 'right' }}>
             <div className="sd-label-mini">반영 점수</div>
             <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: accentColor }}>
-              {summary.exactScore.toFixed(1)}
+              {formatScore(summary.exactScore)}
               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-                {' '} / {summary.flooredScore}
+                {' '} / {evaluationData?.growthLevel ?? 1}
               </span>
             </div>
             <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
@@ -520,9 +710,9 @@ const EvaluationAccordionCard = ({
                     marginTop: 8,
                     padding: '8px 10px',
                     borderRadius: 8,
-                    background: '#FFF7ED',
-                    border: '1px solid #FDBA74',
-                    color: '#9A3412',
+                    background: 'var(--ok-orange-50)',
+                    border: '1px solid var(--ok-orange-100)',
+                    color: 'var(--ok-orange-700)',
                     fontSize: 'var(--fs-sm)',
                     lineHeight: 1.5,
                     fontWeight: 700,
@@ -532,7 +722,7 @@ const EvaluationAccordionCard = ({
                   }}
                 >
                   <span>{taskEditMessage}</span>
-                  {isCompleted && (
+                  {isCurrent && isTaskEditingLocked && (
                     <button
                       type="button"
                       onClick={handleRequestReturn}
@@ -570,10 +760,7 @@ const EvaluationAccordionCard = ({
                   return (
                     <button
                       key={task.id}
-                      onClick={() => {
-                        setSelectedTaskId(task.id);
-                        setMode('view');
-                      }}
+                      onClick={() => handleSelectTask(task.id)}
                       style={{
                         width: '100%',
                         padding: '14px 20px',
@@ -599,6 +786,11 @@ const EvaluationAccordionCard = ({
                         <span>
                           {task.contributionMethod || '방식 미정'} · {task.contributionScope || '범위 미정'}
                         </span>
+                        {isTaskDirty(task.id) && (
+                          <span style={{ color: 'var(--ok-orange-700)', fontWeight: 900 }}>
+                            임시저장
+                          </span>
+                        )}
                         <span style={{ color: 'var(--fg-subtle)' }}>·</span>
                         <span>가중치 {task.weight}%</span>
                       </div>
@@ -677,6 +869,25 @@ const EvaluationAccordionCard = ({
                       <CheckCircle2 size={14} aria-hidden="true" />
                       최종제출
                     </button>
+                    {mode === 'view' && selectedTask && (
+                      <button
+                        className="sd-btn sd-btn-outline sd-btn-sm"
+                        onClick={handleDelete}
+                        disabled={isSaving || !canEditTasks}
+                        title={
+                          canEditTasks
+                            ? '이 과업을 삭제합니다. 삭제 후에는 복구할 수 없습니다.'
+                            : taskEditMessage ?? undefined
+                        }
+                        style={{
+                          color: 'var(--danger, #B91C1C)',
+                          borderColor: 'rgba(220,69,69,0.45)',
+                        }}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                        과업 삭제
+                      </button>
+                    )}
                   </div>
                   <input
                     className="sd-input"
@@ -699,28 +910,84 @@ const EvaluationAccordionCard = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18 }}>
                   <div className="flex flex-col gap-4">
                     <div className="sd-card sd-card-lg">
-                      <div className="sd-label-mini">과업 설명</div>
-                      <textarea
-                        value={draft.description}
-                        onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                        disabled={!canEditTasks}
-                        placeholder="과업의 목적·범위·기대 결과를 입력하세요."
-                        rows={4}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="sd-label-mini">과업 설명</div>
+                        <button
+                          type="button"
+                          className="sd-btn sd-btn-outline sd-btn-xs"
+                          onClick={handleGenerateReportDescription}
+                          disabled={!canEditTasks || reportAiLoading}
+                          title={
+                            canEditTasks
+                              ? '과업 제목과 현재 입력값을 바탕으로 성과보고 초안을 작성합니다.'
+                              : taskEditMessage ?? undefined
+                          }
+                        >
+                          <Sparkles size={12} aria-hidden="true" />
+                          {reportAiLoading ? '작성 중...' : 'AI 성과보고'}
+                        </button>
+                      </div>
+                      <div
                         style={{
                           marginTop: 10,
-                          width: '100%',
-                          padding: '10px 12px',
-                          borderRadius: 8,
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-card)',
-                          fontSize: 'var(--fs-body)',
-                          lineHeight: 1.7,
-                          color: 'var(--fg)',
-                          resize: 'vertical',
-                          fontFamily: 'inherit',
-                          ...lockedInputStyle,
+                          display: 'grid',
+                          gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 0.7fr)',
+                          gap: 12,
+                          alignItems: 'stretch',
                         }}
-                      />
+                      >
+                        <textarea
+                          value={draft.description}
+                          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                          disabled={!canEditTasks}
+                          placeholder="과업의 목적·범위·기대 결과를 입력하세요."
+                          rows={6}
+                          style={{
+                            width: '100%',
+                            minHeight: 158,
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-card)',
+                            fontSize: 'var(--fs-body)',
+                            lineHeight: 1.7,
+                            color: 'var(--fg)',
+                            resize: 'vertical',
+                            fontFamily: 'inherit',
+                            ...lockedInputStyle,
+                          }}
+                        />
+                        <div
+                          onCopy={(event) => {
+                            event.preventDefault();
+                            toast({ title: 'AI 의견은 복사할 수 없습니다.' });
+                          }}
+                          onCut={(event) => event.preventDefault()}
+                          onContextMenu={(event) => event.preventDefault()}
+                          style={{
+                            minHeight: 158,
+                            padding: '12px 14px',
+                            borderRadius: 8,
+                            border: '1px solid var(--ok-orange-100)',
+                            background: 'var(--ok-orange-50)',
+                            color: 'var(--ok-brown)',
+                            fontSize: 'var(--fs-sm)',
+                            lineHeight: 1.7,
+                            whiteSpace: 'pre-wrap',
+                            userSelect: 'none',
+                            WebkitUserSelect: 'none',
+                            cursor: 'default',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                            <Sparkles size={13} aria-hidden="true" />
+                            <span style={{ fontWeight: 900 }}>AI 의견</span>
+                          </div>
+                          {reportAiLoading
+                            ? '작성 중입니다...'
+                            : reportAiSuggestion ?? 'AI 성과보고를 생성하면 여기에 표시됩니다.'}
+                        </div>
+                      </div>
                       <div
                         style={{
                           marginTop: 18,
@@ -761,43 +1028,16 @@ const EvaluationAccordionCard = ({
                         </div>
                         <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
                           <div className="sd-label-mini">기간</div>
-                          <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
-                            <input
-                              type="date"
-                              value={draft.startDate}
-                              disabled={!canEditTasks}
-                              onChange={(e) => setDraft({ ...draft, startDate: e.target.value })}
-                              style={{
-                                flex: 1,
-                                width: '100%',
-                                padding: '4px 4px',
-                                borderRadius: 6,
-                                border: '1px solid var(--border)',
-                                fontSize: 'var(--fs-sm)',
-                                background: 'var(--bg-card)',
-                                minWidth: 0,
-                                ...lockedInputStyle,
-                              }}
-                            />
-                            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>~</span>
-                            <input
-                              type="date"
-                              value={draft.endDate}
-                              disabled={!canEditTasks}
-                              onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                              style={{
-                                flex: 1,
-                                width: '100%',
-                                padding: '4px 4px',
-                                borderRadius: 6,
-                                border: '1px solid var(--border)',
-                                fontSize: 'var(--fs-sm)',
-                                background: 'var(--bg-card)',
-                                minWidth: 0,
-                                ...lockedInputStyle,
-                              }}
-                            />
-                          </div>
+                          <DateRangePicker
+                            startValue={draft.startDate}
+                            endValue={draft.endDate}
+                            disabled={!canEditTasks}
+                            onChange={({ startDate, endDate }) =>
+                              setDraft({ ...draft, startDate, endDate })
+                            }
+                            className="mt-1"
+                            style={lockedInputStyle}
+                          />
                         </div>
                         <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
                           <div className="sd-label-mini">기여 방식</div>
@@ -949,28 +1189,41 @@ const EvaluationAccordionCard = ({
                                   {scope}
                                 </div>
                               )}
-                              renderCell={(_, __, mi, si, baseScore) => {
+                              renderCell={(method, scope, mi, si, baseScore) => {
                                 const selected = coords?.row === mi && coords?.col === si;
                                 const bg = selected ? getScoreColor(baseScore) : 'var(--bg-muted)';
                                 const color = selected ? getScoreTextColor(baseScore) : 'var(--fg-subtle)';
                                 return (
-                                  <div
-                                    style={{
-                                      height: 36,
-                                      borderRadius: 6,
-                                      background: bg,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      color,
-                                      fontWeight: selected ? 900 : 700,
-                                      fontSize: selected ? 'var(--fs-h4)' : 'var(--fs-body)',
-                                      boxShadow: selected ? '0 0 0 2px rgba(245,80,0,0.25)' : 'none',
-                                      transition: 'all 0.15s',
-                                    }}
-                                  >
-                                    {baseScore}
-                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div
+                                        style={{
+                                          height: 36,
+                                          borderRadius: 6,
+                                          background: bg,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          color,
+                                          fontWeight: selected ? 900 : 700,
+                                          fontSize: selected ? 'var(--fs-h4)' : 'var(--fs-body)',
+                                          boxShadow: selected ? '0 0 0 2px rgba(245,80,0,0.25)' : 'none',
+                                          transition: 'all 0.15s',
+                                          cursor: 'help',
+                                        }}
+                                      >
+                                        {baseScore}
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="p-3">
+                                      <ScoreExpectationContent
+                                        score={baseScore}
+                                        method={method}
+                                        scope={scope}
+                                        growthLevel={evaluationData?.growthLevel}
+                                      />
+                                    </TooltipContent>
+                                  </Tooltip>
                                 );
                               }}
                             />
@@ -1054,14 +1307,63 @@ const EvaluationAccordionCard = ({
                           <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
                             <IconSparkle width={18} height={18} />
                           </div>
-                          <div>
-                            <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
-                              AI 성장 제안
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                              }}
+                            >
+                              <span
+                                style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}
+                              >
+                                AI 성장 제안
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setAiRefreshKey((k) => k + 1)}
+                                disabled={aiLoading}
+                                title="다시 생성"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  border: '1px solid var(--ok-orange-100)',
+                                  background: 'transparent',
+                                  color: 'var(--ok-orange-700)',
+                                  fontSize: 'var(--fs-xs)',
+                                  fontWeight: 700,
+                                  cursor: aiLoading ? 'wait' : 'pointer',
+                                  opacity: aiLoading ? 0.6 : 1,
+                                }}
+                              >
+                                <RefreshCw
+                                  size={12}
+                                  style={{
+                                    animation: aiLoading ? 'spin 1s linear infinite' : 'none',
+                                  }}
+                                />
+                                다시 생성
+                              </button>
                             </div>
                             <div
-                              style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.6, color: 'var(--ok-brown)', marginTop: 4 }}
+                              style={{
+                                fontSize: 'var(--fs-sm)',
+                                lineHeight: 1.6,
+                                color: 'var(--ok-brown)',
+                                marginTop: 6,
+                                minHeight: 40,
+                              }}
                             >
-                              {getTaskSuggestion(selectedScore)}
+                              {aiLoading && aiSuggestion == null
+                                ? 'AI가 과업 정보를 분석 중입니다…'
+                                : aiError
+                                  ? `${aiError} (다시 생성 버튼으로 재시도)`
+                                  : aiSuggestion ?? getTaskSuggestion(selectedScore)}
                             </div>
                           </div>
                         </div>

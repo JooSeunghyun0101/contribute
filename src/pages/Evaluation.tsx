@@ -1,14 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Clock3, PencilLine } from 'lucide-react';
+import { ChevronDown, ChevronUp, CircleHelp, Clock3, PencilLine, Sparkles } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { NumBadge, Pill } from '@/components/brand';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import {
+  GrowthLevelExpectationContent,
+  ScoreExpectationContent,
+} from '@/components/Evaluation/ExpectationTooltipContent';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useToast } from '@/hooks/use-toast';
 import { employeeService, evaluationService } from '@/lib/services';
+import { generateFeedbackRecommendation } from '@/lib/gptOss';
 import {
   buildEvaluatorPeriods,
   formatEvaluatorPeriod,
@@ -20,6 +26,7 @@ import {
   MATRIX_SCOPES,
   MATRIX_SCORE_COLORS,
   EvaluationMatrixScores,
+  formatScore,
   getMatrixScore,
   getScoreTextColor,
 } from '@/lib/evaluationMatrix';
@@ -197,7 +204,13 @@ const Evaluation = () => {
   const canEditEvaluation = evaluationData?.evaluatorAccess?.canEdit ?? true;
   const evaluatorAccessMessage = evaluationData?.evaluatorAccess?.message;
   const canEvaluate = isPeriodEditable && isSubmittedForReview && canEditEvaluation;
-  const canReopenCompleted = isPeriodEditable && evaluationStatus === 'completed' && canEditEvaluation;
+  // 평가자가 평가 시작 전(submitted)이거나 진행 중(evaluating), 또는 완료(completed) — 모두 돌려보내기 가능
+  const canReopenCompleted =
+    isPeriodEditable &&
+    (evaluationStatus === 'completed' ||
+      evaluationStatus === 'submitted' ||
+      evaluationStatus === 'evaluating') &&
+    canEditEvaluation;
   const evaluatorEditMessage = !isPeriodEditable
     ? periodEditMessage
     : !canEditEvaluation
@@ -399,6 +412,14 @@ const Evaluation = () => {
   };
 
   const selectTask = (groupKey: string, taskId: string) => {
+    const prevTaskId = selectedTaskByGroup[groupKey];
+    if (prevTaskId && prevTaskId !== taskId && hasTaskDraft(prevTaskId)) {
+      const prevTask = committedTasks.find((t) => t.id === prevTaskId);
+      toast({
+        title: `${prevTask?.title || '과업'} 임시저장`,
+        description: '변경 사항이 임시저장되었습니다. 우측 상단 임시저장/저장 버튼으로 최종 반영됩니다.',
+      });
+    }
     setSelectedTaskByGroup((prev) => ({ ...prev, [groupKey]: taskId }));
   };
 
@@ -553,7 +574,7 @@ const Evaluation = () => {
                 title={
                   canReopenCompleted
                     ? '피평가자가 다시 수정할 수 있도록 돌려보냅니다.'
-                    : '평가가 완료된 상태에서만 돌려보낼 수 있습니다.'
+                    : '피평가자가 최종제출한 평가 건에서만 돌려보낼 수 있습니다.'
                 }
               >
                 <PencilLine size={14} aria-hidden="true" />
@@ -601,9 +622,9 @@ const Evaluation = () => {
         <div
           style={{
             padding: '10px 32px',
-            background: '#FFF7ED',
-            borderBottom: '1px solid #FDBA74',
-            color: '#9A3412',
+            background: 'var(--ok-orange-50)',
+            borderBottom: '1px solid var(--ok-orange-100)',
+            color: 'var(--ok-orange-700)',
             fontSize: 'var(--fs-body)',
             fontWeight: 700,
           }}
@@ -638,6 +659,7 @@ const Evaluation = () => {
                   ? formatEvaluatorPeriod(evaluatorPeriods.get(group.evaluatorId))
                   : null
               }
+              growthLevel={evaluationData.growthLevel}
               onToggle={() => toggleGroup(group.key)}
               onSelectTask={(taskId) => selectTask(group.key, taskId)}
               onCellClick={(task, methodIndex, scopeIndex) =>
@@ -676,10 +698,15 @@ const EvaluateeStatHero = ({ growthLevel, currentScore, achieved }: EvaluateeSta
       gap: 18,
     }}
   >
-    <StatTile label="성장 레벨" value={`Lv.${growthLevel}`} valueColor="var(--fg)" />
+    <StatTile
+      label="성장 레벨"
+      value={`Lv.${growthLevel}`}
+      valueColor="var(--fg)"
+      tooltipContent={<GrowthLevelExpectationContent level={growthLevel} />}
+    />
     <StatTile
       label="내 반영 점수"
-      value={currentScore != null && currentScore > 0 ? currentScore.toFixed(1) : '–'}
+      value={currentScore != null && currentScore > 0 ? formatScore(currentScore) : '–'}
       valueColor="var(--ok-orange)"
     />
     <StatTile
@@ -694,37 +721,56 @@ type StatTileProps = {
   label: string;
   value: string;
   valueColor: string;
+  tooltipContent?: ReactNode;
 };
 
-const StatTile = ({ label, value, valueColor }: StatTileProps) => (
-  <div style={{ textAlign: 'center', lineHeight: 1.1 }}>
-    <div
-      style={{
-        fontSize: 'var(--fs-micro)',
-        fontWeight: 700,
-        color: 'var(--fg-subtle)',
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
+const StatTile = ({ label, value, valueColor, tooltipContent }: StatTileProps) => {
+  const content = (
+    <div style={{ textAlign: 'center', lineHeight: 1.1, cursor: tooltipContent ? 'help' : 'default' }}>
+      <div
+        style={{
+          fontSize: 'var(--fs-micro)',
+          fontWeight: 700,
+          color: 'var(--fg-subtle)',
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 4,
+        }}
+      >
+        {label}
+        {tooltipContent && <CircleHelp size={12} aria-hidden="true" />}
+      </div>
+      <div
+        className="tnum"
+        style={{
+          fontSize: 'var(--fs-h2)',
+          fontWeight: 900,
+          lineHeight: 1,
+          marginTop: 4,
+          color: valueColor,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {value}
+      </div>
     </div>
-    <div
-      className="tnum"
-      style={{
-        fontSize: 'var(--fs-h2)',
-        fontWeight: 900,
-        lineHeight: 1,
-        marginTop: 4,
-        color: valueColor,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {value}
-    </div>
-  </div>
-);
+  );
+
+  if (!tooltipContent) return content;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{content}</TooltipTrigger>
+      <TooltipContent side="bottom" className="p-3">
+        {tooltipContent}
+      </TooltipContent>
+    </Tooltip>
+  );
+};
 
 type EvaluatorAccordionProps = {
   group: EvaluatorGroup;
@@ -732,6 +778,7 @@ type EvaluatorAccordionProps = {
   selectedItem?: EvaluatorTaskView;
   selectedTaskId?: string;
   periodLabel?: string | null;
+  growthLevel: number;
   onToggle: () => void;
   onSelectTask: (taskId: string) => void;
   onCellClick: (task: Task, methodIndex: number, scopeIndex: number) => void;
@@ -746,6 +793,7 @@ const EvaluatorAccordion = ({
   selectedItem,
   selectedTaskId,
   periodLabel,
+  growthLevel,
   onToggle,
   onSelectTask,
   onCellClick,
@@ -791,7 +839,7 @@ const EvaluatorAccordion = ({
               lineHeight: 1.15,
             }}
           >
-            {group.evaluatorName}
+            평가자 {group.evaluatorName}
           </h2>
           <Pill tone={group.canEdit ? 'orange' : group.isOwnedByCurrentUser ? 'success' : 'neutral'}>
             {group.label}
@@ -823,10 +871,10 @@ const EvaluatorAccordion = ({
         <div style={{ textAlign: 'right' }}>
           <div className="sd-label-mini">반영 점수</div>
           <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
-            {group.exactScore.toFixed(1)}
+            {formatScore(group.exactScore)}
             <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
               {' '}
-              / {group.flooredScore}
+              / {growthLevel}
             </span>
           </div>
           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
@@ -877,6 +925,7 @@ const EvaluatorAccordion = ({
           group={group}
           item={selectedItem}
           matrix={matrix}
+          growthLevel={growthLevel}
           onCellClick={onCellClick}
           onNoContributionClick={onNoContributionClick}
           onFeedbackChange={onFeedbackChange}
@@ -966,6 +1015,7 @@ type TaskDetailProps = {
   group: EvaluatorGroup;
   item: EvaluatorTaskView;
   matrix: EvaluationMatrixScores;
+  growthLevel: number;
   onCellClick: (task: Task, methodIndex: number, scopeIndex: number) => void;
   onNoContributionClick: (task: Task) => void;
   onFeedbackChange: (taskId: string, feedback: string) => void;
@@ -975,15 +1025,66 @@ const TaskDetail = ({
   group,
   item,
   matrix,
+  growthLevel,
   onCellClick,
   onNoContributionClick,
   onFeedbackChange,
 }: TaskDetailProps) => {
+  const { toast } = useToast();
   const { task, displayTask } = item;
   const selectedMethodIdx = METHODS.indexOf(displayTask.contributionMethod ?? '');
   const selectedScopeIdx = SCOPES.indexOf(displayTask.contributionScope ?? '');
   const noContribSelected =
     displayTask.contributionMethod === '기여없음' && displayTask.contributionScope === '기여없음';
+  const [feedbackAiLoading, setFeedbackAiLoading] = useState(false);
+  const [feedbackAiSuggestion, setFeedbackAiSuggestion] = useState<string | null>(null);
+
+  const handleGenerateFeedbackDraft = async () => {
+    if (!group.canEdit) return;
+
+    const score = resolveTaskScore(displayTask, matrix);
+    const contributionMethod = displayTask.contributionMethod ?? '';
+    const contributionScope = displayTask.contributionScope ?? '';
+    if (score == null || !contributionMethod || !contributionScope) {
+      toast({
+        title: '점수 선택이 필요합니다.',
+        description: '기여방식과 기여범위를 먼저 선택한 뒤 AI 피드백을 생성해 주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFeedbackAiLoading(true);
+    try {
+      const generated = await generateFeedbackRecommendation(
+        displayTask.title || task.title || '제목 없음',
+        displayTask.description || task.description || '',
+        score,
+        contributionMethod,
+        contributionScope,
+        displayTask.feedback ?? '',
+      );
+      const nextFeedback = generated.trim();
+      if (!nextFeedback || nextFeedback.startsWith('⚠')) {
+        throw new Error(nextFeedback || 'AI 응답이 비어 있습니다.');
+      }
+      setFeedbackAiSuggestion(nextFeedback);
+      toast({ title: 'AI 피드백 의견을 생성했습니다.' });
+    } catch (error) {
+      console.error('피드백 AI 생성 실패:', error);
+      toast({
+        title: 'AI 피드백 생성 실패',
+        description: error instanceof Error ? error.message : 'AI 호출 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setFeedbackAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setFeedbackAiSuggestion(null);
+  }, [task.id]);
 
   return (
     <div
@@ -1073,59 +1174,129 @@ const TaskDetail = ({
                 {scope}
               </div>
             )}
-            renderCell={(_, __, methodIndex, scopeIndex, cellScore) => {
+            renderCell={(method, scope, methodIndex, scopeIndex, cellScore) => {
               const isSelected = !noContribSelected && methodIndex === selectedMethodIdx && scopeIndex === selectedScopeIdx;
               const cellBg = isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--bg-muted)';
               const cellColor = isSelected ? getScoreTextColor(cellScore) : 'var(--fg-subtle)';
 
               return (
-                <button
-                  type="button"
-                  onClick={() => onCellClick(task, methodIndex, scopeIndex)}
-                  disabled={!group.canEdit}
-                  style={{
-                    width: '100%',
-                    height: 44,
-                    borderRadius: 8,
-                    border: `2px solid ${isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--border)'}`,
-                    background: cellBg,
-                    color: cellColor,
-                    fontWeight: isSelected ? 900 : 700,
-                    fontSize: isSelected ? 'var(--fs-h3)' : 'var(--fs-h4)',
-                    cursor: group.canEdit ? 'pointer' : 'not-allowed',
-                    opacity: group.canEdit || isSelected ? 1 : 0.48,
-                  }}
-                >
-                  {cellScore}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span style={{ display: 'block', width: '100%' }}>
+                      <button
+                        type="button"
+                        onClick={() => onCellClick(task, methodIndex, scopeIndex)}
+                        disabled={!group.canEdit}
+                        style={{
+                          width: '100%',
+                          height: 44,
+                          borderRadius: 8,
+                          border: `2px solid ${isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--border)'}`,
+                          background: cellBg,
+                          color: cellColor,
+                          fontWeight: isSelected ? 900 : 700,
+                          fontSize: isSelected ? 'var(--fs-h3)' : 'var(--fs-h4)',
+                          cursor: group.canEdit ? 'pointer' : 'not-allowed',
+                          opacity: group.canEdit || isSelected ? 1 : 0.48,
+                        }}
+                      >
+                        {cellScore}
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="p-3">
+                    <ScoreExpectationContent
+                      score={cellScore}
+                      method={method}
+                      scope={scope}
+                      growthLevel={growthLevel}
+                    />
+                  </TooltipContent>
+                </Tooltip>
               );
             }}
           />
         </div>
 
         <div style={{ marginTop: 24 }}>
-          <div className="sd-label-mini">피드백</div>
-          <textarea
-            value={displayTask.feedback ?? ''}
-            onChange={(event) => onFeedbackChange(task.id, event.target.value)}
-            disabled={!group.canEdit}
-            placeholder="이번 과업에 대한 피드백을 작성하세요."
-            rows={6}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div className="sd-label-mini">피드백</div>
+            <button
+              type="button"
+              className="sd-btn sd-btn-outline sd-btn-xs"
+              onClick={handleGenerateFeedbackDraft}
+              disabled={!group.canEdit || feedbackAiLoading}
+              title={
+                group.canEdit
+                  ? '선택한 점수와 과업 정보를 바탕으로 평가자 피드백 의견 초안을 작성합니다.'
+                  : '현재 평가를 수정할 수 없습니다.'
+              }
+            >
+              <Sparkles size={12} aria-hidden="true" />
+              {feedbackAiLoading ? '생성 중...' : 'AI 의견 초안'}
+            </button>
+          </div>
+          <div
             style={{
               marginTop: 8,
-              width: '100%',
-              padding: '12px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: group.canEdit ? 'var(--bg-card)' : 'var(--bg-muted)',
-              fontSize: 'var(--fs-body)',
-              lineHeight: 1.7,
-              color: 'var(--fg)',
-              resize: 'vertical',
-              fontFamily: 'inherit',
-              cursor: group.canEdit ? 'text' : 'not-allowed',
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 0.7fr)',
+              gap: 12,
+              alignItems: 'stretch',
             }}
-          />
+          >
+            <textarea
+              value={displayTask.feedback ?? ''}
+              onChange={(event) => onFeedbackChange(task.id, event.target.value)}
+              disabled={!group.canEdit}
+              placeholder="이번 과업에 대한 피드백을 작성하세요."
+              rows={7}
+              style={{
+                width: '100%',
+                minHeight: 178,
+                padding: '12px 14px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: group.canEdit ? 'var(--bg-card)' : 'var(--bg-muted)',
+                fontSize: 'var(--fs-body)',
+                lineHeight: 1.7,
+                color: 'var(--fg)',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                cursor: group.canEdit ? 'text' : 'not-allowed',
+              }}
+            />
+            <div
+              onCopy={(event) => {
+                event.preventDefault();
+                toast({ title: 'AI 의견은 복사할 수 없습니다.' });
+              }}
+              onCut={(event) => event.preventDefault()}
+              onContextMenu={(event) => event.preventDefault()}
+              style={{
+                minHeight: 178,
+                padding: '12px 14px',
+                borderRadius: 8,
+                border: '1px solid var(--ok-orange-100)',
+                background: 'var(--ok-orange-50)',
+                color: 'var(--ok-brown)',
+                fontSize: 'var(--fs-sm)',
+                lineHeight: 1.7,
+                whiteSpace: 'pre-wrap',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                cursor: 'default',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <Sparkles size={13} aria-hidden="true" />
+                <span style={{ fontWeight: 900 }}>AI 의견</span>
+              </div>
+              {feedbackAiLoading
+                ? '생성 중입니다...'
+                : feedbackAiSuggestion ?? 'AI 의견 초안을 생성하면 여기에 표시됩니다.'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1178,7 +1349,7 @@ const TaskDetail = ({
             style={{
               padding: 14,
               borderRadius: 8,
-              background: '#F8FAFC',
+              background: 'var(--bg-muted)',
               border: '1px solid var(--border)',
               color: 'var(--fg-muted)',
               fontSize: 'var(--fs-sm)',

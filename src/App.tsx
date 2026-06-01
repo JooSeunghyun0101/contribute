@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EvaluationMatrixProvider } from "@/contexts/EvaluationMatrixContext";
+import { ExpectationProvider } from "@/contexts/ExpectationContext";
 import { NotificationProviderDB } from "@/contexts/NotificationContextDB";
 import { EvaluationPeriodProvider } from "@/contexts/EvaluationPeriodContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -63,6 +64,7 @@ const App = () => (
       <Sonner />
       <AuthProvider>
         <EvaluationMatrixProvider>
+          <ExpectationProvider>
           <NotificationProviderDB>
             <BrowserRouter>
               <Routes>
@@ -108,6 +110,14 @@ const App = () => (
                 {/* 평가자 */}
                 <Route
                   path="/team"
+                  element={
+                    <ProtectedRoute allowedRoles={["evaluator"]}>
+                      <ScoreTablePage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/team/board"
                   element={
                     <ProtectedRoute allowedRoles={["evaluator"]}>
                       <TeamHome />
@@ -226,6 +236,7 @@ const App = () => (
               </Routes>
             </BrowserRouter>
           </NotificationProviderDB>
+          </ExpectationProvider>
         </EvaluationMatrixProvider>
       </AuthProvider>
     </TooltipProvider>

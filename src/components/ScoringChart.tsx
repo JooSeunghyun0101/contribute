@@ -2,6 +2,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { getContributionTooltip } from '@/utils/evaluationUtils';
 import {
@@ -20,16 +21,18 @@ interface ScoringChartProps {
   onMethodClick?: (method: string) => void;
   onScopeClick?: (scope: string) => void;
   isReadOnly?: boolean;
+  growthLevel?: number | null;
 }
 
-const ScoringChart: React.FC<ScoringChartProps> = ({ 
-  selectedScope, 
-  selectedMethod, 
+const ScoringChart: React.FC<ScoringChartProps> = ({
+  selectedScope,
+  selectedMethod,
   title = "스코어링 매트릭스",
   size = 'medium',
   onMethodClick,
   onScopeClick,
-  isReadOnly = false
+  isReadOnly = false,
+  growthLevel,
 }) => {
   const { matrix } = useEvaluationMatrix();
   // 기여 방식 (Y축)
@@ -141,20 +144,31 @@ const ScoringChart: React.FC<ScoringChartProps> = ({
                 const highlighted = isCellHighlighted(methodIndex, scopeIndex);
                 
                 return (
-                  <div
-                    key={`${method}-${scope}`}
-                    className={`
-                      ${getCellSize()} 
-                      flex items-center justify-center 
-                      font-bold rounded border-2 transition-all
-                      ${highlighted 
-                        ? `bg-emerald-500/20 text-emerald-400 border-emerald-500 shadow-lg ring-2 ring-emerald-500/30 ${isReadOnly ? '' : 'scale-110'}`
-                        : 'bg-muted/50 text-muted-foreground border-border'
-                      }
-                    `}
-                  >
-                    {score}
-                  </div>
+                  <Tooltip key={`${method}-${scope}`}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={`
+                          ${getCellSize()} 
+                          flex items-center justify-center 
+                          font-bold rounded border-2 transition-all cursor-help
+                          ${highlighted 
+                            ? `bg-emerald-500/20 text-emerald-400 border-emerald-500 shadow-lg ring-2 ring-emerald-500/30 ${isReadOnly ? '' : 'scale-110'}`
+                            : 'bg-muted/50 text-muted-foreground border-border'
+                          }
+                        `}
+                      >
+                        {score}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="p-3">
+                      <ScoreExpectationContent
+                        score={score}
+                        method={method}
+                        scope={scope}
+                        growthLevel={growthLevel}
+                      />
+                    </TooltipContent>
+                  </Tooltip>
                 );
               })}
             </div>
