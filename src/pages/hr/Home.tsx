@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Area, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
 import { downloadFullEvaluationDataWorkbook } from '@/utils/hrDataExport';
+import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
+import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 const MONTH_LABELS = [
@@ -67,6 +70,12 @@ const HrHome = () => {
   const { selectedPeriod } = useEvaluationPeriod();
   const { toast } = useToast();
   const [isExportingReport, setIsExportingReport] = useState(false);
+  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+
+  const filteredRecords = useMemo(
+    () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
+    [records, orgFilter],
+  );
 
   const trendYear = useMemo(() => {
     if (selectedPeriod?.evaluation_year) return selectedPeriod.evaluation_year;
@@ -78,6 +87,7 @@ const HrHome = () => {
   }, [selectedPeriod?.evaluation_year, selectedPeriod?.starts_on]);
 
   const summary = useMemo(() => {
+    const records = filteredRecords;
     const totalMembers = records.length;
     const completedMembers = records.filter((r) => r.status === 'completed').length;
     const achievedMembers = records.filter((r) => r.achieved).length;
@@ -137,7 +147,33 @@ const HrHome = () => {
       monthlyTrend,
       completionDelta,
     };
-  }, [records, trendYear]);
+  }, [filteredRecords, trendYear]);
+
+  // 월별 평균 점수 추이 — 완료(또는 잠금)된 평가만 집계해 완료 되돌림에 반응한다.
+  const scoreTrend = useMemo(() => {
+    const members = filteredRecords
+      .filter((r) => r.reviewStatus === 'completed' || r.reviewStatus === 'locked')
+      .map((r) => ({
+        tasks: r.tasks.map((t) => ({
+          score: t.score,
+          weight: t.weight,
+          feedbackDate: t.feedback_date,
+        })),
+        growthLevel: Math.max(1, r.employee.growth_level ?? 1),
+      }));
+    return buildAggregateMonthlyTrend(members, { year: trendYear });
+  }, [filteredRecords, trendYear]);
+
+  // 완료율(기존)과 평균 점수를 한 차트로 합친 데이터.
+  const combinedTrend = useMemo(
+    () =>
+      summary.monthlyTrend.map((p, i) => ({
+        label: p.label,
+        value: p.value,
+        avgScore: scoreTrend[i]?.avgScore ?? null,
+      })),
+    [summary.monthlyTrend, scoreTrend],
+  );
 
   const deadlineInfo = useMemo(() => {
     const endsOn = selectedPeriod?.ends_on;
@@ -202,6 +238,11 @@ const HrHome = () => {
       />
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
+        <OrgFilterBar
+          items={records.map((r) => r.employee)}
+          value={orgFilter}
+          onChange={setOrgFilter}
+        />
         {/* Stat cards */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
           {/* Total */}
@@ -282,7 +323,7 @@ const HrHome = () => {
               {/* Weekly completion trend chart */}
               <div className="sd-card sd-card-lg">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>월간 완료율 추이</h3>
+                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>월간 완료율 · 평균 점수 추이</h3>
                   <span
                     style={{
                       fontSize: 'var(--fs-xs)',
@@ -298,7 +339,7 @@ const HrHome = () => {
                   </span>
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={summary.monthlyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <ComposedChart data={combinedTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#F55000" stopOpacity={0.25} />
@@ -313,14 +354,28 @@ const HrHome = () => {
                       tickLine={false}
                     />
                     <YAxis
+                      yAxisId="rate"
                       tick={{ fontSize: 'var(--fs-xs)', fill: 'var(--fg-muted)' }}
                       domain={[0, 100]}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => `${v}%`}
                     />
+                    <YAxis
+                      yAxisId="score"
+                      orientation="right"
+                      tick={{ fontSize: 'var(--fs-xs)', fill: 'var(--fg-subtle)' }}
+                      domain={[0, 4]}
+                      axisLine={false}
+                      tickLine={false}
+                      width={28}
+                    />
                     <Tooltip
-                      formatter={(v) => [`${v}%`, '완료율']}
+                      formatter={(value, name) =>
+                        name === '평균 점수'
+                          ? [Number(value).toFixed(2), '평균 점수']
+                          : [`${value}%`, '완료율']
+                      }
                       contentStyle={{
                         borderRadius: 10,
                         border: '1px solid var(--border)',
@@ -329,15 +384,28 @@ const HrHome = () => {
                       }}
                     />
                     <Area
+                      yAxisId="rate"
                       type="monotone"
                       dataKey="value"
+                      name="완료율"
                       stroke="#F55000"
                       strokeWidth={2.5}
                       fill="url(#areaGrad)"
                       dot={{ r: 4, fill: '#F55000', strokeWidth: 0 }}
                       activeDot={{ r: 6, fill: '#F55000', strokeWidth: 0 }}
                     />
-                  </AreaChart>
+                    <Line
+                      yAxisId="score"
+                      type="monotone"
+                      dataKey="avgScore"
+                      name="평균 점수"
+                      stroke="#3B82F6"
+                      strokeWidth={2}
+                      strokeDasharray="5 4"
+                      dot={false}
+                      connectNulls={false}
+                    />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
 

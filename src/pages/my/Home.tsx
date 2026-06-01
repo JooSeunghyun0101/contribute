@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import MonthlyScoreTrendChart from '@/components/Evaluation/MonthlyScoreTrendChart';
 import { NumBadge } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
@@ -107,6 +108,18 @@ const MyHome = () => {
         score: getMatrixScore(t.contributionMethod, t.contributionScope, matrix) ?? t.score ?? null,
         index: i,
       })),
+    [matrix, tasks],
+  );
+
+  /* 월별 점수 추이 입력 — 페이지의 표시 점수(getCurrentScore)와 동일하게 매핑 */
+  const trendTasks = useMemo(
+    () =>
+      tasks.map((t) => ({
+        score: getCurrentScore(t),
+        weight: t.weight ?? 0,
+        feedbackHistory: t.feedbackHistory ?? [],
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [matrix, tasks],
   );
 
@@ -874,6 +887,11 @@ const MyHome = () => {
             </div>
           </div>
 
+          {/* ── 월별 점수 추이 ───────────────────────────── */}
+          <MonthlyScoreTrendChart
+            tasks={trendTasks}
+            growthLevel={evaluationData.growthLevel ?? 1}
+          />
         </>
       )}
     </div>

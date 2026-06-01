@@ -17,6 +17,9 @@ import {
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
+import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import {
   formatScore,
   getMatrixMethodIndex,
@@ -47,8 +50,26 @@ const getBucket = (record: EmployeeEvaluationRecord): AchievementBucket => {
 
 const ScoreTablePage = () => {
   const { user } = useAuth();
-  const { records, isLoading, error } = useTeamDashboardRecords(user?.employeeId || '');
+  const { records: allRecords, isLoading, error } = useTeamDashboardRecords(user?.employeeId || '');
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
+  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const records = useMemo(
+    () => allRecords.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
+    [allRecords, orgFilter],
+  );
+  // 추이는 완료(또는 잠금)된 평가만 집계 → 완료 되돌림에 반응한다.
+  const trendMembers = useMemo(
+    () =>
+      records.filter(isEvaluationCompleted).map((r) => ({
+        tasks: r.tasks.map((t) => ({
+          score: t.score,
+          weight: t.weight,
+          feedbackDate: t.feedback_date,
+        })),
+        growthLevel: Math.max(1, r.employee.growth_level ?? 1),
+      })),
+    [records],
+  );
 
   const levelStats = useMemo(() => {
     const buckets = new Map<
@@ -171,6 +192,11 @@ const ScoreTablePage = () => {
       />
 
       <div style={{ padding: '24px 32px 32px' }} className="flex flex-col gap-5">
+        <OrgFilterBar
+          items={allRecords.map((r) => r.employee)}
+          value={orgFilter}
+          onChange={setOrgFilter}
+        />
         {isLoading ? (
           <div className="sd-card">통계 데이터를 불러오는 중입니다.</div>
         ) : error ? (
@@ -494,6 +520,11 @@ const ScoreTablePage = () => {
                 </div>
               </div>
             </section>
+
+            <AggregateScoreTrendChart
+              members={trendMembers}
+              title="월별 평균 점수 추이 (팀)"
+            />
 
           </>
         )}
