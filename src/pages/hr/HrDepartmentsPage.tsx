@@ -5,6 +5,8 @@ import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
 
@@ -35,16 +37,22 @@ const HrDepartmentsPage = () => {
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
+  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+
+  const filteredRecords = useMemo(
+    () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
+    [records, orgFilter],
+  );
 
   const recordsByDepartment = useMemo(() => {
     const map = new Map<string, EmployeeEvaluationRecord[]>();
-    for (const record of records) {
+    for (const record of filteredRecords) {
       const key = record.employee.department || '미지정';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(record);
     }
     return map;
-  }, [records]);
+  }, [filteredRecords]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
@@ -60,7 +68,7 @@ const HrDepartmentsPage = () => {
   const departments = useMemo(
     () =>
       Object.values(
-        records.reduce<
+        filteredRecords.reduce<
           Record<
             string,
             {
@@ -133,7 +141,7 @@ const HrDepartmentsPage = () => {
             averageScore,
           };
         }),
-    [records],
+    [filteredRecords],
   );
 
   const visibleDepartments = useMemo(() => {
@@ -219,6 +227,12 @@ const HrDepartmentsPage = () => {
                 />
               </div>
 
+              <OrgFilterBar
+                items={records.map((r) => r.employee)}
+                value={orgFilter}
+                onChange={setOrgFilter}
+              />
+
               <label
                 style={{
                   display: 'flex',
@@ -257,7 +271,7 @@ const HrDepartmentsPage = () => {
 
             <section
               className="grid gap-4"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
+              style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}
             >
               {visibleDepartments.map((department) => (
               <button
