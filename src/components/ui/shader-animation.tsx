@@ -31,7 +31,7 @@ export function ShaderAnimation({ className = "w-full h-full" }: ShaderAnimation
       }
     `
 
-    // Fragment shader
+    // Fragment shader — 선셋 팔레트 (오렌지 / 핑크 / 옐로)
     const fragmentShader = `
       #define TWO_PI 6.2831853072
       #define PI 3.14159265359
@@ -52,7 +52,13 @@ export function ShaderAnimation({ className = "w-full h-full" }: ShaderAnimation
           }
         }
 
-        gl_FragColor = vec4(color[0],color[1],color[2],1.0);
+        // 선셋 팔레트 매핑
+        vec3 colA = vec3(0.961, 0.314, 0.000); // #F55000 ok-orange
+        vec3 colB = vec3(1.000, 0.478, 0.537); // #FF7A89 핑크
+        vec3 colC = vec3(1.000, 0.824, 0.290); // #FFD24A 옐로
+        vec3 finalColor = colA * color[0] + colB * color[1] + colC * color[2];
+
+        gl_FragColor = vec4(finalColor, 1.0);
       }
     `
 
@@ -64,7 +70,8 @@ export function ShaderAnimation({ className = "w-full h-full" }: ShaderAnimation
     const geometry = new THREE.PlaneGeometry(2, 2)
 
     const uniforms = {
-      time: { type: "f", value: 1.0 },
+      // 15초 지난 시점의 패턴부터 보이도록 초기 time 오프셋 (60fps × 15s × 0.05step ≈ 45 + 1)
+      time: { type: "f", value: 46.0 },
       resolution: { type: "v2", value: new THREE.Vector2() },
     }
 

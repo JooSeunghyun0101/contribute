@@ -6,21 +6,12 @@ import { IconArrowRight } from '@/components/brand';
 // WebGL hero is used only on the login screen, so keep it out of the main bundle.
 const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
 
-const roleLabel: Record<string, string> = {
-  hr: 'HR 관리자',
-  evaluator: '평가자',
-  evaluatee: '피평가자',
-};
-
 const Login = () => {
   const { user, login, getAvailableRoles } = useAuth();
   const navigate = useNavigate();
 
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
-  const [availableRoles, setAvailableRoles] = useState<('hr' | 'evaluator' | 'evaluatee')[]>([]);
-  const [selectedRole, setSelectedRole] = useState<string>('');
-  const [step, setStep] = useState<'credentials' | 'role'>('credentials');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -39,29 +30,15 @@ const Login = () => {
         setError('사번 또는 비밀번호가 올바르지 않습니다.');
         return;
       }
-      if (roles.length === 1) {
-        setIsLoading(true);
-        const ok = await login(employeeId, password, roles[0]);
-        setIsLoading(false);
-        if (!ok) setError('사번 또는 비밀번호가 올바르지 않습니다.');
-        else navigate('/');
-      } else {
-        setAvailableRoles(roles);
-        setStep('role');
-      }
+      // 다중 역할은 로그인 후 상단바에서 전환. 여기서는 첫 번째 역할로 바로 로그인.
+      setIsLoading(true);
+      const ok = await login(employeeId, password, roles[0]);
+      setIsLoading(false);
+      if (!ok) setError('사번 또는 비밀번호가 올바르지 않습니다.');
+      else navigate('/');
     } catch {
       setError('사번 또는 비밀번호가 올바르지 않습니다.');
     }
-  };
-
-  const handleRole = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    const ok = await login(employeeId, password, selectedRole);
-    setIsLoading(false);
-    if (!ok) setError('로그인 중 오류가 발생했습니다.');
-    else navigate('/');
   };
 
   // OK 브랜드 다크 톤 — 셰이더의 검정 배경과 자연스럽게 이어지는 웜 브라운 계열
@@ -166,11 +143,9 @@ const Login = () => {
             color: 'var(--ok-yellow-300)',
           }}
         >
-          {step === 'credentials' ? 'LOGIN' : 'SELECT ROLE'}
+          LOGIN
         </div>
-        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>
-          {step === 'credentials' ? 'Welcome back.' : '역할 선택'}
-        </h2>
+        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>Welcome back.</h2>
 
         {error && (
           <div
@@ -188,127 +163,58 @@ const Login = () => {
           </div>
         )}
 
-        {step === 'credentials' ? (
-          <form
-            onSubmit={handleCredentials}
-            style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
+        <form
+          onSubmit={handleCredentials}
+          style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          <div className="sd-field">
+            <label style={{ color: textSoft }}>사번</label>
+            <input
+              className="sd-input"
+              style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              placeholder="예: H1911042"
+              autoComplete="username"
+              spellCheck={false}
+            />
+          </div>
+          <div className="sd-field">
+            <label style={{ color: textSoft }}>비밀번호</label>
+            <input
+              className="sd-input"
+              type="password"
+              style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="비밀번호"
+              autoComplete="current-password"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isLoading}
+            style={{
+              height: 46,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              borderRadius: 10,
+              border: 'none',
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              opacity: isLoading ? 0.7 : 1,
+            }}
           >
-            <div className="sd-field">
-              <label style={{ color: textSoft }}>사번</label>
-              <input
-                className="sd-input"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-                placeholder="예: H1911042"
-                autoComplete="username"
-                spellCheck={false}
-              />
-            </div>
-            <div className="sd-field">
-              <label style={{ color: textSoft }}>비밀번호</label>
-              <input
-                className="sd-input"
-                type="password"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호"
-                autoComplete="current-password"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{
-                height: 46,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: 10,
-                border: 'none',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                opacity: isLoading ? 0.7 : 1,
-              }}
-            >
-              {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
-            </button>
-            <div style={{ fontSize: 'var(--fs-xs)', color: textSubtle, textAlign: 'center', marginTop: 6 }}>
-              SSO · OK금융그룹 통합인증
-            </div>
-          </form>
-        ) : (
-          <form
-            onSubmit={handleRole}
-            style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 12 }}
-          >
-            {availableRoles.map((r) => (
-              <label
-                key={r}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '14px 16px',
-                  borderRadius: 10,
-                  border: `1px solid ${selectedRole === r ? 'var(--ok-orange)' : borderL}`,
-                  background: selectedRole === r ? 'rgba(245,80,0,0.15)' : inputL,
-                  cursor: 'pointer',
-                  color: '#F4EDE3',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  value={r}
-                  checked={selectedRole === r}
-                  onChange={() => setSelectedRole(r)}
-                  style={{ accentColor: '#F55000' }}
-                />
-                <span style={{ fontWeight: 600 }}>{roleLabel[r] ?? r}</span>
-              </label>
-            ))}
-            <button
-              type="submit"
-              disabled={isLoading || !selectedRole}
-              style={{
-                height: 46,
-                marginTop: 6,
-                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: 10,
-                border: 'none',
-                cursor: isLoading || !selectedRole ? 'not-allowed' : 'pointer',
-                opacity: isLoading || !selectedRole ? 0.6 : 1,
-              }}
-            >
-              {isLoading ? '로그인 중…' : '선택한 역할로 로그인'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStep('credentials');
-                setSelectedRole('');
-                setAvailableRoles([]);
-              }}
-              style={{
-                background: 'transparent',
-                color: textSoft,
-                border: 'none',
-                fontSize: 'var(--fs-body)',
-                cursor: 'pointer',
-                marginTop: 4,
-              }}
-            >
-              ← 이전으로
-            </button>
-          </form>
-        )}
+            {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
+          </button>
+          <div style={{ fontSize: 'var(--fs-xs)', color: textSubtle, textAlign: 'center', marginTop: 6 }}>
+            SSO · OK금융그룹 통합인증
+          </div>
+        </form>
 
         <div
           style={{

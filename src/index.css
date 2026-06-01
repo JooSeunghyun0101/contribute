@@ -136,6 +136,10 @@
   --border-strong: var(--input);
   --border-brand: var(--primary);
 
+  /* 미평가/0점 셀 — 다크/라이트 양쪽에서 카드 배경 대비로 보이게 */
+  --score-unrated-bg: #D6D1C5;
+  --score-unrated-fg: #6B5C4E;
+
   --ok-orange-hsl: 33 91% 35%;
   --ok-dark-brown: 20 18% 25%;
   --ok-yellow-hsl: 34 56% 73%;
@@ -234,6 +238,10 @@
   --fg-subtle: #8D857E;
   --border-strong: var(--input);
   --border-brand: var(--primary);
+
+  /* 미평가/0점 셀 — 다크 모드 */
+  --score-unrated-bg: #4A4239;
+  --score-unrated-fg: #C8BEB0;
 
   --ok-orange-hsl: 24 95% 53%;
   --ok-dark-brown: 20 6% 14%;
@@ -420,4 +428,33 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* scrollbar 숨기기 — 캐러셀처럼 화살표 등 다른 컨트롤이 있는 영역용 */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 전역 scrollbar 얇게 — 기본 OS scrollbar 가 너무 두꺼워서 미관상 문제 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-muted);
 }

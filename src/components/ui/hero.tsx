@@ -8,4 +8,4 @@
 // 배경 위 텍스트(기여도 평가 / OK금융그룹 ...)는 Login.tsx 의 오버레이에서 따로 렌더링하므로
 // 버전에 무관하게 유지된다.
 
-export { default } from "./hero-v1"
+export { default } from "./hero-v2"

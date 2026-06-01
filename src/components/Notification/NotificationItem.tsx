@@ -60,52 +60,37 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMar
     <button
       type="button"
       onClick={() => isUnread && onMarkAsRead(notification.id)}
+      className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-[var(--bg-muted)] last:border-b-0"
       style={{
-        width: '100%',
-        textAlign: 'left',
-        background: isUnread ? 'var(--ok-orange-50)' : 'transparent',
-        border: 'none',
         borderBottom: '1px solid var(--border)',
-        padding: '14px 18px',
         cursor: isUnread ? 'pointer' : 'default',
-        display: 'flex',
-        gap: 12,
-        alignItems: 'flex-start',
-        transition: 'background 0.12s',
-      }}
-      onMouseEnter={(e) => {
-        if (isUnread) e.currentTarget.style.background = 'var(--ok-orange-100, #FFE4D2)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = isUnread ? 'var(--ok-orange-50)' : 'transparent';
       }}
     >
       <div
+        className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
           background: isUnread ? 'var(--ok-orange)' : 'var(--bg-muted)',
           color: isUnread ? '#fff' : 'var(--fg-muted)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          marginTop: 2,
+          border: isUnread ? 'none' : '1px solid var(--border)',
         }}
       >
         <Icon size={14} />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)', marginBottom: 4 }}>
-          {notification.title}
-        </div>
-        <div
+
+      <div className="min-w-0 flex-1 space-y-1">
+        <p
+          className="text-sm leading-snug"
           style={{
-            fontSize: 'var(--fs-sm)',
-            lineHeight: 1.55,
+            color: 'var(--fg)',
+            fontWeight: isUnread ? 700 : 600,
+          }}
+        >
+          {notification.title}
+        </p>
+        <p
+          className="text-xs leading-relaxed"
+          style={{
             color: 'var(--fg-muted)',
-            marginBottom: 6,
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
@@ -113,11 +98,19 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMar
           }}
         >
           {notification.message}
-        </div>
-        <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+        </p>
+        <p className="text-[11px]" style={{ color: 'var(--fg-subtle, var(--fg-muted))' }}>
           {notification.senderName} · {formatRelativeTime(notification.createdAt)}
-        </div>
+        </p>
       </div>
+
+      {isUnread && (
+        <span
+          aria-hidden="true"
+          className="mt-2 inline-block size-2 flex-shrink-0 rounded-full"
+          style={{ background: 'var(--ok-orange)' }}
+        />
+      )}
     </button>
   );
 };

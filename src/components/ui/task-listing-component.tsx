@@ -476,7 +476,7 @@ export default function TaskListingComponent({
                       )}
                     </>
                   ) : (
-                    <span className="text-sm text-muted-foreground">미평가</span>
+                    <span className="text-sm text-muted-foreground">미완료</span>
                   )}
                 </div>
               </motion.div>
