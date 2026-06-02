@@ -88,6 +88,35 @@ export const useFormerTeamDashboardRecords = (
     null,
   );
 
+// 직전연도(또는 임의 기간) 비교용 레코드 로딩. 주어진 직원들의 특정 기간 평가를 불러온다.
+export const usePriorYearRecords = (
+  employees: Employee[],
+  priorPeriodId: string | null,
+  evaluatorId: string | null = null,
+): EmployeeEvaluationRecord[] => {
+  const [records, setRecords] = useState<EmployeeEvaluationRecord[]>([]);
+  const key = employees.map((e) => e.employee_id).sort().join(',');
+  useEffect(() => {
+    if (!priorPeriodId || employees.length === 0) {
+      setRecords([]);
+      return;
+    }
+    let cancelled = false;
+    loadEmployeeEvaluationRecords(employees, { periodId: priorPeriodId, evaluatorId })
+      .then((r) => {
+        if (!cancelled) setRecords(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRecords([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, priorPeriodId, evaluatorId]);
+  return records;
+};
+
 export const useCompanyDashboardRecords = (includeFeedbackHistory = false) =>
   useRecordsLoader(
     async () => {

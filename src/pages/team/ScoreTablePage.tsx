@@ -16,9 +16,11 @@ import {
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useTeamDashboardRecords, usePriorYearRecords } from '@/hooks/useDashboardRecords';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
+import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
 import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import {
   formatScore,
@@ -57,19 +59,42 @@ const ScoreTablePage = () => {
     () => allRecords.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
     [allRecords, orgFilter],
   );
-  // 추이는 완료(또는 잠금)된 평가만 집계 → 완료 되돌림에 반응한다.
-  const trendMembers = useMemo(
-    () =>
-      records.filter(isEvaluationCompleted).map((r) => ({
-        tasks: r.tasks.map((t) => ({
-          score: t.score,
-          weight: t.weight,
-          feedbackDate: t.feedback_date,
-        })),
-        growthLevel: Math.max(1, r.employee.growth_level ?? 1),
-      })),
-    [records],
+  // 모수(분모)는 전체 대상자(미완료 포함) — 도넛 달성률과 일치.
+  // 점수/달성은 완료(또는 잠금)된 평가만 반영(미완료는 빈 과업 → 모수에만 포함).
+  const trendMembers = useMemo(() => {
+    const scoped =
+      selectedLevel === 'all'
+        ? records
+        : records.filter((r) => (r.employee.growth_level ?? 1) === selectedLevel);
+    return scoped.map((r) => ({
+      tasks: isEvaluationCompleted(r)
+        ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
+        : [],
+      growthLevel: Math.max(1, r.employee.growth_level ?? 1),
+    }));
+  }, [records, selectedLevel]);
+
+  // 직전연도 비교
+  const { periods, selectedPeriod } = useEvaluationPeriod();
+  const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  const priorPeriodId = useMemo(
+    () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
+    [periods, priorYear],
   );
+  const priorEmployees = useMemo(() => allRecords.map((r) => r.employee), [allRecords]);
+  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId, null);
+  const priorTrend = useMemo(() => {
+    const members = priorRecords
+      .filter((r) => matchesOrgFilter(r.employee, orgFilter))
+      .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
+      .map((r) => ({
+        tasks: isEvaluationCompleted(r)
+          ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
+          : [],
+        growthLevel: Math.max(1, r.employee.growth_level ?? 1),
+      }));
+    return buildAggregateMonthlyTrend(members, { year: priorYear });
+  }, [priorRecords, orgFilter, priorYear, selectedLevel]);
 
   const levelStats = useMemo(() => {
     const buckets = new Map<
@@ -523,7 +548,10 @@ const ScoreTablePage = () => {
 
             <AggregateScoreTrendChart
               members={trendMembers}
+              year={selectedPeriod?.evaluation_year}
               title="월별 평균 점수 추이 (팀)"
+              comparison={priorTrend}
+              comparisonLabel="전년도"
             />
 
           </>

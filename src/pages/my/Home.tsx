@@ -6,6 +6,10 @@ import { NumBadge } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { usePriorYearRecords } from '@/hooks/useDashboardRecords';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { buildMonthlyScoreTrend } from '@/lib/scoreTrend';
+import type { Employee } from '@/types';
 import {
   formatScore,
   getMatrixScore,
@@ -122,6 +126,33 @@ const MyHome = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [matrix, tasks],
   );
+
+  /* 직전연도 개인 추이 비교 */
+  const { periods, selectedPeriod } = useEvaluationPeriod();
+  const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  const priorPeriodId = useMemo(
+    () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
+    [periods, priorYear],
+  );
+  const priorEmployees = useMemo(
+    () =>
+      user?.employeeId
+        ? [{ employee_id: user.employeeId, growth_level: evaluationData?.growthLevel ?? 1 } as unknown as Employee]
+        : [],
+    [user?.employeeId, evaluationData?.growthLevel],
+  );
+  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
+  const priorTrend = useMemo(() => {
+    const rec = priorRecords[0];
+    if (!rec) return undefined;
+    // 목표레벨은 본인 레벨(올해와 동일). priorRecords의 employee는 초기 render 기준이라
+    // 최신 evaluationData.growthLevel 을 직접 사용한다.
+    return buildMonthlyScoreTrend(
+      rec.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date })),
+      Math.max(1, evaluationData?.growthLevel ?? 1),
+      { year: priorYear },
+    );
+  }, [priorRecords, priorYear, evaluationData?.growthLevel]);
 
   /* 최근 피드백 */
   const recentFeedbacks = useMemo(
@@ -891,6 +922,9 @@ const MyHome = () => {
           <MonthlyScoreTrendChart
             tasks={trendTasks}
             growthLevel={evaluationData.growthLevel ?? 1}
+            year={selectedPeriod?.evaluation_year}
+            comparison={priorTrend}
+            comparisonLabel="전년도"
           />
         </>
       )}
