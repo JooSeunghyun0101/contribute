@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Employee } from '@/types';
 
 interface Props {
@@ -28,7 +29,11 @@ const EvaluatorPicker = ({
 }: Props) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // 드롭다운을 포털(position:fixed)로 띄워 모달의 overflow 클리핑/스크롤바를 피하고,
+  // 뷰포트 기준으로 위/아래 펼침 방향과 높이를 정한다.
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(
@@ -58,7 +63,10 @@ const EvaluatorPicker = ({
   useEffect(() => {
     if (!open) return;
     const onDocMouseDown = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inContainer = containerRef.current?.contains(target);
+      const inMenu = menuRef.current?.contains(target);
+      if (!inContainer && !inMenu) {
         setOpen(false);
         setQuery('');
       }
@@ -67,8 +75,44 @@ const EvaluatorPicker = ({
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [open]);
 
+  // 컨테이너의 뷰포트 위치로 위/아래 펼침 방향과 최대 높이를 결정.
+  // (아래 effect보다 먼저 선언해야 TDZ 에러가 나지 않는다.)
+  const computePlacement = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const DESIRED = 260;
+    const up = spaceBelow < DESIRED && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(140, Math.min(DESIRED, (up ? spaceAbove : spaceBelow) - 12));
+    setMenuStyle({
+      position: 'fixed',
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      ...(up
+        ? { bottom: Math.max(8, window.innerHeight - rect.top + 4) }
+        : { top: rect.bottom + 4 }),
+    });
+  }, []);
+
+  // 열린 동안 스크롤·리사이즈에 따라 펼침 방향 재계산.
+  useEffect(() => {
+    if (!open) return;
+    computePlacement();
+    const onReflow = () => computePlacement();
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('scroll', onReflow, true);
+    return () => {
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onReflow, true);
+    };
+  }, [open, computePlacement]);
+
   const openPicker = () => {
     if (disabled) return;
+    computePlacement();
     setOpen(true);
     setQuery('');
     // 다음 틱에 input 포커스
@@ -134,15 +178,12 @@ const EvaluatorPicker = ({
         </button>
       )}
 
-      {open && (
+      {open && menuStyle && createPortal(
         <div
+          ref={menuRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            zIndex: 60,
-            maxHeight: 260,
+            ...menuStyle,
+            zIndex: 1000,
             overflow: 'auto',
             background: 'var(--bg-card)',
             border: '1px solid var(--border)',
@@ -190,7 +231,8 @@ const EvaluatorPicker = ({
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
