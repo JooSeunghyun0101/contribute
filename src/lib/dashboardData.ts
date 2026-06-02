@@ -35,6 +35,8 @@ type LoadOptions = {
   includeFeedbackHistory?: boolean;
   periodId?: string | null;
   evaluatorId?: string | null;
+  /** 과업(tasks) 조회를 생략 — 평가 존재/상태만 필요한 목록 화면에서 요청 수를 줄인다. */
+  skipTasks?: boolean;
 };
 
 const toNumber = (value: unknown, fallback = 0) => {
@@ -112,7 +114,7 @@ export const loadEmployeeEvaluationRecord = async (
 
   let tasks: EnrichedTask[] = [];
 
-  if (evaluation?.id) {
+  if (evaluation?.id && !options.skipTasks) {
     try {
       tasks = await taskService.getTasksByEvaluationId(evaluation.id);
     } catch {

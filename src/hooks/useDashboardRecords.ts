@@ -24,6 +24,7 @@ const useRecordsLoader = (
   loaderKey: string,
   includeFeedbackHistory = false,
   recordEvaluatorId: string | null = null,
+  skipTasks = false,
 ): DashboardState => {
   const { selectedPeriodId } = useEvaluationPeriod();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -44,6 +45,7 @@ const useRecordsLoader = (
         includeFeedbackHistory,
         periodId: selectedPeriodId,
         evaluatorId: recordEvaluatorId,
+        skipTasks,
       });
       setRecords(loadedRecords);
     } catch (err) {
@@ -53,13 +55,13 @@ const useRecordsLoader = (
     } finally {
       setIsLoading(false);
     }
-  }, [includeFeedbackHistory, selectedPeriodId, recordEvaluatorId]);
+  }, [includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks]);
 
   useEffect(() => {
     void reload();
     // re-run only when the input identity changes, not on every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaderKey, includeFeedbackHistory, selectedPeriodId, recordEvaluatorId]);
+  }, [loaderKey, includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks]);
 
   return { employees, records, isLoading, error, reload };
 };
@@ -128,4 +130,6 @@ export const useCompanyDashboardRecords = (includeFeedbackHistory = false) =>
   );
 
 export const useAllEmployees = (): DashboardState =>
-  useRecordsLoader(() => employeeService.getAllEmployees(), 'all', false);
+  // 직원관리 목록은 평가 "존재/상태"(record.evaluation)만 사용하고 과업 점수는 쓰지 않는다.
+  // per-employee 과업 조회를 생략해 대규모 직원 로드 시 요청 폭주(포트 고갈)를 막는다.
+  useRecordsLoader(() => employeeService.getAllEmployees(), 'all', false, null, true);
