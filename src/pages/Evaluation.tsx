@@ -444,6 +444,9 @@ const Evaluation = () => {
       });
       return;
     }
+    if (!window.confirm('최종 평가를 저장하시겠습니까?\n저장 후에는 평가 단계가 완료로 전환됩니다.')) {
+      return;
+    }
     setIsSaving(true);
     try {
       const ok = await handleSave();

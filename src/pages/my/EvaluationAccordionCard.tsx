@@ -148,8 +148,8 @@ const EvaluationAccordionCard = ({
           };
           if (JSON.stringify(currentDraft) !== JSON.stringify(original)) {
             toast({
-              title: `${prevTask.title || '과업'} 임시저장`,
-              description: '변경 사항이 임시저장되었습니다. 최종 저장은 우측 상단 임시저장/최종제출 버튼을 눌러주세요.',
+              title: `${prevTask.title || '과업'} 변경사항 유지 중`,
+              description: '변경 사항이 유지됩니다. 저장하려면 임시저장 또는 최종제출 버튼을 눌러주세요.',
             });
           }
         }
@@ -206,10 +206,13 @@ const EvaluationAccordionCard = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTaskId, aiRefreshKey, evaluationData?.growthLevel]);
 
-  const totalWeight = tasks.reduce((sum, task) => sum + task.weight, 0);
-  const otherTasksWeight =
-    mode === 'create' ? totalWeight : totalWeight - (selectedTask?.weight ?? 0);
-  const draftTotalWeight = otherTasksWeight + draft.weight;
+  // 각 과업의 유효 가중치(미저장 draft 우선) 합 — 어떤 과업을 보고 있든 모든 미저장 변경을 동일하게 반영.
+  const savedTasksTotalWeight = tasks.reduce(
+    (sum, task) => sum + (drafts[task.id]?.weight ?? task.weight ?? 0),
+    0,
+  );
+  const draftTotalWeight =
+    mode === 'create' ? savedTasksTotalWeight + draft.weight : savedTasksTotalWeight;
   const isOverWeight = draftTotalWeight > 100;
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
@@ -389,6 +392,27 @@ const EvaluationAccordionCard = ({
 
   const isPastEvalEditing = !isCurrent;
 
+  // 미저장 변경이 있는 모든 기존 과업을 저장하고, 저장한 taskId 목록을 반환.
+  const saveDirtyExistingTasks = useCallback(async (): Promise<string[]> => {
+    const ids = tasks.filter((t) => isTaskDirty(t.id)).map((t) => t.id);
+    for (const tid of ids) {
+      const d = drafts[tid];
+      if (!d) continue;
+      await taskService.updateTask(
+        tid,
+        {
+          title: d.title.trim(),
+          description: d.description?.trim() || null,
+          weight: d.weight || 0,
+          start_date: d.startDate || null,
+          end_date: d.endDate || null,
+        },
+        { past: isPastEvalEditing },
+      );
+    }
+    return ids;
+  }, [tasks, drafts, isTaskDirty, isPastEvalEditing]);
+
   const handleSave = async (isFinal: boolean) => {
     if (!canEditTasks) {
       showTaskEditLockedToast();
@@ -418,6 +442,29 @@ const EvaluationAccordionCard = ({
       return;
     }
     if (!evaluationData) return;
+
+    // 미저장 변경이 있는 다른 과업들도 함께 검증 (최종제출 시 모두 반영되므로)
+    for (const t of tasks) {
+      if (!isTaskDirty(t.id)) continue;
+      const d = drafts[t.id];
+      const label = t.title || '과업';
+      if (!d.title.trim()) {
+        toast({ title: `'${label}' 제목을 입력해 주세요.`, variant: 'destructive' });
+        return;
+      }
+      if (!isValidDateValue(d.startDate) || !isValidDateValue(d.endDate)) {
+        toast({ title: `'${label}' 기간은 YYYY-MM-DD 형식이어야 합니다.`, variant: 'destructive' });
+        return;
+      }
+      if (d.startDate && d.endDate && d.startDate > d.endDate) {
+        toast({ title: `'${label}' 종료일은 시작일 이후여야 합니다.`, variant: 'destructive' });
+        return;
+      }
+    }
+
+    if (isFinal && !window.confirm('최종제출 하시겠습니까?\n제출 후에는 평가자 확인 전까지 수정할 수 없습니다.')) {
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -452,31 +499,23 @@ const EvaluationAccordionCard = ({
           } as any,
           { past: isPastEvalEditing },
         );
+        const savedIds = await saveDirtyExistingTasks();
         if (isFinal) await maybeFinalizeEvaluation();
         toast({ title: isFinal ? '과업 등록 및 최종제출 완료' : '과업이 임시저장되었습니다.' });
         await reloadData();
         setMode('view');
         clearDraft(NEW_DRAFT_KEY);
+        savedIds.forEach((id) => clearDraft(id));
         setSelectedTaskId(newTaskId);
       } else {
         if (!selectedTask) return;
-        const editedTaskId = selectedTask.id;
-        await taskService.updateTask(
-          editedTaskId,
-          {
-            title: draft.title.trim(),
-            description: draft.description?.trim() || null,
-            weight: draft.weight || 0,
-            start_date: draft.startDate || null,
-            end_date: draft.endDate || null,
-          },
-          { past: isPastEvalEditing },
-        );
+        // 현재 과업뿐 아니라 미저장 변경이 있는 모든 과업을 저장(가중치 등 전체 반영).
+        const savedIds = await saveDirtyExistingTasks();
         if (isFinal) await maybeFinalizeEvaluation();
         toast({ title: isFinal ? '최종제출이 완료되었습니다.' : '임시저장되었습니다.' });
         await reloadData();
         // 저장된 draft는 캐시에서 비워 다음 진입 시 서버 데이터로 동기화
-        clearDraft(editedTaskId);
+        savedIds.forEach((id) => clearDraft(id));
       }
     } catch (err) {
       console.error(err);
