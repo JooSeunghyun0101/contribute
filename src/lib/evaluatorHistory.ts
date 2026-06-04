@@ -42,6 +42,43 @@ export const isCorrectionHistory = (history: EvaluatorAssignmentHistory): boolea
 
 export type EvaluatorPeriod = { start: string | null; end: string | null };
 
+export type ActiveMonthRange = { fromMonth: number; toMonth: number };
+
+// 평가자 근무기간(절대 날짜)을 특정 연도의 "월말 스냅샷 기준" 활성 월 범위(0=1월)로 투영한다.
+// 각 달은 그 달 "말일(날짜)" 기준에 평가자에게 배정돼 있으면 활성으로 본다.
+// 비교는 시각(time)을 무시하고 날짜(일) 단위로 한다 — 종료일이 말일 당일(예: 3/31 09:00)이어도
+// 그 달은 활성으로 처리해야 하기 때문(말일 23:59와 시각 비교하면 하루 어긋남).
+//   예) 4/1 부로 이동 → 종료일 3/31 → 3월말 활성, 4월말 비활성(3월부터 줄지 않고 4월부터 줄어야 함).
+//   예) 2/9 부로 이동 → 종료일 2/8 → 1월말 활성, 2월말 비활성.
+// start/end 가 모두 없으면(이력 없음) 전 기간 활성. 해당 연도에 한 번도 배정되지 않았으면 null.
+export const evaluatorActiveMonthRange = (
+  period: EvaluatorPeriod | null | undefined,
+  year: number,
+): ActiveMonthRange | null => {
+  // 로컬 자정으로 절단해 날짜만 비교(시각 영향 제거).
+  const toDateMs = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const startMs = toDateMs(period?.start);
+  const endMs = toDateMs(period?.end);
+
+  let from = -1;
+  let to = -1;
+  for (let mi = 0; mi < 12; mi += 1) {
+    const monthLastDay = new Date(year, mi + 1, 0).getTime(); // 말일 00:00(로컬)
+    const startedByMonthEnd = startMs === null || startMs <= monthLastDay;
+    const stillAssignedAtMonthEnd = endMs === null || endMs >= monthLastDay;
+    if (startedByMonthEnd && stillAssignedAtMonthEnd) {
+      if (from === -1) from = mi;
+      to = mi;
+    }
+  }
+  return from === -1 ? null : { fromMonth: from, toMonth: to };
+};
+
 // 새 평가자 시작일의 '전날'을 이전 평가자 종료일로 사용해 하루가 겹치지 않게 한다.
 const shiftBackOneDay = (iso: string): string => {
   const d = new Date(iso);
@@ -55,10 +92,16 @@ const shiftBackOneDay = (iso: string): string => {
 // - 시간순으로 정렬 후, 각 행의 직전 행 new_evaluator 종료일 = 이 행의 시작일 -1일
 //   (previous_evaluator_id 만 보면 정정/취소로 체인이 끊겼을 때 종료일이 갱신 안 됨)
 // - 같은 평가자가 여러 번 배정된 경우 가장 최근 구간으로 덮어씀
+// - opts.periodId 주면 그 평가기간(evaluation_period_id) 행만으로 계산한다(연도별로 끊어 보기).
+//   발령으로 평가가 기간마다 분리될 때, 한 평가자의 구간이 연도를 넘어 합쳐지는 것을 막는다.
 export const buildEvaluatorPeriods = (
   history: EvaluatorAssignmentHistory[],
+  opts?: { periodId?: string | null },
 ): Map<string, EvaluatorPeriod> => {
-  const applied = history
+  const scoped = opts?.periodId
+    ? history.filter((row) => row.evaluation_period_id === opts.periodId)
+    : history;
+  const applied = scoped
     .filter((row) => row.status === 'applied' && row.change_type === 'change')
     .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
 

@@ -4353,16 +4353,9 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
   }
 });
 
-app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
-  if (!isDbAvailable) {
-    return sendDbUnavailable(res);
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
+// 단일 배정 이력 행을 취소(되돌림)한다. 정정행이면 superseded 된 원본을 다시 살린다.
+// 호출자가 트랜잭션(BEGIN/COMMIT)을 관리한다. 가드 위반 시 statusCode 를 가진 에러를 throw.
+const cancelEvaluatorAssignmentHistoryRow = async (client, { historyId, actorId, reason }) => {
     const { rows } = await client.query(
       `
         SELECT h.*, e.evaluator_id AS current_evaluator_id
@@ -4371,20 +4364,17 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
         WHERE h.id = $1
         FOR UPDATE OF h, e
       `,
-      [req.params.id]
+      [historyId]
     );
     const history = rows[0];
     if (!history) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Assignment history not found' });
+      throw Object.assign(new Error('Assignment history not found'), { statusCode: 404 });
     }
     if (history.status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Assignment history is already cancelled' });
+      throw Object.assign(new Error('Assignment history is already cancelled'), { statusCode: 409 });
     }
     if (history.change_type === 'cancel') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Cancellation events cannot be cancelled' });
+      throw Object.assign(new Error('Cancellation events cannot be cancelled'), { statusCode: 400 });
     }
 
     // 순차 취소 제약 제거 — 임의의 applied 행을 취소할 수 있다.
@@ -4406,8 +4396,8 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
       (history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null) &&
       latestRows[0]?.id === history.id;
 
-    const cancelledBy = getAssignmentActor(req.body);
-    const cancelReason = getAssignmentCancellationReason(req.body);
+    const cancelledBy = actorId;
+    const cancelReason = reason;
 
     const { rows: cancelledRows } = await client.query(
       `
@@ -4600,8 +4590,7 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
     // 직원의 모든 applied 행 previous_evaluator_id 를 시간순 직전 행의 new_evaluator_id 로 보정.
     await reconcilePreviousEvaluatorIds(client, history.employee_id);
 
-    await client.query('COMMIT');
-    res.json({
+    return {
       cancelled: cancelledRows[0],
       employee: updatedEmployee,
       cancelled_entries: cancelledEntryCount,
@@ -4614,9 +4603,28 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
             feedback_count: reverseTransferResult.transferredFeedbackCount,
           }
         : null,
+    };
+};
+
+app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await cancelEvaluatorAssignmentHistoryRow(client, {
+      historyId: req.params.id,
+      actorId: getAssignmentActor(req.body),
+      reason: getAssignmentCancellationReason(req.body),
     });
+    await client.query('COMMIT');
+    res.json(result);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     console.error('Error cancelling evaluator assignment:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
@@ -5154,6 +5162,610 @@ app.post('/api/evaluator-mappings', async (req, res) => {
   } catch (err) {
     console.error('Error updating evaluator mappings:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+/* ==================== Evaluator Change Request Routes ==================== */
+// 평가자/피평가자가 기존 평가 구간(배정 이력)을 선택해 평가자 변경을 요청하고 HR 이 승인/반려한다.
+// 승인 시 아래 applyAssignmentCorrection 으로 그 구간을 정정(correct)한다.
+// (검증된 /correct 엔드포인트 로직을 미러링한 함수 — 트랜잭션/응답은 호출자 책임, 검증 실패는 throw.)
+const applyAssignmentCorrection = async (
+  client,
+  { historyId, newEvaluatorId, actorId, reason, changedAt = null, periodId = null }
+) => {
+  const { rows } = await client.query(
+    `
+      SELECT h.*, e.evaluator_id AS current_evaluator_id
+      FROM evaluator_assignment_history h
+      INNER JOIN employees e ON e.employee_id = h.employee_id
+      WHERE h.id = $1
+      FOR UPDATE OF h, e
+    `,
+    [historyId]
+  );
+  const history = rows[0];
+  if (!history) throw Object.assign(new Error('Assignment history not found'), { statusCode: 404 });
+  if (history.status !== 'applied') throw Object.assign(new Error('적용 중인 배정만 정정할 수 있습니다.'), { statusCode: 409 });
+  if (history.change_type !== 'change') throw Object.assign(new Error('취소 이벤트는 정정할 수 없습니다.'), { statusCode: 400 });
+  if (newEvaluatorId === history.employee_id) throw Object.assign(new Error('Employee cannot evaluate themselves'), { statusCode: 400 });
+
+  const historyDateStr = history.changed_at ? new Date(history.changed_at).toISOString().slice(0, 10) : null;
+  const sameEvaluator = (newEvaluatorId ?? null) === (history.new_evaluator_id ?? null);
+  const sameDate = !changedAt || changedAt.slice(0, 10) === historyDateStr;
+  const samePeriod = !periodId || periodId === (history.evaluation_period_id ?? null);
+  if (sameEvaluator && sameDate && samePeriod) {
+    throw Object.assign(new Error('변경 내용이 없습니다.'), { statusCode: 400 });
+  }
+  if (newEvaluatorId) {
+    const { rows: evaluatorRows } = await client.query(
+      'SELECT employee_id FROM employees WHERE employee_id = $1 LIMIT 1',
+      [newEvaluatorId]
+    );
+    if (!evaluatorRows[0]) throw Object.assign(new Error('Evaluator not found'), { statusCode: 400 });
+  }
+  const selectedPeriod = periodId ? await getAssignmentEvaluationPeriod(client, periodId) : null;
+
+  const { rows: latestRows } = await client.query(
+    `
+      SELECT id FROM evaluator_assignment_history
+      WHERE employee_id = $1 AND status = 'applied' AND change_type <> 'cancel'
+      ORDER BY changed_at DESC, id DESC LIMIT 1
+    `,
+    [history.employee_id]
+  );
+  const isCurrentAssignment =
+    (history.current_evaluator_id ?? null) === (history.new_evaluator_id ?? null) &&
+    latestRows[0]?.id === history.id;
+
+  const correctionRow = await insertEvaluatorAssignmentHistory(client, {
+    employeeId: history.employee_id,
+    previousEvaluatorId: history.new_evaluator_id ?? null,
+    newEvaluatorId: newEvaluatorId ?? null,
+    changedBy: actorId,
+    reason,
+    changeType: 'change',
+    status: 'applied',
+    supersedesHistoryId: history.id,
+    evaluationId: history.evaluation_id ?? null,
+    evaluationPeriodId: selectedPeriod?.id ?? history.evaluation_period_id ?? null,
+    // 정정은 같은 근무 구간의 평가자만 바꾸는 것이므로, 날짜를 새로 지정하지 않으면
+    // 원본 구간 시작일(changed_at)을 보존한다. (NOW() 로 떨어지면 근무기간이 승인일~현재로 어긋남)
+    changedAt: changedAt ?? history.changed_at,
+  });
+
+  if (history.evaluation_id && selectedPeriod) {
+    await client.query(
+      `UPDATE evaluations SET evaluation_period_id = $2, evaluation_year = $3, updated_at = NOW() WHERE id = $1`,
+      [history.evaluation_id, selectedPeriod.id, selectedPeriod.evaluation_year]
+    );
+  }
+
+  await client.query(
+    `
+      UPDATE evaluator_assignment_history
+      SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $2, cancel_reason = 'Superseded by correction'
+      WHERE id = $1
+    `,
+    [history.id, actorId]
+  );
+
+  if (history.evaluation_id) {
+    const { rows: appliedRows } = await client.query(
+      `SELECT 1 FROM evaluator_assignment_history WHERE evaluation_id = $1 AND status = 'applied' AND change_type <> 'cancel' LIMIT 1`,
+      [history.evaluation_id]
+    );
+    const nextStatus = appliedRows.length > 0 ? 'active' : 'cancelled';
+    await client.query(
+      `UPDATE evaluations SET record_status = $2, updated_at = NOW() WHERE id = $1 AND COALESCE(record_status, 'active') <> $2`,
+      [history.evaluation_id, nextStatus]
+    );
+  }
+
+  let updatedEmployee = null;
+  if (isCurrentAssignment) {
+    const { rows: employeeRows } = await client.query(
+      `UPDATE employees SET evaluator_id = $2, updated_at = NOW() WHERE employee_id = $1 RETURNING *`,
+      [history.employee_id, newEvaluatorId ?? null]
+    );
+    updatedEmployee = employeeRows[0] ?? null;
+  }
+
+  const correctionResult = await transferEvaluatorEntriesForCorrectionScoped(client, {
+    evaluationId: history.evaluation_id ?? null,
+    previousEvaluatorId: history.new_evaluator_id ?? null,
+    newEvaluatorId: newEvaluatorId ?? null,
+    actorId,
+    reason,
+  });
+
+  await reconcilePreviousEvaluatorIds(client, history.employee_id);
+
+  await insertAdminAuditLog(client, {
+    actionType: 'evaluator_correct',
+    actorId,
+    targetEmployeeId: history.employee_id,
+    previousValue: { history_id: history.id, evaluator_id: history.new_evaluator_id ?? null },
+    newValue: { history_id: correctionRow.id, evaluator_id: newEvaluatorId ?? null },
+    reason,
+  });
+
+  if (isCurrentAssignment) {
+    const actorName = await resolveEmployeeName(client, actorId, 'HR');
+    const { rows: employeeNameRows } = await client.query(
+      'SELECT name FROM employees WHERE employee_id = $1 LIMIT 1',
+      [history.employee_id]
+    );
+    const employeeName = employeeNameRows[0]?.name ?? history.employee_id;
+    const prevEvaluatorId = history.new_evaluator_id ?? null;
+    if (newEvaluatorId && newEvaluatorId !== prevEvaluatorId) {
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_changed',
+        title: '담당 피평가자가 배정되었습니다',
+        message: `${employeeName}님의 평가자가 회원님으로 변경되었습니다.`,
+        priority: 'medium',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: newEvaluatorId,
+      });
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_changed',
+        title: '평가자가 변경되었습니다',
+        message: '담당 평가자가 새로 배정되었습니다.',
+        priority: 'medium',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: history.employee_id,
+      });
+    }
+    if (prevEvaluatorId && prevEvaluatorId !== (newEvaluatorId ?? null)) {
+      await insertNotificationRow(client, {
+        notificationType: 'evaluator_unassigned',
+        title: '담당 피평가자가 해제되었습니다',
+        message: `${employeeName}님이 담당에서 해제되었습니다.`,
+        priority: 'low',
+        senderId: actorId,
+        senderName: actorName,
+        recipientId: prevEvaluatorId,
+      });
+    }
+  }
+
+  return {
+    correction: correctionRow,
+    employee: updatedEmployee,
+    is_current_assignment: isCurrentAssignment,
+    transferred_entries: correctionResult.transferredEntries.length,
+    merged_entries: correctionResult.mergedEntries.length,
+    transferred_feedbacks: correctionResult.transferredFeedbackCount,
+  };
+};
+
+// 평가자/피평가자가 기존 평가 구간(배정 이력)을 선택해 평가자 변경을 요청하고 HR 이 승인/반려한다.
+
+app.get('/api/change-requests', async (req, res) => {
+  if (!isDbAvailable) {
+    return res.json([]);
+  }
+  try {
+    const conditions = [];
+    const values = [];
+    if (req.query.status) {
+      values.push(String(req.query.status));
+      conditions.push(`r.status = $${values.length}`);
+    }
+    if (req.query.requestedBy) {
+      values.push(String(req.query.requestedBy));
+      conditions.push(`r.requested_by = $${values.length}`);
+    }
+    if (req.query.periodId) {
+      values.push(String(req.query.periodId));
+      conditions.push(`r.evaluation_period_id = $${values.length}::uuid`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `
+        SELECT
+          r.*,
+          to_char(r.segment_start_date, 'YYYY-MM-DD') AS segment_start_date,
+          to_char(r.segment_end_date, 'YYYY-MM-DD') AS segment_end_date,
+          rb.name AS requested_by_name,
+          ee.department AS evaluatee_department,
+          p.name AS evaluation_period_name,
+          p.evaluation_year
+        FROM evaluator_change_requests r
+        LEFT JOIN employees rb ON rb.employee_id = r.requested_by
+        LEFT JOIN employees ee ON ee.employee_id = r.evaluatee_id
+        LEFT JOIN evaluation_periods p ON p.id = r.evaluation_period_id
+        ${where}
+        ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END, r.created_at DESC
+      `,
+      values
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching change requests:', err);
+    res.json([]);
+  }
+});
+
+app.post('/api/change-requests', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const body = req.body ?? {};
+  const evaluateeId = normalizeOptionalText(body.evaluatee_id ?? body.evaluateeId);
+  const requestedEvaluatorId = normalizeOptionalText(body.requested_evaluator_id ?? body.requestedEvaluatorId);
+  const targetHistoryId = normalizeOptionalText(body.target_history_id ?? body.targetHistoryId);
+  const segmentStartDate = normalizeOptionalText(body.segment_start_date ?? body.segmentStartDate);
+  const segmentEndDate = normalizeOptionalText(body.segment_end_date ?? body.segmentEndDate);
+  const requestedBy = normalizeOptionalText(body.requested_by ?? body.requestedBy);
+  const requesterRole = normalizeOptionalText(body.requester_role ?? body.requesterRole);
+  const reason = normalizeOptionalText(body.reason);
+
+  if (!evaluateeId || !requestedBy || !requesterRole) {
+    return res.status(400).json({ error: 'evaluatee_id, requested_by, requester_role are required' });
+  }
+  if (!targetHistoryId) {
+    return res.status(400).json({ error: 'target_history_id is required' });
+  }
+  if (requestedEvaluatorId && requestedEvaluatorId === evaluateeId) {
+    return res.status(400).json({ error: 'Employee cannot evaluate themselves' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: eeRows } = await client.query(
+      'SELECT * FROM employees WHERE employee_id = $1',
+      [evaluateeId]
+    );
+    const evaluatee = eeRows[0];
+    if (!evaluatee) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Evaluatee not found' });
+    }
+
+    // 대상 구간(배정 이력) 확인 — 평가기간/현재 평가자는 이 행에서 가져온다.
+    const { rows: histRows } = await client.query(
+      'SELECT * FROM evaluator_assignment_history WHERE id = $1',
+      [targetHistoryId]
+    );
+    const history = histRows[0];
+    if (!history) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '선택한 평가 구간을 찾을 수 없습니다.' });
+    }
+    if (history.employee_id !== evaluateeId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '대상 피평가자와 평가 구간이 일치하지 않습니다.' });
+    }
+    if (history.status !== 'applied' || history.change_type !== 'change') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '정정 가능한 구간(적용 중 변경)만 선택할 수 있습니다.' });
+    }
+
+    const nameOf = async (id) => {
+      if (!id) return null;
+      const { rows } = await client.query('SELECT name FROM employees WHERE employee_id = $1', [id]);
+      return rows[0]?.name ?? null;
+    };
+    const periodId = history.evaluation_period_id ?? null;
+    const currentEvaluatorId = history.new_evaluator_id ?? null;
+    const currentEvaluatorName = await nameOf(currentEvaluatorId);
+    const requestedEvaluatorName = await nameOf(requestedEvaluatorId);
+
+    if (requestedEvaluatorId && requestedEvaluatorId === currentEvaluatorId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '현재 평가자와 동일합니다.' });
+    }
+
+    const { rows: dupRows } = await client.query(
+      `SELECT id FROM evaluator_change_requests
+        WHERE target_history_id = $1::uuid AND status = 'pending'
+        LIMIT 1`,
+      [targetHistoryId]
+    );
+    if (dupRows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '해당 구간에 이미 대기 중인 변경요청이 있습니다.' });
+    }
+
+    const { rows: insertedRows } = await client.query(
+      `
+        INSERT INTO evaluator_change_requests (
+          evaluatee_id, evaluatee_name, current_evaluator_id, current_evaluator_name,
+          requested_evaluator_id, requested_evaluator_name, evaluation_period_id,
+          target_history_id, segment_start_date, segment_end_date,
+          requested_by, requester_role, reason, status
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::uuid,$9::date,$10::date,$11,$12,$13,'pending')
+        RETURNING *
+      `,
+      [
+        evaluateeId, evaluatee.name, currentEvaluatorId, currentEvaluatorName,
+        requestedEvaluatorId, requestedEvaluatorName, periodId,
+        targetHistoryId, segmentStartDate, segmentEndDate,
+        requestedBy, requesterRole, reason,
+      ]
+    );
+    const created = insertedRows[0];
+
+    const requesterName = await resolveEmployeeName(client, requestedBy, '요청자');
+    const { rows: hrRows } = await client.query(
+      `SELECT employee_id FROM employees WHERE available_roles::text ILIKE '%hr%'`
+    );
+    for (const hr of hrRows) {
+      await insertNotificationRow(client, {
+        notificationType: 'change_request',
+        title: '평가자 변경요청이 접수되었습니다',
+        message: `${evaluatee.name}님의 평가자 변경요청(${currentEvaluatorName ?? '평가자 없음'} → ${requestedEvaluatorName ?? '미지정'})이 ${requesterName}님으로부터 접수되었습니다.`,
+        priority: 'medium',
+        senderId: requestedBy,
+        senderName: requesterName,
+        recipientId: hr.employee_id,
+      });
+    }
+
+    await client.query('COMMIT');
+    res.json(created);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error creating change request:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/change-requests/:id/approve', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const reviewerId = normalizeOptionalText(req.body?.reviewed_by ?? req.body?.reviewedBy) || 'HR';
+  const reviewComment = normalizeOptionalText(req.body?.review_comment ?? req.body?.reviewComment);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: reqRows } = await client.query(
+      'SELECT * FROM evaluator_change_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const request = reqRows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    if (request.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '이미 처리된 요청입니다.' });
+    }
+
+    if (!request.target_history_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '대상 평가 구간 정보가 없는 요청입니다.' });
+    }
+
+    const { rows: eeRows } = await client.query(
+      'SELECT name FROM employees WHERE employee_id = $1',
+      [request.evaluatee_id]
+    );
+    const evaluateeName = eeRows[0]?.name ?? request.evaluatee_name ?? request.evaluatee_id;
+
+    // 선택한 구간을 정정(correct) — 시작/종료일·평가기간은 구간 그대로 유지(요청자가 바꾸지 않음).
+    const correction = await applyAssignmentCorrection(client, {
+      historyId: request.target_history_id,
+      newEvaluatorId: request.requested_evaluator_id ?? null,
+      actorId: reviewerId,
+      reason: `변경요청 승인 (요청자 ${request.requested_by})`,
+      changedAt: null,
+      periodId: null,
+    });
+
+    const { rows: doneRows } = await client.query(
+      `
+        UPDATE evaluator_change_requests
+        SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+            review_comment = $3, applied_history_id = $4, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [req.params.id, reviewerId, reviewComment, correction.correction?.id ?? null]
+    );
+
+    const reviewerName = await resolveEmployeeName(client, reviewerId, 'HR');
+    await insertNotificationRow(client, {
+      notificationType: 'change_request_result',
+      title: '평가자 변경요청이 승인되었습니다',
+      message: `${evaluateeName}님의 평가자 변경요청이 승인되어 평가자가 변경되었습니다.`,
+      priority: 'medium',
+      senderId: reviewerId,
+      senderName: reviewerName,
+      recipientId: request.requested_by,
+    });
+
+    await client.query('COMMIT');
+    res.json(doneRows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error approving change request:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/change-requests/:id/reject', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const reviewerId = normalizeOptionalText(req.body?.reviewed_by ?? req.body?.reviewedBy) || 'HR';
+  const reviewComment = normalizeOptionalText(req.body?.review_comment ?? req.body?.reviewComment);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: reqRows } = await client.query(
+      'SELECT * FROM evaluator_change_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const request = reqRows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    if (request.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '이미 처리된 요청입니다.' });
+    }
+
+    const { rows: doneRows } = await client.query(
+      `
+        UPDATE evaluator_change_requests
+        SET status = 'rejected', reviewed_by = $2, reviewed_at = NOW(),
+            review_comment = $3, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [req.params.id, reviewerId, reviewComment]
+    );
+
+    const reviewerName = await resolveEmployeeName(client, reviewerId, 'HR');
+    await insertNotificationRow(client, {
+      notificationType: 'change_request_result',
+      title: '평가자 변경요청이 반려되었습니다',
+      message: `${request.evaluatee_name ?? request.evaluatee_id}님의 평가자 변경요청이 반려되었습니다.${reviewComment ? ` 사유: ${reviewComment}` : ''}`,
+      priority: 'medium',
+      senderId: reviewerId,
+      senderName: reviewerName,
+      recipientId: request.requested_by,
+    });
+
+    await client.query('COMMIT');
+    res.json(doneRows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error rejecting change request:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/change-requests/:id/cancel', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const actorId = normalizeOptionalText(req.body?.actor_id ?? req.body?.actorId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: reqRows } = await client.query(
+      'SELECT * FROM evaluator_change_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const request = reqRows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    if (request.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '대기 중인 요청만 취소할 수 있습니다.' });
+    }
+    // 요청자 본인만 취소 가능 (actorId 가 전달되면 검증)
+    if (actorId && actorId !== request.requested_by) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '본인이 생성한 요청만 취소할 수 있습니다.' });
+    }
+    const { rows: doneRows } = await client.query(
+      `
+        UPDATE evaluator_change_requests
+        SET status = 'cancelled', updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [req.params.id]
+    );
+    await client.query('COMMIT');
+    res.json(doneRows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error cancelling change request:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 승인된 변경요청을 되돌린다(HR). 승인 시 적용된 평가자 변경을 원래 평가자로 재정정하고
+// 요청 상태를 'cancelled' 로 바꾼다.
+app.post('/api/change-requests/:id/revert', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const reviewerId = normalizeOptionalText(req.body?.reviewed_by ?? req.body?.reviewedBy) || 'HR';
+  const reviewComment = normalizeOptionalText(req.body?.review_comment ?? req.body?.reviewComment);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: reqRows } = await client.query(
+      'SELECT * FROM evaluator_change_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    const request = reqRows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    if (request.status !== 'approved') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '승인된 요청만 되돌릴 수 있습니다.' });
+    }
+    if (!request.applied_history_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: '되돌릴 적용 이력이 없습니다.' });
+    }
+
+    // 승인 시 생성된 정정 이력을 취소 → 정정행이 사라지고 superseded 됐던 원본(이전 평가자)이
+    // 다시 살아난다. 모달의 "취소"와 동일한 동작이라 이력이 새로 쌓이지 않는다.
+    await cancelEvaluatorAssignmentHistoryRow(client, {
+      historyId: request.applied_history_id,
+      actorId: reviewerId,
+      reason: `변경요청 승인 되돌림 (요청 ${request.id})`,
+    });
+
+    const { rows: doneRows } = await client.query(
+      `
+        UPDATE evaluator_change_requests
+        SET status = 'cancelled', reviewed_by = $2, reviewed_at = NOW(),
+            review_comment = $3, applied_history_id = NULL, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [req.params.id, reviewerId, reviewComment ?? '승인 되돌림']
+    );
+
+    const reviewerName = await resolveEmployeeName(client, reviewerId, 'HR');
+    await insertNotificationRow(client, {
+      notificationType: 'change_request_result',
+      title: '평가자 변경요청 승인이 취소되었습니다',
+      message: `${request.evaluatee_name ?? request.evaluatee_id}님의 평가자 변경이 되돌려져 이전 평가자(${request.current_evaluator_name ?? '없음'})로 복구되었습니다.`,
+      priority: 'medium',
+      senderId: reviewerId,
+      senderName: reviewerName,
+      recipientId: request.requested_by,
+    });
+
+    await client.query('COMMIT');
+    res.json(doneRows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error reverting change request:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -6746,6 +7358,70 @@ app.delete('/api/prompt/:key', async (req, res) => {
   } catch (err) {
     console.error('Error deleting prompt:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+/* ==================== Evaluator AI Q&A Logs ==================== */
+// 평가자 AI 도움말 문의 이력. 평가자 화면에서 1턴(질문+답변)씩 적재되고,
+// HR 이 사용자별로 조회한다.
+
+// 문의 1턴 저장 (평가자 화면에서 호출)
+app.post('/api/evaluator-qna-logs', async (req, res) => {
+  if (!isDbAvailable) {
+    return sendDbUnavailable(res);
+  }
+  const body = req.body ?? {};
+  const userId = normalizeOptionalText(body.user_id ?? body.userId);
+  const userName = normalizeOptionalText(body.user_name ?? body.userName);
+  const userDepartment = normalizeOptionalText(body.user_department ?? body.userDepartment);
+  const userRole = normalizeOptionalText(body.user_role ?? body.userRole);
+  const question = normalizeOptionalText(body.question);
+  const answer = normalizeOptionalText(body.answer);
+  const isError = body.is_error === true || body.isError === true;
+
+  if (!userId || !question) {
+    return res.status(400).json({ error: 'user_id and question are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+        INSERT INTO evaluator_qna_logs
+          (user_id, user_name, user_department, user_role, question, answer, is_error)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING *
+      `,
+      [userId, userName, userDepartment, userRole, question, answer, isError]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error saving evaluator qna log:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 문의 이력 전체 조회 (HR 엑셀 다운로드용). 최신순.
+app.get('/api/evaluator-qna-logs', async (req, res) => {
+  if (!isDbAvailable) {
+    return res.json([]);
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+        SELECT
+          l.*,
+          COALESCE(e.name, l.user_name) AS user_name,
+          COALESCE(e.department, l.user_department) AS user_department
+        FROM evaluator_qna_logs l
+        LEFT JOIN employees e ON e.employee_id = l.user_id
+        ORDER BY l.created_at DESC
+        LIMIT 50000
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching evaluator qna logs:', err);
+    res.json([]);
   }
 });
 

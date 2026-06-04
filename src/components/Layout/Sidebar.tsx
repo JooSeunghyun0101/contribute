@@ -13,6 +13,8 @@ import {
   IconUsers,
   IconSettings,
   IconSparkle,
+  IconArrowRight,
+  IconCheck,
 } from '@/components/brand';
 
 type IconComp = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
@@ -30,6 +32,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/my/tasks', label: '내 과업', icon: IconTarget },
     { to: '/my/schedule', label: '과업 일정', icon: IconCalendar },
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
+    { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
   ],
   evaluator: [
     { to: '/team', label: '팀 통계', icon: IconChart, end: true },
@@ -37,6 +40,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/team/members', label: '담당 팀원', icon: IconUsers },
     { to: '/team/schedule', label: '전체 일정', icon: IconCalendar },
     { to: '/team/feedback', label: '피드백 내역', icon: IconMsg },
+    { to: '/team/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/team/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   hr: [
@@ -45,6 +49,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid },
     { to: '/hr/users', label: '사용자 관리', icon: IconUsers },
+    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck },
     { to: '/hr/prompts', label: 'AI 프롬프트', icon: IconMsg },
     { to: '/hr/settings', label: '시스템 설정', icon: IconSettings },
   ],

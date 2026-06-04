@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import {
   employeeService,
   evaluationService,
+  evaluatorQnaLogService,
   feedbackService,
   taskEvaluationEntryService,
   taskService,
@@ -14,6 +15,7 @@ import type {
   Employee,
   Evaluation,
   EvaluatorAssignmentHistory,
+  EvaluatorQnaLog,
   FeedbackHistory,
   Task,
   TaskEvaluationEntry,
@@ -1272,4 +1274,46 @@ export const downloadDepartmentMembersWorkbook = (
   const safeName = departmentName.replace(/[\\/:*?"<>|]/g, '_');
   const fileName = writeWorkbook(wb, `부서명단_${safeName}_${todayText()}.xlsx`);
   return { fileName, memberCount: members.length };
+};
+
+const QNA_LOG_HEADERS = [
+  '일시',
+  '사번',
+  '이름',
+  '부서',
+  '역할',
+  '질문',
+  'AI 답변',
+  '응답상태',
+];
+
+const roleLabel = (role?: string | null) => {
+  if (role === 'evaluator') return '평가자';
+  if (role === 'evaluatee') return '피평가자';
+  if (role === 'hr') return 'HR';
+  return role ?? '';
+};
+
+const buildQnaLogRows = (logs: EvaluatorQnaLog[]) =>
+  logs.map((log) => ({
+    일시: dateTimeText(log.created_at),
+    사번: log.user_id,
+    이름: log.user_name ?? '',
+    부서: log.user_department ?? '',
+    역할: roleLabel(log.user_role),
+    질문: log.question,
+    'AI 답변': log.is_error ? '' : log.answer ?? '',
+    응답상태: log.is_error ? '응답 실패' : '정상',
+  }));
+
+// 평가자 AI 도움말 문의 이력 전체를 엑셀로 내려받는다. (HR 시스템 설정)
+export const downloadEvaluatorQnaLogsWorkbook = async (): Promise<{
+  fileName: string;
+  rowCount: number;
+}> => {
+  const logs = await evaluatorQnaLogService.listAll();
+  const wb = XLSX.utils.book_new();
+  appendObjectSheet(wb, 'AI문의이력', QNA_LOG_HEADERS, buildQnaLogRows(logs));
+  const fileName = writeWorkbook(wb, `AI문의이력_${todayText()}.xlsx`);
+  return { fileName, rowCount: logs.length };
 };

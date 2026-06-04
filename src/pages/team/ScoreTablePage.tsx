@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bar,
   Cell,
@@ -16,8 +16,15 @@ import {
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTeamDashboardRecords, usePriorYearRecords } from '@/hooks/useDashboardRecords';
+import {
+  useTeamDashboardRecords,
+  useFormerTeamDashboardRecords,
+  usePriorYearRecords,
+} from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { employeeService } from '@/lib/services';
+import { buildEvaluatorPeriods, evaluatorActiveMonthRange } from '@/lib/evaluatorHistory';
+import type { EvaluatorAssignmentHistory } from '@/types';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
@@ -52,49 +59,112 @@ const getBucket = (record: EmployeeEvaluationRecord): AchievementBucket => {
 
 const ScoreTablePage = () => {
   const { user } = useAuth();
-  const { records: allRecords, isLoading, error } = useTeamDashboardRecords(user?.employeeId || '');
+  const evaluatorId = user?.employeeId || '';
+  const { records: allRecords, isLoading, error } = useTeamDashboardRecords(evaluatorId);
+  // 발령으로 떠난 과거 담당 피평가자도 월별 추이 분모에 포함하기 위해 함께 로드.
+  const { records: formerRecords } = useFormerTeamDashboardRecords(evaluatorId);
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+
+  // 카드/도넛/히트맵은 "현재 담당" 스냅샷 기준(기존 유지).
   const records = useMemo(
     () => allRecords.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
     [allRecords, orgFilter],
   );
-  // 모수(분모)는 전체 대상자(미완료 포함) — 도넛 달성률과 일치.
-  // 점수/달성은 완료(또는 잠금)된 평가만 반영(미완료는 빈 과업 → 모수에만 포함).
-  const trendMembers = useMemo(() => {
-    const scoped =
-      selectedLevel === 'all'
-        ? records
-        : records.filter((r) => (r.employee.growth_level ?? 1) === selectedLevel);
-    return scoped.map((r) => ({
-      tasks: isEvaluationCompleted(r)
-        ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
-        : [],
-      growthLevel: Math.max(1, r.employee.growth_level ?? 1),
-    }));
-  }, [records, selectedLevel]);
 
-  // 직전연도 비교
   const { periods, selectedPeriod } = useEvaluationPeriod();
-  const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  const currentYear = selectedPeriod?.evaluation_year ?? new Date().getFullYear();
+  const priorYear = currentYear - 1;
+
+  // 월별 추이는 "연중 담당했던 전체(현재+과거 발령)"를 모은 뒤,
+  // 평가자 변경 이력으로 각 피평가자의 담당 기간을 구해 월별 담당 인원을 보정한다.
+  const rosterRecords = useMemo(() => {
+    const map = new Map<string, (typeof allRecords)[number]>();
+    for (const r of allRecords) map.set(r.employee.employee_id, r);
+    for (const r of formerRecords) {
+      if (!map.has(r.employee.employee_id)) map.set(r.employee.employee_id, r);
+    }
+    return [...map.values()];
+  }, [allRecords, formerRecords]);
+
+  const rosterIdsKey = useMemo(
+    () => rosterRecords.map((r) => r.employee.employee_id).sort().join(','),
+    [rosterRecords],
+  );
+
+  // 피평가자별 평가자 변경 이력(원본). 연도별 담당기간은 그 평가기간(period) 행만으로 따로 계산한다.
+  const [historyById, setHistoryById] = useState<Map<string, EvaluatorAssignmentHistory[]>>(
+    () => new Map(),
+  );
+  useEffect(() => {
+    const ids = rosterIdsKey ? rosterIdsKey.split(',') : [];
+    if (!evaluatorId || ids.length === 0) {
+      setHistoryById(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return [id, await employeeService.getEvaluatorAssignmentHistory(id)] as const;
+          } catch {
+            return [id, [] as EvaluatorAssignmentHistory[]] as const;
+          }
+        }),
+      );
+      if (!cancelled) setHistoryById(new Map(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [evaluatorId, rosterIdsKey]);
+
+  const selectedPeriodId = selectedPeriod?.id ?? null;
   const priorPeriodId = useMemo(
     () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
     [periods, priorYear],
   );
-  const priorEmployees = useMemo(() => allRecords.map((r) => r.employee), [allRecords]);
+
+  // 추이용 멤버 빌더 — 해당 평가기간(periodId) 행만으로 담당기간을 구해 월별 활성 범위를 부여.
+  // 그 기간에 한 번도 담당하지 않은 사람은 제외. 점수/달성은 완료(또는 잠금)된 평가만 반영.
+  const buildTrendMembers = useCallback(
+    (sourceRecords: EmployeeEvaluationRecord[], year: number, periodId: string | null) =>
+      sourceRecords
+        .filter((r) => matchesOrgFilter(r.employee, orgFilter))
+        .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
+        .map((r) => {
+          const history = historyById.get(r.employee.employee_id) ?? [];
+          const period = history.length
+            ? buildEvaluatorPeriods(history, { periodId }).get(evaluatorId) ?? null
+            : { start: null, end: null }; // 이력 없음 → 현재 마스터 평가자가 줄곧 담당
+          return {
+            activeRange: evaluatorActiveMonthRange(period, year),
+            tasks: isEvaluationCompleted(r)
+              ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
+              : [],
+            growthLevel: Math.max(1, r.employee.growth_level ?? 1),
+          };
+        })
+        .filter((m) => m.activeRange !== null),
+    [orgFilter, selectedLevel, historyById, evaluatorId],
+  );
+
+  const trendMembers = useMemo(
+    () => buildTrendMembers(rosterRecords, currentYear, selectedPeriodId),
+    [buildTrendMembers, rosterRecords, currentYear, selectedPeriodId],
+  );
+
+  // 직전연도 비교 — 동일 로스터, 전년 평가기간(periodId) 행으로 담당기간 투영.
+  const priorEmployees = useMemo(() => rosterRecords.map((r) => r.employee), [rosterRecords]);
   const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId, null);
-  const priorTrend = useMemo(() => {
-    const members = priorRecords
-      .filter((r) => matchesOrgFilter(r.employee, orgFilter))
-      .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
-      .map((r) => ({
-        tasks: isEvaluationCompleted(r)
-          ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
-          : [],
-        growthLevel: Math.max(1, r.employee.growth_level ?? 1),
-      }));
-    return buildAggregateMonthlyTrend(members, { year: priorYear });
-  }, [priorRecords, orgFilter, priorYear, selectedLevel]);
+  const priorTrend = useMemo(
+    () =>
+      buildAggregateMonthlyTrend(buildTrendMembers(priorRecords, priorYear, priorPeriodId), {
+        year: priorYear,
+      }),
+    [buildTrendMembers, priorRecords, priorYear, priorPeriodId],
+  );
 
   const levelStats = useMemo(() => {
     const buckets = new Map<
@@ -549,7 +619,7 @@ const ScoreTablePage = () => {
             <AggregateScoreTrendChart
               members={trendMembers}
               year={selectedPeriod?.evaluation_year}
-              title="월별 평균 점수 추이 (팀)"
+              title="월별 달성 현황 추이 (팀)"
               comparison={priorTrend}
               comparisonLabel="전년도"
             />

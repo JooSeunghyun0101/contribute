@@ -102,6 +102,11 @@ export function buildMonthlyScoreTrend(
 export interface AggregateTrendMember {
   tasks: TrendTaskInput[];
   growthLevel: number;
+  /**
+   * 평가자 기준 활성 월 범위(월말 스냅샷, 0=1월). 발령으로 담당이 바뀌면 그 달만 분모에 포함된다.
+   * 미지정(undefined/null)이면 전 기간 활성으로 간주(조직 전체 추이 등).
+   */
+  activeRange?: { fromMonth: number; toMonth: number } | null;
 }
 
 export interface AggregateMonthlyPoint {
@@ -111,6 +116,12 @@ export interface AggregateMonthlyPoint {
   achievementRate: number | null;
   evaluatedCount: number;
   totalCount: number;
+  /** 해당 월까지 누적 점수가 목표 레벨 이상인 인원. */
+  achievedCount: number;
+  /** 점수는 입력됐지만 목표 레벨 미만인 인원. */
+  missedCount: number;
+  /** 아직 점수가 입력되지 않은 인원(미완료). */
+  pendingCount: number;
 }
 
 export const hasAggregateTrendData = (members: AggregateTrendMember[]): boolean =>
@@ -121,17 +132,34 @@ export function buildAggregateMonthlyTrend(
   options: BuildTrendOptions = {},
 ): AggregateMonthlyPoint[] {
   const perMember = members.map((m) => buildMonthlyScoreTrend(m.tasks, m.growthLevel, options));
-  const total = members.length;
+
+  // 해당 월에 평가자에게 배정돼 있던(활성) 멤버인지. activeRange 미지정이면 전 기간 활성.
+  const isActive = (member: AggregateTrendMember, mi: number) => {
+    const r = member.activeRange;
+    if (!r) return true;
+    return mi >= r.fromMonth && mi <= r.toMonth;
+  };
 
   return TREND_MONTH_LABELS.map((label, mi) => {
-    const points = perMember.map((series, i) => ({
-      point: series[mi],
-      growthLevel: members[i].growthLevel,
-    }));
-    // 모든 구성원이 미래 월(null)이면 표시 안 함.
+    // 분모(총원)·달성/미달성/미완료는 모두 "그 달 활성 멤버"만으로 계산한다.
+    const points = members
+      .map((member, i) => ({ point: perMember[i][mi], growthLevel: member.growthLevel, active: isActive(member, mi) }))
+      .filter((x) => x.active);
+    // 활성 멤버가 없거나(=그 달 담당 0명) 모두 미래 월(null)이면 표시 안 함.
     if (points.every((x) => x.point.cumulativeScore === null)) {
-      return { monthIndex: mi, label, avgScore: null, achievementRate: null, evaluatedCount: 0, totalCount: total };
+      return {
+        monthIndex: mi,
+        label,
+        avgScore: null,
+        achievementRate: null,
+        evaluatedCount: 0,
+        totalCount: 0,
+        achievedCount: 0,
+        missedCount: 0,
+        pendingCount: 0,
+      };
     }
+    const total = points.length;
     const evaluated = points.filter((x) => x.point.scoredCount > 0);
     const avgScore = evaluated.length
       ? evaluated.reduce((sum, x) => sum + (x.point.cumulativeScore ?? 0), 0) / evaluated.length
@@ -139,6 +167,8 @@ export function buildAggregateMonthlyTrend(
     const achievedCount = evaluated.filter(
       (x) => x.growthLevel > 0 && Math.floor(x.point.cumulativeScore ?? 0) >= x.growthLevel,
     ).length;
+    const missedCount = evaluated.length - achievedCount;
+    const pendingCount = total - evaluated.length;
     return {
       monthIndex: mi,
       label,
@@ -146,6 +176,9 @@ export function buildAggregateMonthlyTrend(
       achievementRate: total > 0 ? Math.round((achievedCount / total) * 100) : null,
       evaluatedCount: evaluated.length,
       totalCount: total,
+      achievedCount,
+      missedCount,
+      pendingCount,
     };
   });
 }

@@ -11,7 +11,7 @@ import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { generateGrowthSuggestion, generatePerformanceReportDraft } from '@/lib/gptOss';
-import type { Task } from '@/types/evaluation';
+import type { FeedbackHistoryItem, Task } from '@/types/evaluation';
 import {
   formatScore,
   getMatrixScore,
@@ -1122,37 +1122,10 @@ const EvaluationAccordionCard = ({
                             피드백 이력이 아직 없습니다.
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-3">
-                            {selectedTask.feedbackHistory.map((item, index) => (
-                              <div
-                                key={item.id}
-                                style={{
-                                  padding: 14,
-                                  border: '1px solid var(--border)',
-                                  borderRadius: 10,
-                                  position: 'relative',
-                                }}
-                              >
-                                {index === 0 && (
-                                  <span style={{ position: 'absolute', top: 12, right: 12 }}>
-                                    <Pill tone="orange">최신</Pill>
-                                  </span>
-                                )}
-                                <div className="flex items-center gap-3" style={{ marginBottom: 8 }}>
-                                  <div className="sd-avatar sd-avatar-sm">{item.evaluatorName[0]}</div>
-                                  <div>
-                                    <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>{item.evaluatorName}</div>
-                                    <div className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
-                                      {formatDateTime(item.date)}
-                                    </div>
-                                  </div>
-                                </div>
-                                <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.65, color: 'var(--fg)', margin: 0 }}>
-                                  {item.content}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
+                          <FeedbackHistoryList
+                            key={selectedTask.id}
+                            entries={selectedTask.feedbackHistory}
+                          />
                         )}
                       </div>
                     )}
@@ -1416,6 +1389,77 @@ const EvaluationAccordionCard = ({
         </div>
       )}
     </section>
+  );
+};
+
+const FeedbackEntryItem = ({ item, isLatest }: { item: FeedbackHistoryItem; isLatest?: boolean }) => (
+  <div
+    style={{
+      padding: 14,
+      border: '1px solid var(--border)',
+      borderRadius: 10,
+      position: 'relative',
+    }}
+  >
+    {isLatest && (
+      <span style={{ position: 'absolute', top: 12, right: 12 }}>
+        <Pill tone="orange">최신</Pill>
+      </span>
+    )}
+    <div className="flex items-center gap-3" style={{ marginBottom: 8 }}>
+      <div className="sd-avatar sd-avatar-sm">{item.evaluatorName[0]}</div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>{item.evaluatorName}</div>
+        <div className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
+          {formatDateTime(item.date)}
+        </div>
+      </div>
+    </div>
+    <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.65, color: 'var(--fg)', margin: 0 }}>
+      {item.content}
+    </p>
+  </div>
+);
+
+// 최신 피드백 1건만 펼쳐 보여주고, 이전 피드백은 '이전 피드백 N건 펼치기 ▼' 토글로 접는다.
+// entries는 호출부에서 최신순(date 내림차순)으로 정렬되어 전달된다.
+const FeedbackHistoryList = ({ entries }: { entries: FeedbackHistoryItem[] }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [latest, ...older] = entries;
+  if (!latest) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FeedbackEntryItem item={latest} isLatest={older.length > 0} />
+      {older.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setIsExpanded((v) => !v)}
+            style={{
+              alignSelf: 'flex-start',
+              padding: '5px 12px',
+              borderRadius: 14,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-muted)',
+              fontSize: 'var(--fs-xs)',
+              fontWeight: 700,
+              color: 'var(--fg-muted)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${older.length}건 펼치기`}
+            <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
+          </button>
+
+          {isExpanded &&
+            older.map((item) => <FeedbackEntryItem key={item.id} item={item} />)}
+        </>
+      )}
+    </div>
   );
 };
 

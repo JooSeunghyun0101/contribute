@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
@@ -168,16 +169,16 @@ const TeamHome = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  // 현재/이전 담당 분류는 선택한 평가기간 기준 — 발령 인원을 그 기간 담당 여부로 정확히 가른다.
+  const { selectedPeriod } = useEvaluationPeriod();
   const {
-    records,
+    current: records,
+    former: formerRecords,
     isLoading,
     error,
-  } = useTeamDashboardRecords(user?.employeeId || '', true);
-  const {
-    records: formerRecords,
-    isLoading: isFormerLoading,
-    error: formerError,
-  } = useFormerTeamDashboardRecords(user?.employeeId || '', true);
+    isFormerLoading,
+    formerError,
+  } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, true);
 
   const cards = useMemo(() => records.map(buildCard), [records]);
   // 과거 담당 피평가자 카드는 reviewStatus 가 어떤 값이든 클릭 가능해야 한다.

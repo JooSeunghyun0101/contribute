@@ -3,6 +3,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { IconSparkle, IconSend } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { askEvaluatorQuestion, type EvaluatorQnaTurn } from '@/lib/gptOss';
+import { evaluatorQnaLogService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 
 type Message = {
@@ -88,6 +89,20 @@ const EvaluatorQnaPage = () => {
     setInput('');
     setIsSending(true);
 
+    // 문의 1턴을 HR 감사용으로 보관(실패해도 사용자 경험에는 영향 없음).
+    const logTurn = (answer: string | null, isError: boolean) => {
+      if (!user?.employeeId) return;
+      void evaluatorQnaLogService.create({
+        user_id: user.employeeId,
+        user_name: user.name ?? null,
+        user_department: user.department ?? null,
+        user_role: user.role ?? null,
+        question: trimmed,
+        answer,
+        is_error: isError,
+      });
+    };
+
     try {
       const reply = await askEvaluatorQuestion(trimmed, conversationHistory);
       setMessages((prev) =>
@@ -95,6 +110,7 @@ const EvaluatorQnaPage = () => {
           m.id === pendingMsg.id ? { ...m, content: reply, pending: false } : m,
         ),
       );
+      logTurn(reply, false);
     } catch (error) {
       console.error('AI 응답 실패:', error);
       setMessages((prev) =>
@@ -109,6 +125,7 @@ const EvaluatorQnaPage = () => {
             : m,
         ),
       );
+      logTurn(null, true);
       toast({
         title: 'AI 응답 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',

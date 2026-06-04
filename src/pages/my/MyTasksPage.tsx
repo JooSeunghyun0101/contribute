@@ -1,24 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { employeeService, evaluationService } from '@/lib/services';
-import {
-  buildEvaluatorPeriods,
-  formatEvaluatorPeriod,
-  type EvaluatorPeriod,
-} from '@/lib/evaluatorHistory';
+import { formatEvaluatorPeriod } from '@/lib/evaluatorHistory';
+import { buildEvaluatorPeriods } from '@/lib/evaluatorHistory';
 import EvaluationAccordionCard from './EvaluationAccordionCard';
-import type { Evaluation, Employee } from '@/types';
+import type { Evaluation, Employee, EvaluatorAssignmentHistory } from '@/types';
 
 const MyTasksPage = () => {
   const { user } = useAuth();
   const employeeId = user?.employeeId ?? '';
 
+  const { selectedPeriod } = useEvaluationPeriod();
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [employee, setEmployee] = useState<Employee | null>(null);
-  const [evaluatorPeriods, setEvaluatorPeriods] = useState<Map<string, EvaluatorPeriod>>(
-    () => new Map(),
-  );
+  const [history, setHistory] = useState<EvaluatorAssignmentHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -38,18 +35,8 @@ const MyTasksPage = () => {
         ]);
         if (cancelled) return;
         setEmployee(emp ?? null);
-        setEvaluatorPeriods(buildEvaluatorPeriods(history));
-        const sorted = [...evals].sort((a, b) => {
-          // 현재 평가(employees.evaluator_id 매칭)를 앞으로
-          const aIsCurrent = a.evaluator_id && a.evaluator_id === emp?.evaluator_id ? 1 : 0;
-          const bIsCurrent = b.evaluator_id && b.evaluator_id === emp?.evaluator_id ? 1 : 0;
-          if (aIsCurrent !== bIsCurrent) return bIsCurrent - aIsCurrent;
-          // 그 외엔 assigned_at(있으면) 또는 created_at 내림차순
-          const aT = new Date(a.evaluator_assigned_at ?? a.created_at).getTime();
-          const bT = new Date(b.evaluator_assigned_at ?? b.created_at).getTime();
-          return bT - aT;
-        });
-        setEvaluations(sorted);
+        setHistory(history);
+        setEvaluations(evals);
       } catch (error) {
         console.warn('평가 목록 로드 실패:', error);
         if (!cancelled) setEvaluations([]);
@@ -66,6 +53,27 @@ const MyTasksPage = () => {
 
   // current evaluator로 분류
   const employeeEvaluatorId = employee?.evaluator_id ?? null;
+
+  // 근무기간은 선택한 평가기간(evaluation_period_id) 단위로 계산 — 연도를 넘어 한 구간으로 합쳐지지 않게.
+  const scopedPeriods = useMemo(
+    () => buildEvaluatorPeriods(history, { periodId: selectedPeriod?.id ?? null }),
+    [history, selectedPeriod?.id],
+  );
+  // 선택한 평가기간의 평가만 노출하고, 배정 시점 내림차순(최신=현재 평가가 위, 이전 평가가 아래로 쌓임).
+  const visibleEvaluations = useMemo(() => {
+    const inPeriod = selectedPeriod?.id
+      ? evaluations.filter((ev) =>
+          ev.evaluation_period_id
+            ? ev.evaluation_period_id === selectedPeriod.id
+            : ev.evaluation_year === selectedPeriod.evaluation_year,
+        )
+      : evaluations;
+    return [...inPeriod].sort((a, b) => {
+      const aT = new Date(a.evaluator_assigned_at ?? a.created_at).getTime();
+      const bT = new Date(b.evaluator_assigned_at ?? b.created_at).getTime();
+      return bT - aT;
+    });
+  }, [evaluations, selectedPeriod?.id, selectedPeriod?.evaluation_year]);
 
   return (
     <>
@@ -90,19 +98,19 @@ const MyTasksPage = () => {
           </div>
         )}
 
-        {!isLoading && evaluations.length === 0 && (
+        {!isLoading && visibleEvaluations.length === 0 && (
           <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
             아직 등록된 평가가 없습니다.
           </div>
         )}
 
         {!isLoading &&
-          evaluations.map((ev, index) => {
+          visibleEvaluations.map((ev, index) => {
             const isCurrent = Boolean(
               ev.evaluator_id && employeeEvaluatorId && ev.evaluator_id === employeeEvaluatorId,
             );
             const periodLabel = ev.evaluator_id
-              ? formatEvaluatorPeriod(evaluatorPeriods.get(ev.evaluator_id))
+              ? formatEvaluatorPeriod(scopedPeriods.get(ev.evaluator_id))
               : null;
             return (
               <EvaluationAccordionCard

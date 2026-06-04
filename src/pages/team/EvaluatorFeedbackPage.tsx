@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { IconSparkle } from '@/components/brand';
+import { FilterChip, IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
-import { useFormerTeamDashboardRecords, useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import {
   generateFeedbackSummaryForEvaluator,
   type FeedbackForSummary,
@@ -96,23 +97,13 @@ const EvaluatorFeedbackPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<'all' | string>('all');
-  const { records, isLoading: isCurrentLoading, error } = useTeamDashboardRecords(user?.employeeId || '', true);
-  const { records: formerRecords, isLoading: isFormerLoading } = useFormerTeamDashboardRecords(
-    user?.employeeId || '',
-    true,
-  );
-  const isLoading = isCurrentLoading || isFormerLoading;
-
-  // 현재 담당 + 과거 담당 피평가자의 피드백 이력을 함께 노출.
-  // (같은 employee 가 두 곳에 나타나면 current 를 우선 사용.)
-  const combinedRecords = useMemo(() => {
-    const map = new Map<string, (typeof records)[number]>();
-    for (const r of records) map.set(r.employee.employee_id, r);
-    for (const r of formerRecords) {
-      if (!map.has(r.employee.employee_id)) map.set(r.employee.employee_id, r);
-    }
-    return [...map.values()];
-  }, [records, formerRecords]);
+  // 선택한 평가기간에 이 평가자가 담당했던 피평가자만 노출 — 발령 인원 정합성.
+  const { selectedPeriod } = useEvaluationPeriod();
+  const {
+    current: combinedRecords,
+    isLoading,
+    error,
+  } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, true);
 
   const employeeBundles = useMemo(
     () => combinedRecords.map((record) => buildEmployeeTaskCards(record, user?.name ?? null)),
@@ -204,37 +195,41 @@ const EvaluatorFeedbackPage = () => {
       />
 
       <div style={{ padding: '24px 32px 32px' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-start',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: 18,
-            flexWrap: 'wrap',
-          }}
-        >
-          {[{ id: 'all' as const, name: '전체' }, ...employeeOptions].map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => setSelectedEmployeeId(opt.id)}
-              style={{
-                padding: '5px 14px',
-                borderRadius: 8,
-                border: '1px solid',
-                borderColor: selectedEmployeeId === opt.id ? 'var(--ok-orange)' : 'var(--border)',
-                background: selectedEmployeeId === opt.id ? 'var(--ok-orange)' : 'transparent',
-                color: selectedEmployeeId === opt.id ? '#fff' : 'var(--fg)',
-                fontSize: 'var(--fs-body)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              {opt.name}
-            </button>
-          ))}
-        </div>
+        {!isLoading && !error && employeeOptions.length > 0 && (
+          <div
+            className="sd-card"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: 16 }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <span
+                style={{
+                  fontSize: 'var(--fs-xs)',
+                  fontWeight: 800,
+                  color: 'var(--fg-subtle)',
+                  letterSpacing: '0.06em',
+                  marginRight: 2,
+                }}
+              >
+                팀원
+              </span>
+              <FilterChip
+                active={selectedEmployeeId === 'all'}
+                onClick={() => setSelectedEmployeeId('all')}
+              >
+                전체 {employeeOptions.length}명
+              </FilterChip>
+              {employeeOptions.map((opt) => (
+                <FilterChip
+                  key={opt.id}
+                  active={selectedEmployeeId === opt.id}
+                  onClick={() => setSelectedEmployeeId(opt.id)}
+                >
+                  {opt.name}
+                </FilterChip>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isLoading ? (
           <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백 이력을 불러오는 중입니다.</div>
@@ -249,20 +244,34 @@ const EvaluatorFeedbackPage = () => {
                   표시할 피드백 이력이 없습니다.
                 </div>
               ) : (
-                visibleBundles.map((bundle) => (
-                  <section key={bundle.employeeId} className="flex flex-col gap-3">
-                    {selectedEmployeeId === 'all' && (
+                visibleBundles.map((bundle) => {
+                  const visibleCards = bundle.cards.filter((card) => card.entries.length > 0);
+                  return (
+                    // 피평가자별로 독립된 카드로 분리해 구분이 명확하게 보이도록 한다.
+                    <section
+                      key={bundle.employeeId}
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        background: 'var(--bg-card)',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      }}
+                    >
+                      {/* 피평가자 헤더 밴드 */}
                       <div
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           gap: 16,
-                          padding: '0 4px',
+                          padding: '14px 18px',
+                          background: 'var(--ok-orange-50)',
+                          borderBottom: '1px solid var(--ok-orange-100)',
                           flexWrap: 'wrap',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                           <div
                             style={{
                               width: 36,
@@ -280,48 +289,52 @@ const EvaluatorFeedbackPage = () => {
                           >
                             {bundle.employeeName.charAt(0)}
                           </div>
-                          <div>
-                            <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, margin: 0 }}>
-                              {bundle.employeeName}{' '}
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--ok-brown)' }}>
+                                {bundle.employeeName}
+                              </span>
                               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
                                 {bundle.employeePosition}
                               </span>
-                            </h2>
+                            </div>
                             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
-                              {bundle.employeeDepartment}
+                              {bundle.employeeDepartment} · 과업 {visibleCards.length}개 · 피드백{' '}
+                              {bundle.totalFeedbacks}건
                             </div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-                            과업 {bundle.cards.filter((c) => c.entries.length > 0).length}개 · 피드백{' '}
-                            {bundle.totalFeedbacks}건
-                          </span>
-                          <button
-                            className="sd-btn sd-btn-outline sd-btn-sm"
-                            onClick={() => navigate(`/evaluation/${bundle.employeeId}`)}
-                          >
-                            평가 열기
-                          </button>
-                        </div>
+                        <button
+                          className="sd-btn sd-btn-outline sd-btn-sm"
+                          onClick={() => navigate(`/evaluation/${bundle.employeeId}`)}
+                        >
+                          평가 열기
+                        </button>
                       </div>
-                    )}
 
-                    {bundle.cards
-                      .filter((card) => card.entries.length > 0)
-                      .map((card) => (
-                        <TaskFeedbackCard
-                          key={card.taskId}
-                          taskIndex={card.taskIndex}
-                          taskTitle={card.taskTitle}
-                          contributionMethod={card.contributionMethod}
-                          contributionScope={card.contributionScope}
-                          score={card.score}
-                          entries={card.entries}
-                        />
-                      ))}
-                  </section>
-                ))
+                      {/* 본문: 과업별 피드백 카드 */}
+                      <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {visibleCards.length === 0 ? (
+                          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                            작성된 피드백이 없습니다.
+                          </div>
+                        ) : (
+                          visibleCards.map((card) => (
+                            <TaskFeedbackCard
+                              key={card.taskId}
+                              taskIndex={card.taskIndex}
+                              taskTitle={card.taskTitle}
+                              contributionMethod={card.contributionMethod}
+                              contributionScope={card.contributionScope}
+                              score={card.score}
+                              entries={card.entries}
+                            />
+                          ))
+                        )}
+                      </div>
+                    </section>
+                  );
+                })
               )}
             </div>
 

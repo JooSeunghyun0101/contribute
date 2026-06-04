@@ -106,22 +106,6 @@ const MyFeedbackPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedbackSignature, aiRefreshKey]);
 
-  const keywords = useMemo(() => {
-    const seen = new Set<string>();
-    const kws: string[] = [];
-    for (const task of tasks) {
-      if (task.contributionMethod && !seen.has(task.contributionMethod)) {
-        seen.add(task.contributionMethod);
-        kws.push(task.contributionMethod);
-      }
-      if (task.contributionScope && !seen.has(task.contributionScope)) {
-        seen.add(task.contributionScope);
-        kws.push(task.contributionScope);
-      }
-    }
-    return kws;
-  }, [tasks]);
-
   return (
     <>
       <PageHeader
@@ -183,30 +167,6 @@ const MyFeedbackPage = () => {
               <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>평가자 정보 없음</div>
             )}
           </div>
-
-          {keywords.length > 0 && (
-            <div className="sd-card">
-              <div className="sd-label-mini" style={{ marginBottom: 12 }}>키워드</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {keywords.map((kw) => (
-                  <span
-                    key={kw}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: 20,
-                      background: 'var(--bg-muted)',
-                      border: '1px solid var(--border)',
-                      fontSize: 'var(--fs-sm)',
-                      fontWeight: 600,
-                      color: 'var(--fg)',
-                    }}
-                  >
-                    {kw}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className="sd-card">
             <div className="sd-label-mini" style={{ marginBottom: 12 }}>과업별 피드백 수</div>

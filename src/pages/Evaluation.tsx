@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, CircleHelp, Clock3, PencilLine, Sparkles } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { NumBadge, Pill } from '@/components/brand';
@@ -15,11 +15,8 @@ import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useToast } from '@/hooks/use-toast';
 import { employeeService, evaluationService } from '@/lib/services';
 import { generateFeedbackRecommendation } from '@/lib/gptOss';
-import {
-  buildEvaluatorPeriods,
-  formatEvaluatorPeriod,
-  type EvaluatorPeriod,
-} from '@/lib/evaluatorHistory';
+import { buildEvaluatorPeriods, formatEvaluatorPeriod } from '@/lib/evaluatorHistory';
+import type { EvaluatorAssignmentHistory } from '@/types';
 import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import {
   MATRIX_METHODS,
@@ -139,7 +136,6 @@ const getTaskForEntry = (task: Task, entry: TaskEvaluationEntry): Task => ({
 
 const Evaluation = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
@@ -169,13 +165,11 @@ const Evaluation = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDraftSaving, setIsDraftSaving] = useState(false);
   const [isReopening, setIsReopening] = useState(false);
-  const [evaluatorPeriods, setEvaluatorPeriods] = useState<Map<string, EvaluatorPeriod>>(
-    () => new Map(),
-  );
+  const [assignmentHistory, setAssignmentHistory] = useState<EvaluatorAssignmentHistory[]>([]);
 
   useEffect(() => {
     if (!id) {
-      setEvaluatorPeriods(new Map());
+      setAssignmentHistory([]);
       return;
     }
     let cancelled = false;
@@ -183,10 +177,10 @@ const Evaluation = () => {
       try {
         const history = await employeeService.getEvaluatorAssignmentHistory(id);
         if (cancelled) return;
-        setEvaluatorPeriods(buildEvaluatorPeriods(history));
+        setAssignmentHistory(history);
       } catch (error) {
         console.warn('평가자 이력 로드 실패:', error);
-        if (!cancelled) setEvaluatorPeriods(new Map());
+        if (!cancelled) setAssignmentHistory([]);
       }
     })();
     return () => {
@@ -194,12 +188,24 @@ const Evaluation = () => {
     };
   }, [id]);
 
+  // 근무기간은 이 평가의 평가기간(evaluation_period_id) 행만으로 계산 — 연도 넘어 합쳐지지 않게.
+  const evaluatorPeriods = useMemo(
+    () =>
+      buildEvaluatorPeriods(assignmentHistory, {
+        periodId: evaluationData?.evaluationPeriodId ?? null,
+      }),
+    [assignmentHistory, evaluationData?.evaluationPeriodId],
+  );
+
   const committedTasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const currentEvaluationTasks = useMemo(
     () => committedTasks.filter((task) => !task.isHistoricalEvaluation),
     [committedTasks],
   );
   const evaluationStatus = evaluationData?.evaluationStatus;
+  // 평가 저장 후 AI 검토중(evaluating)·제출 대기(submitted) 단계에서는 점수가 확정되지 않은 상태다.
+  // 최종 완료(completed)·잠금(locked)일 때만 "내 반영 점수"를 상단에 반영한다.
+  const isEvaluationFinalized = evaluationStatus === 'completed' || evaluationStatus === 'locked';
   const isSubmittedForReview = EVALUATOR_EDITABLE_STATUSES.has(evaluationStatus ?? '');
   const canEditEvaluation = evaluationData?.evaluatorAccess?.canEdit ?? true;
   const evaluatorAccessMessage = evaluationData?.evaluatorAccess?.message;
@@ -449,10 +455,10 @@ const Evaluation = () => {
     }
     setIsSaving(true);
     try {
-      const ok = await handleSave();
-      if (ok) {
-        setTimeout(() => navigate('/'), 1200);
-      }
+      // 저장 후 홈으로 이동하지 않고 현재 평가 화면을 유지한다.
+      // handleSave 내부에서 성공 토스트와 데이터 갱신(loadEvaluationData)을 수행하므로
+      // 화면은 그대로 두고 갱신된 상태(완료/평가중)만 반영된다.
+      await handleSave();
     } finally {
       setIsSaving(false);
     }
@@ -568,6 +574,7 @@ const Evaluation = () => {
               growthLevel={evaluationData.growthLevel}
               currentScore={evaluatorGroups.find((group) => group.isOwnedByCurrentUser)?.exactScore ?? null}
               achieved={isAchieved()}
+              isFinalized={isEvaluationFinalized}
             />
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -691,43 +698,65 @@ type EvaluateeStatHeroProps = {
   growthLevel: number;
   currentScore: number | null;
   achieved: boolean;
+  /** 최종 완료(completed)·잠금(locked)에서만 점수/달성을 반영. 저장 후 AI 검토중(evaluating)에는 미반영. */
+  isFinalized: boolean;
 };
 
-const EvaluateeStatHero = ({ growthLevel, currentScore, achieved }: EvaluateeStatHeroProps) => (
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 18,
-    }}
-  >
-    <StatTile
-      label="성장 레벨"
-      value={`Lv.${growthLevel}`}
-      valueColor="var(--fg)"
-      tooltipContent={<GrowthLevelExpectationContent level={growthLevel} />}
-    />
-    <StatTile
-      label="내 반영 점수"
-      value={currentScore != null && currentScore > 0 ? formatScore(currentScore) : '–'}
-      valueColor="var(--ok-orange)"
-    />
-    <StatTile
-      label="달성 여부"
-      value={achieved ? '달성' : '미달성'}
-      valueColor={achieved ? 'var(--ok-orange)' : 'var(--fg-muted)'}
-    />
-  </div>
-);
+const EvaluateeStatHero = ({ growthLevel, currentScore, achieved, isFinalized }: EvaluateeStatHeroProps) => {
+  // 달성 축하 연출은 피평가자(/my) 화면에서만 노출한다. 평가자 화면(/evaluation/:id)에는 두지 않는다.
+  const canCelebrate = isFinalized && achieved;
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 18,
+        }}
+      >
+        <StatTile
+          label="성장 레벨"
+          value={`Lv.${growthLevel}`}
+          valueColor="var(--fg)"
+          tooltipContent={<GrowthLevelExpectationContent level={growthLevel} />}
+        />
+        <StatTile
+          label="내 반영 점수"
+          value={
+            isFinalized && currentScore != null && currentScore > 0 ? formatScore(currentScore) : '–'
+          }
+          valueColor="var(--ok-orange)"
+        />
+        <StatTile
+          label="달성 여부"
+          value={isFinalized ? (achieved ? '달성' : '미달성') : '–'}
+          valueColor={canCelebrate ? 'var(--ok-orange)' : 'var(--fg-muted)'}
+        />
+      </div>
+    </>
+  );
+};
 
 type StatTileProps = {
   label: string;
   value: string;
   valueColor: string;
   tooltipContent?: ReactNode;
+  onValueClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  title?: string;
 };
 
-const StatTile = ({ label, value, valueColor, tooltipContent }: StatTileProps) => {
+const StatTile = ({ label, value, valueColor, tooltipContent, onValueClick, title }: StatTileProps) => {
+  const valueStyle = {
+    fontSize: 'var(--fs-h2)',
+    fontWeight: 900,
+    lineHeight: 1,
+    marginTop: 4,
+    color: valueColor,
+    whiteSpace: 'nowrap' as const,
+    letterSpacing: 0,
+  };
   const content = (
     <div style={{ textAlign: 'center', lineHeight: 1.1, cursor: tooltipContent ? 'help' : 'default' }}>
       <div
@@ -747,19 +776,28 @@ const StatTile = ({ label, value, valueColor, tooltipContent }: StatTileProps) =
         {label}
         {tooltipContent && <CircleHelp size={12} aria-hidden="true" />}
       </div>
-      <div
-        className="tnum"
-        style={{
-          fontSize: 'var(--fs-h2)',
-          fontWeight: 900,
-          lineHeight: 1,
-          marginTop: 4,
-          color: valueColor,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {value}
-      </div>
+      {onValueClick ? (
+        <button
+          type="button"
+          className="tnum"
+          onClick={onValueClick}
+          title={title}
+          style={{
+            ...valueStyle,
+            padding: 0,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+        >
+          {value}
+        </button>
+      ) : (
+        <div className="tnum" style={valueStyle}>
+          {value}
+        </div>
+      )}
     </div>
   );
 

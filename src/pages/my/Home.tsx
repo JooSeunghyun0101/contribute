@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import MonthlyScoreTrendChart from '@/components/Evaluation/MonthlyScoreTrendChart';
 import { NumBadge } from '@/components/brand';
+import { CelebrationOverlay, type CelebrationTrigger } from '@/components/ui/lottie-celebration-overlay';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -55,6 +56,24 @@ const MyHome = () => {
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const { exactScore } = calculateTotalScore();
   const achieved = isAchieved();
+  const [fireworkTrigger, setFireworkTrigger] = useState<CelebrationTrigger | null>(null);
+  const handleAchievementClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!achieved) return;
+    event.currentTarget.animate(
+      [
+        { transform: 'scale(1)', textShadow: '0 0 0 rgba(255, 190, 64, 0)' },
+        { transform: 'scale(1.08)', textShadow: '0 0 22px rgba(255, 196, 72, 0.75)' },
+        { transform: 'scale(0.99)', textShadow: '0 0 9px rgba(255, 196, 72, 0.45)' },
+        { transform: 'scale(1)', textShadow: '0 0 0 rgba(255, 190, 64, 0)' },
+      ],
+      { duration: 520, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
+    );
+    setFireworkTrigger((prev) => ({
+      id: (prev?.id ?? 0) + 1,
+      x: event.clientX,
+      y: event.clientY,
+    }));
+  };
   const getCurrentScore = (task: {
     contributionMethod?: string | null;
     contributionScope?: string | null;
@@ -200,6 +219,7 @@ const MyHome = () => {
         gap: 20,
       }}
     >
+      <CelebrationOverlay trigger={fireworkTrigger} />
       {/* ── 헤더 ─────────────────────────────────────── */}
       <div>
         <div
@@ -210,7 +230,7 @@ const MyHome = () => {
             gap: 16,
           }}
         >
-          <h1 style={{ fontSize: 'var(--fs-h1)', fontWeight: 900, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
+          <h1 style={{ fontSize: 'var(--fs-h1)', fontWeight: 900, letterSpacing: 0, lineHeight: 1.2 }}>
             {user?.name}{' '}
             <span style={{ fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {user?.position} · {user?.department}
@@ -267,17 +287,40 @@ const MyHome = () => {
               >
                 달성 여부
               </div>
-              <div
-                style={{
-                  fontSize: 'var(--fs-display)',
-                  fontWeight: 900,
-                  lineHeight: 1,
-                  letterSpacing: '-0.03em',
-                  color: achieved ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                }}
-              >
-                {achieved ? '달성' : '미달성'}
-              </div>
+              {achieved ? (
+                <button
+                  type="button"
+                  className="tnum"
+                  onClick={handleAchievementClick}
+                  title="클릭하면 축하 폭죽이 터집니다."
+                  style={{
+                    fontSize: 'var(--fs-display)',
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    color: 'var(--ok-orange)',
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  달성
+                </button>
+              ) : (
+                <div
+                  style={{
+                    fontSize: 'var(--fs-display)',
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    color: 'var(--fg-muted)',
+                  }}
+                >
+                  미달성
+                </div>
+              )}
             </div>
           </div>
         </div>

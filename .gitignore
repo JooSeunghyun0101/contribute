@@ -33,3 +33,6 @@ scripts/
 *.sln
 *.sw?
 .vercel
+
+# oh-my-claudecode local runtime state (sessions, checkpoints, mission state)
+.omc/

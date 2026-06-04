@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
 import { employeeService } from '@/lib/services';
+import { downloadEvaluatorQnaLogsWorkbook } from '@/utils/hrDataExport';
 import type { EvaluationPeriodStatus } from '@/types';
 
 const ROLE_CARDS = [
@@ -41,8 +42,29 @@ const HrSettingsPage = () => {
   const { periods, selectedPeriod } = useEvaluationPeriod();
   const actorId = user?.employeeId ?? user?.id ?? null;
   const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching'>(null);
+  const [downloadingQna, setDownloadingQna] = useState(false);
 
   const activePeriodCount = periods.filter((p) => p.status === 'active').length;
+
+  const handleDownloadQnaLogs = async () => {
+    setDownloadingQna(true);
+    try {
+      const { rowCount } = await downloadEvaluatorQnaLogsWorkbook();
+      toast({
+        title: 'AI 문의 이력 다운로드',
+        description: rowCount > 0 ? `${rowCount}건을 엑셀로 내려받았습니다.` : '아직 남겨진 문의가 없습니다.',
+      });
+    } catch (error) {
+      console.error('AI 문의 이력 다운로드 실패:', error);
+      toast({
+        title: 'AI 문의 이력 다운로드 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingQna(false);
+    }
+  };
 
   const counts = {
     hr: employees.filter((e) => e.available_roles.includes('hr')).length,
@@ -260,6 +282,40 @@ const HrSettingsPage = () => {
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        {/* 데이터 내보내기 */}
+        <section className="sd-card sd-card-lg">
+          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>데이터 내보내기</h3>
+          <div
+            style={{
+              padding: 18,
+              borderRadius: 10,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>AI 문의 이력 다운로드</div>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
+                평가자가 <b>AI 도움말</b>에 남긴 질문과 AI 답변을 엑셀(.xlsx)로 내려받습니다.
+                일시·사번·이름·부서·질문·답변이 포함됩니다.
+              </div>
+            </div>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              disabled={downloadingQna}
+              onClick={handleDownloadQnaLogs}
+              style={{ flexShrink: 0 }}
+            >
+              {downloadingQna ? '내려받는 중…' : '엑셀 다운로드'}
+            </button>
           </div>
         </section>
 

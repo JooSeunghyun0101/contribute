@@ -87,6 +87,52 @@ export interface EvaluatorAssignmentHistory {
   evaluation_year?: number | null;
 }
 
+// 평가자 변경요청·승인
+export type ChangeRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type ChangeRequestRole = 'evaluator' | 'evaluatee';
+
+export interface EvaluatorChangeRequest {
+  id: string;
+  evaluatee_id: string;
+  evaluatee_name: string | null;
+  current_evaluator_id: string | null;
+  current_evaluator_name: string | null;
+  requested_evaluator_id: string | null;
+  requested_evaluator_name: string | null;
+  evaluation_period_id: string | null;
+  target_history_id: string | null;
+  segment_start_date: string | null;
+  segment_end_date: string | null;
+  requested_by: string;
+  requester_role: ChangeRequestRole;
+  reason: string | null;
+  status: ChangeRequestStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_comment: string | null;
+  applied_history_id: string | null;
+  created_at: string;
+  updated_at: string;
+  // 조인 표시용
+  requested_by_name?: string | null;
+  evaluatee_department?: string | null;
+  evaluation_period_name?: string | null;
+  evaluation_year?: number | null;
+}
+
+// 평가자 AI 도움말(문의) 이력
+export interface EvaluatorQnaLog {
+  id: string;
+  user_id: string;
+  user_name: string | null;
+  user_department: string | null;
+  user_role: string | null;
+  question: string;
+  answer: string | null;
+  is_error: boolean;
+  created_at: string;
+}
+
 // 평가 관련 타입
 export interface EvaluationPeriod {
   id: string;

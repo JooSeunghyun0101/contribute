@@ -34,6 +34,8 @@ const ICON_MAP: Record<NotificationType, React.ComponentType<{ size?: number }>>
   profile_imported: FileText,
   evaluation_return_requested: AlertCircle,
   evaluation_reopened: Undo2,
+  change_request: UserPlus,
+  change_request_result: CheckCircle2,
 };
 
 const formatRelativeTime = (iso: string): string => {

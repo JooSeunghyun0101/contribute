@@ -6,7 +6,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import {
+  getOrgValue,
+  matchesOrgFilter,
+  ORG_LEVEL_LABELS,
+  ORG_LEVELS,
+  type OrgFilterState,
+  type OrgLevel,
+} from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
 
@@ -32,27 +39,55 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
   record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
 
+// 카드 집계 단위 — 본부 > 부 > 팀 중 선택.
+const GROUP_LEVELS: OrgLevel[] = ['division', 'department', 'team'];
+
 const HrDepartmentsPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [groupLevel, setGroupLevel] = useState<OrgLevel>('team');
+  const [groupBySection, setGroupBySection] = useState(true); // 상위조직 섹션으로 묶기
+  const groupLabel = ORG_LEVEL_LABELS[groupLevel]; // 본부 / 부 / 팀
 
   const filteredRecords = useMemo(
     () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
     [records, orgFilter],
   );
 
+  // 선택한 집계 단위의 조직 값으로 그룹 키 + 그 키가 실제 속한 레벨을 만든다.
+  // 선택 레벨이 비어 있으면 더 하위 레벨로 내려가며 폴백(상위로 조회해도 미지정이면 하위 조직으로 묶임).
+  // 그래도 없으면 레거시 department(팀급으로 간주) → '미지정'.
+  const groupStartIdx = ORG_LEVELS.indexOf(groupLevel);
+  const resolveGroup = (record: EmployeeEvaluationRecord): { key: string; level: OrgLevel | null } => {
+    for (let i = groupStartIdx; i < ORG_LEVELS.length; i += 1) {
+      const value = getOrgValue(record.employee, ORG_LEVELS[i]);
+      if (value) return { key: value, level: ORG_LEVELS[i] };
+    }
+    if (record.employee.department) return { key: record.employee.department, level: 'team' };
+    return { key: '미지정', level: null };
+  };
+
+  // 상위 조직 경로(선택 레벨보다 위 레벨들)를 사람이 읽는 문자열로. 예) 부 조회 시 "경영지원본부".
+  const parentLevels = ORG_LEVELS.slice(0, groupStartIdx);
+  const parentPathOf = (record: EmployeeEvaluationRecord) =>
+    parentLevels
+      .map((level) => getOrgValue(record.employee, level))
+      .filter(Boolean)
+      .join(' › ');
+
   const recordsByDepartment = useMemo(() => {
     const map = new Map<string, EmployeeEvaluationRecord[]>();
     for (const record of filteredRecords) {
-      const key = record.employee.department || '미지정';
+      const key = resolveGroup(record).key;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(record);
     }
     return map;
-  }, [filteredRecords]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredRecords, groupLevel]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
@@ -79,10 +114,12 @@ const HrDepartmentsPage = () => {
               totalProgress: number;
               finalizedScoreSum: number;
               scoreCounts: Record<1 | 2 | 3 | 4, number>;
+              parentCounts: Record<string, number>;
+              levelCounts: Record<string, number>;
             }
           >
         >((acc, record) => {
-          const key = record.employee.department || '미지정';
+          const { key, level } = resolveGroup(record);
 
           if (!acc[key]) {
             acc[key] = {
@@ -93,8 +130,16 @@ const HrDepartmentsPage = () => {
               totalProgress: 0,
               finalizedScoreSum: 0,
               scoreCounts: { 1: 0, 2: 0, 3: 0, 4: 0 },
+              parentCounts: {},
+              levelCounts: {},
             };
           }
+
+          const levelKey = level ?? 'none';
+          acc[key].levelCounts[levelKey] = (acc[key].levelCounts[levelKey] ?? 0) + 1;
+
+          const parentPath = parentPathOf(record);
+          if (parentPath) acc[key].parentCounts[parentPath] = (acc[key].parentCounts[parentPath] ?? 0) + 1;
 
           const finalized = isEvaluationFinalized(record);
 
@@ -132,6 +177,15 @@ const HrDepartmentsPage = () => {
             department.finalizedMembers > 0
               ? (department.finalizedScoreSum / department.finalizedMembers).toFixed(1)
               : '-';
+          // 가장 많이 등장한 상위 조직 경로(부 조회 시 본부 등). 여러 상위에 걸치면 최빈값.
+          const parentEntries = Object.entries(department.parentCounts);
+          const parentPath = parentEntries.length
+            ? parentEntries.sort((a, b) => b[1] - a[1])[0][0]
+            : '';
+          // 이 그룹이 실제 속한 레벨(폴백되면 선택 레벨보다 하위일 수 있음).
+          const levelEntries = Object.entries(department.levelCounts);
+          const topLevel = levelEntries.length ? levelEntries.sort((a, b) => b[1] - a[1])[0][0] : 'none';
+          const level: OrgLevel | null = topLevel === 'none' ? null : (topLevel as OrgLevel);
 
           return {
             ...department,
@@ -139,9 +193,12 @@ const HrDepartmentsPage = () => {
             achievementRate,
             averageProgress,
             averageScore,
+            parentPath,
+            level,
           };
         }),
-    [filteredRecords],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredRecords, groupLevel],
   );
 
   const visibleDepartments = useMemo(() => {
@@ -179,12 +236,29 @@ const HrDepartmentsPage = () => {
     return sorted;
   }, [departments, searchQuery, sortKey]);
 
+  // 카드를 상위 조직(parentPath)별 섹션으로 묶는다. 상위가 없으면 맨 끝 '상위 미지정' 섹션.
+  // 그룹화를 끄면 정렬이 섹션에 갇히지 않도록 전체를 한 그룹(헤더 없음)으로 둔다.
+  const sections = useMemo<[string, typeof visibleDepartments][]>(() => {
+    if (!groupBySection) return [['__all__', visibleDepartments]];
+    const map = new Map<string, typeof visibleDepartments>();
+    for (const dept of visibleDepartments) {
+      const key = dept.parentPath || '상위 미지정';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(dept);
+    }
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === '상위 미지정') return 1;
+      if (b[0] === '상위 미지정') return -1;
+      return a[0].localeCompare(b[0], 'ko');
+    });
+  }, [visibleDepartments, groupBySection]);
+
   return (
     <>
       <PageHeader
         title="부서별 진행 현황"
-        subtitle="부서 단위 완료율, 목표 달성률, 점수 분포를 한 화면에서 확인합니다."
-        actions={<Pill tone="orange">{departments.length}개 부서</Pill>}
+        subtitle="본부·부·팀 단위로 완료율, 목표 달성률, 점수 분포를 한 화면에서 확인합니다."
+        actions={<Pill tone="orange">{groupLabel} {departments.length}개</Pill>}
       />
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
@@ -222,7 +296,7 @@ const HrDepartmentsPage = () => {
                   className="sd-input"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="부서명 검색"
+                  placeholder={`${groupLabel} 검색`}
                   style={{ paddingLeft: 36, width: '100%' }}
                 />
               </div>
@@ -232,6 +306,50 @@ const HrDepartmentsPage = () => {
                 value={orgFilter}
                 onChange={setOrgFilter}
               />
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  color: 'var(--fg-muted)',
+                }}
+              >
+                집계 단위
+                <select
+                  className="sd-input"
+                  value={groupLevel}
+                  onChange={(event) => setGroupLevel(event.target.value as OrgLevel)}
+                  style={{ minWidth: 90, width: 90 }}
+                >
+                  {GROUP_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {ORG_LEVEL_LABELS[level]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setGroupBySection((v) => !v)}
+                aria-pressed={groupBySection}
+                title="상위 조직별로 카드를 묶어 봅니다. 끄면 전체를 한 번에 정렬합니다."
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
+                  background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
+                  color: groupBySection ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                }}
+              >
+                상위조직 묶기 {groupBySection ? 'ON' : 'OFF'}
+              </button>
 
               <label
                 style={{
@@ -265,15 +383,41 @@ const HrDepartmentsPage = () => {
                   color: 'var(--fg-muted)',
                 }}
               >
-                {visibleDepartments.length}/{departments.length}개 부서
+                {groupLabel} {visibleDepartments.length}/{departments.length}개
               </div>
             </div>
 
-            <section
-              className="grid gap-4"
-              style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}
-            >
-              {visibleDepartments.map((department) => (
+            {sections.map(([parent, depts]) => (
+              <section key={parent} className="flex flex-col" style={{ gap: 12 }}>
+                {groupBySection && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 10,
+                      paddingBottom: 8,
+                      borderBottom: '2px solid var(--ok-orange-100)',
+                    }}
+                  >
+                    <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: 'var(--ok-brown)' }}>
+                      {parent}
+                    </span>
+                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                      {(() => {
+                        const counts = depts.reduce<Record<string, number>>((acc, d) => {
+                          const lbl = d.level ? ORG_LEVEL_LABELS[d.level] : '미지정';
+                          acc[lbl] = (acc[lbl] ?? 0) + 1;
+                          return acc;
+                        }, {});
+                        return Object.entries(counts)
+                          .map(([lbl, n]) => `${lbl} ${n}개`)
+                          .join(' · ');
+                      })()}
+                    </span>
+                  </div>
+                )}
+                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+                  {depts.map((department) => (
               <button
                 key={department.name}
                 type="button"
@@ -294,7 +438,45 @@ const HrDepartmentsPage = () => {
                 }}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <h3>{department.name}</h3>
+                  <div style={{ minWidth: 0 }}>
+                    {!groupBySection && department.parentPath && (
+                      <div
+                        style={{
+                          fontSize: 'var(--fs-xs)',
+                          color: 'var(--fg-muted)',
+                          fontWeight: 700,
+                          marginBottom: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={department.parentPath}
+                      >
+                        {department.parentPath}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <h3 style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {department.name}
+                    </h3>
+                    {department.level && department.level !== groupLevel && (
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 'var(--fs-xs)',
+                          fontWeight: 800,
+                          color: 'var(--ok-orange-700)',
+                          background: 'var(--ok-orange-50)',
+                          border: '1px solid var(--ok-orange-100)',
+                          borderRadius: 6,
+                          padding: '1px 6px',
+                        }}
+                      >
+                        {ORG_LEVEL_LABELS[department.level]}
+                      </span>
+                    )}
+                    </div>
+                  </div>
                   <Pill
                     tone={
                       department.completionRate >= 80
@@ -461,16 +643,18 @@ const HrDepartmentsPage = () => {
                   );
                 })()}
               </button>
+                  ))}
+                </div>
+              </section>
             ))}
 
-              {!visibleDepartments.length && (
-                <div className="sd-card" style={{ gridColumn: '1 / -1' }}>
-                  {departments.length === 0
-                    ? '표시할 부서 데이터가 없습니다.'
-                    : '검색 조건에 맞는 부서가 없습니다.'}
-                </div>
-              )}
-            </section>
+            {!visibleDepartments.length && (
+              <div className="sd-card">
+                {departments.length === 0
+                  ? '표시할 부서 데이터가 없습니다.'
+                  : '검색 조건에 맞는 부서가 없습니다.'}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -478,6 +662,8 @@ const HrDepartmentsPage = () => {
       {openDepartment && (
         <DepartmentMembersModal
           name={openDepartment}
+          levelLabel={groupLabel}
+          parentPath={departments.find((d) => d.name === openDepartment)?.parentPath ?? ''}
           records={openDepartmentRecords}
           onClose={() => setOpenDepartment(null)}
         />
@@ -488,6 +674,8 @@ const HrDepartmentsPage = () => {
 
 type DepartmentMembersModalProps = {
   name: string;
+  levelLabel: string;
+  parentPath: string;
   records: EmployeeEvaluationRecord[];
   onClose: () => void;
 };
@@ -513,7 +701,7 @@ const REVIEW_STATUS_TONE: Record<
   locked: 'neutral',
 };
 
-const DepartmentMembersModal = ({ name, records, onClose }: DepartmentMembersModalProps) => {
+const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose }: DepartmentMembersModalProps) => {
   const { toast } = useToast();
   const finalizedRecords = records.filter(isEvaluationFinalized);
   const finalized = finalizedRecords.length;
@@ -592,7 +780,10 @@ const DepartmentMembersModal = ({ name, records, onClose }: DepartmentMembersMod
           }}
         >
           <div>
-            <div className="sd-label-mini">부서</div>
+            <div className="sd-label-mini">
+              {levelLabel}
+              {parentPath && <span style={{ color: 'var(--fg-subtle)', fontWeight: 700 }}> · {parentPath}</span>}
+            </div>
             <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{name}</h2>
             <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
               {records.length}명 · 평가 완료 {finalized} · 목표 달성 {achieved} · 평균 점수{' '}

@@ -14,7 +14,9 @@ export type NotificationType =
   | 'evaluator_unassigned'
   | 'profile_imported'
   | 'evaluation_return_requested'
-  | 'evaluation_reopened';
+  | 'evaluation_reopened'
+  | 'change_request'
+  | 'change_request_result';
 
 export type NotificationPriority = 'low' | 'medium' | 'high';
 

@@ -4,8 +4,9 @@
 //   v1: 현재 적용 디자인 (MeshGradient 2 레이어, 깔끔)
 //   v2: 최초 디자인 (MeshGradient + 우측하단 PulsingBorder + 회전 텍스트)
 //   v3: Three.js shader-lines (저주파 격자 + 컬러 라인)
+//   v4: Unicorn Studio OpenAI Codex animated background
 //
 // 배경 위 텍스트(기여도 평가 / OK금융그룹 ...)는 Login.tsx 의 오버레이에서 따로 렌더링하므로
 // 버전에 무관하게 유지된다.
 
-export { default } from "./hero-v2"
+export { default } from "./hero-v4"

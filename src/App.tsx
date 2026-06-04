@@ -20,6 +20,7 @@ import MyHome from "./pages/my/Home";
 import MyTasksPage from "./pages/my/MyTasksPage";
 import MySchedulePage from "./pages/my/MySchedulePage";
 import MyFeedbackPage from "./pages/my/MyFeedbackPage";
+import EvaluatorRequestPage from "./pages/EvaluatorRequestPage";
 
 import TeamHome from "./pages/team/Home";
 import TeamMembersPage from "./pages/team/TeamMembersPage";
@@ -35,6 +36,7 @@ import HrMatrixPage from "./pages/hr/HrMatrixPage";
 import HrUsersPage from "./pages/hr/HrUsersPage";
 import HrSettingsPage from "./pages/hr/HrSettingsPage";
 import HrPromptsPage from "./pages/hr/HrPromptsPage";
+import HrChangeRequestsPage from "./pages/hr/ChangeRequestsPage";
 
 const queryClient = new QueryClient();
 
@@ -106,6 +108,14 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/my/evaluator-request"
+                  element={
+                    <ProtectedRoute allowedRoles={["evaluatee"]}>
+                      <EvaluatorRequestPage />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* 평가자 */}
                 <Route
@@ -165,6 +175,14 @@ const App = () => (
                   }
                 />
                 <Route
+                  path="/team/evaluator-request"
+                  element={
+                    <ProtectedRoute allowedRoles={["evaluator"]}>
+                      <EvaluatorRequestPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/evaluation/:id"
                   element={
                     <ProtectedRoute allowedRoles={["evaluator"]}>
@@ -211,6 +229,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrUsersPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/change-requests"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrChangeRequestsPage />
                     </ProtectedRoute>
                   }
                 />
