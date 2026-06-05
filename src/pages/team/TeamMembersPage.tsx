@@ -81,15 +81,8 @@ const TeamMembersPage = () => {
       <PageHeader
         title="담당 팀원"
         subtitle={`내가 평가하는 ${records.length > 0 ? `${records[0]?.employee.department} ` : ''}${records.length}명`}
-      />
-
-      <div style={{ padding: '24px 32px 32px' }}>
-        {isLoading ? (
-          <div className="sd-card">팀원 정보를 불러오는 중입니다.</div>
-        ) : error ? (
-          <div className="sd-card" style={{ color: 'var(--danger)' }}>{error}</div>
-        ) : (
-          <div className="flex flex-col gap-6">
+        filters={
+          records.length > 0 ? (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button
                 className={selectedLevel === 'all' ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
@@ -110,7 +103,17 @@ const TeamMembersPage = () => {
                 );
               })}
             </div>
+          ) : undefined
+        }
+      />
 
+      <div style={{ padding: '24px 32px 32px' }}>
+        {isLoading ? (
+          <div className="sd-card">팀원 정보를 불러오는 중입니다.</div>
+        ) : error ? (
+          <div className="sd-card" style={{ color: 'var(--danger)' }}>{error}</div>
+        ) : (
+          <div className="flex flex-col gap-6">
             {groupedByLevel.map(({ level, items }) => (
               <MemberCarousel
                 key={level}

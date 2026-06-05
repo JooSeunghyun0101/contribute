@@ -29,6 +29,7 @@ import OrgFilterBar from '@/components/hr/OrgFilterBar';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
 import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import { useStuck } from '@/hooks/use-stuck';
 import {
   formatScore,
   getMatrixMethodIndex,
@@ -279,19 +280,56 @@ const ScoreTablePage = () => {
     [teamStats, levelStats],
   );
 
+  // 레벨 칩은 기본 숨김 → 스크롤로 카드가 사라지고 헤더가 떠 있을 때(stuck)에만 표시.
+  const { sentinelRef, stuck } = useStuck(!isLoading && !error && hasData);
+
   return (
     <>
       <PageHeader
         title="팀 통계"
         subtitle="레벨별 평균 점수와 달성 현황 · 점수 분포"
+        filters={
+          allRecords.length > 0 ? (
+            <>
+              <OrgFilterBar
+                items={allRecords.map((r) => r.employee)}
+                value={orgFilter}
+                onChange={setOrgFilter}
+              />
+              {/* 레벨 칩(필터) — 기본 숨김. 스크롤로 카드가 사라지고 헤더가 떠 있을 때(stuck)만 페이드 인.
+                  공간은 항상 점유(opacity 토글)해 헤더 높이가 일정 → 스크롤 튕김 없음. */}
+              <div
+                aria-hidden={!stuck}
+                style={{
+                  marginLeft: 'auto',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                  opacity: stuck ? 1 : 0,
+                  pointerEvents: stuck ? 'auto' : 'none',
+                  transition: 'opacity 0.18s ease',
+                }}
+              >
+                {allCards.map((row) => {
+                  const target: number | 'all' = row.level === 0 ? 'all' : row.level;
+                  return (
+                    <LevelSummaryCard
+                      key={row.level}
+                      row={row}
+                      isActive={selectedLevel === target}
+                      compact
+                      onClick={() => setSelectedLevel(target)}
+                    />
+                  );
+                })}
+              </div>
+            </>
+          ) : undefined
+        }
       />
 
       <div style={{ padding: '24px 32px 32px' }} className="flex flex-col gap-5">
-        <OrgFilterBar
-          items={allRecords.map((r) => r.employee)}
-          value={orgFilter}
-          onChange={setOrgFilter}
-        />
         {isLoading ? (
           <div className="sd-card">통계 데이터를 불러오는 중입니다.</div>
         ) : error ? (
@@ -300,7 +338,7 @@ const ScoreTablePage = () => {
           <div className="sd-card">표시할 팀원이 없습니다.</div>
         ) : (
           <>
-            {/* Level summary row — 카드 자체가 필터. 전체 + 레벨별 N개 */}
+            {/* Level summary row — 카드 자체가 필터. 전체 + 레벨별 N개. (헤더에는 같은 레벨 칩이 고정으로 있음) */}
             <section
               style={{
                 display: 'grid',
@@ -321,6 +359,8 @@ const ScoreTablePage = () => {
                 );
               })}
             </section>
+            {/* 카드가 상단을 벗어나면 stuck — 헤더의 레벨 칩이 나타난다. (sentinel 은 카드 뒤) */}
+            <div ref={sentinelRef} aria-hidden style={{ height: 0 }} />
 
             {/* Shared filter + bar/donut */}
             <section
@@ -647,10 +687,13 @@ const LevelSummaryCard = ({
   row,
   isActive,
   onClick,
+  compact = false,
 }: {
   row: LevelStatRow;
   isActive?: boolean;
   onClick?: () => void;
+  /** 상단 고정 헤더에서 작은 칩(아이콘) 형태로 축소 렌더. */
+  compact?: boolean;
 }) => {
   const hasData = row.evaluated > 0;
   const pending = row.total - row.evaluated;
@@ -680,6 +723,64 @@ const LevelSummaryCard = ({
       ? '0 0 0 3px var(--ok-orange-700)'
       : '0 0 0 2px var(--ok-orange)'
     : 'none';
+
+  // 고정 헤더용 축소 칩 — 원형 배지(전체/레벨번호) + 달성률 + 달성/전체.
+  if (compact) {
+    const badgeBg = isOverall ? 'rgba(255,255,255,0.18)' : 'var(--ok-orange)';
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={`${row.label} · 달성 ${row.achieved}/${row.total}${hasData ? ` · ${row.achievementRate}%` : ''}`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '5px 12px 5px 5px',
+          borderRadius: 999,
+          background: bg,
+          boxShadow: ring,
+          border: `1px solid ${border}`,
+          cursor: onClick ? 'pointer' : 'default',
+          font: 'inherit',
+          color: 'inherit',
+          transition: 'box-shadow 0.15s, background 0.15s',
+        }}
+      >
+        <span
+          style={{
+            minWidth: 26,
+            height: 26,
+            padding: '0 7px',
+            borderRadius: 999,
+            background: badgeBg,
+            color: '#fff',
+            fontSize: 'var(--fs-xs)',
+            fontWeight: 900,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isOverall ? '전체' : row.level}
+        </span>
+        <span
+          className="tnum"
+          style={{ fontSize: 'var(--fs-sm)', fontWeight: 900, color: bigColor, lineHeight: 1 }}
+        >
+          {hasData ? `${row.achievementRate}%` : '–'}
+        </span>
+        <span
+          className="tnum"
+          style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: subColor, lineHeight: 1 }}
+        >
+          {row.achieved}/{row.total}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <button

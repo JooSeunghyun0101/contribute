@@ -20,7 +20,7 @@ import AddEmployeeModal, { type NewEmployeeInput } from '@/components/hr/AddEmpl
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import { getOrgValue, matchesOrgFilter, orgPathLabel, type OrgFilterState } from '@/lib/orgHierarchy';
 import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
@@ -55,6 +55,10 @@ const ROLE_BORDER: Record<string, string> = {
   evaluator: 'var(--ok-orange-100)',
   evaluatee: 'var(--border)',
 };
+
+// 묶어서 보기 그룹 키 — 조직 경로(법인 › 본부 › 부 › 팀). 없으면 부서명, 그래도 없으면 '미지정'.
+const orgGroupKey = (employee: Employee) =>
+  orgPathLabel(employee) || employee.department || '미지정';
 
 const roleLabel = (role: UserRole) => {
   if (role === 'hr') return 'HR';
@@ -276,6 +280,7 @@ const HrUsersPage = () => {
   const [query, setQuery] = useState('');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
+  const [groupBySection, setGroupBySection] = useState(false); // 조직별로 묶어서 보기
   const [updatingEvaluationId, setUpdatingEvaluationId] = useState<string | null>(null);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
@@ -358,8 +363,15 @@ const HrUsersPage = () => {
           return matchesQuery && matchesRole;
         })
         .filter((employee) => matchesOrgFilter(employee, orgFilter))
-        .sort((a, b) => a.department.localeCompare(b.department) || a.name.localeCompare(b.name)),
-    [employees, recordMap, query, selectedRole, orgFilter],
+        .sort((a, b) => {
+          // 묶어서 보기일 땐 같은 조직 그룹이 인접하도록 그룹 키 우선 정렬.
+          if (groupBySection) {
+            const cmp = orgGroupKey(a).localeCompare(orgGroupKey(b), 'ko');
+            if (cmp !== 0) return cmp;
+          }
+          return a.department.localeCompare(b.department) || a.name.localeCompare(b.name);
+        }),
+    [employees, recordMap, query, selectedRole, orgFilter, groupBySection],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -373,7 +385,7 @@ const HrUsersPage = () => {
   // 검색·역할·평가기간·페이지크기가 바뀌면 첫 페이지로.
   useEffect(() => {
     setPageIndex(0);
-  }, [query, selectedRole, selectedPeriodId, pageSize]);
+  }, [query, selectedRole, selectedPeriodId, pageSize, groupBySection]);
 
   // 다중 선택 (현재 페이지 기준 전체선택, 선택 자체는 페이지 넘어가도 유지).
   const pageIds = useMemo(() => pagedEmployees.map((e) => e.employee_id), [pagedEmployees]);
@@ -1138,30 +1150,11 @@ const HrUsersPage = () => {
             </button>
           </div>
         }
-      />
-
-      <div style={{ padding: '24px 32px 32px' }}>
-        <div className="sd-card sd-card-lg" style={{ padding: 0, overflow: 'hidden' }}>
-          {/* Search + filter row */}
-          <div
-            style={{
-              padding: '16px 20px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
+        filters={
+          <>
             <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 380 }}>
               <span
-                style={{
-                  position: 'absolute',
-                  left: 12,
-                  top: 11,
-                  color: 'var(--fg-subtle)',
-                  pointerEvents: 'none',
-                }}
+                style={{ position: 'absolute', left: 12, top: 11, color: 'var(--fg-subtle)', pointerEvents: 'none' }}
               >
                 <IconSearch width={16} height={16} />
               </span>
@@ -1170,7 +1163,7 @@ const HrUsersPage = () => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="이름 · 부서 검색"
-                style={{ paddingLeft: 36 }}
+                style={{ paddingLeft: 36, width: '100%' }}
               />
             </div>
 
@@ -1198,8 +1191,31 @@ const HrUsersPage = () => {
                 </button>
               ))}
             </div>
-          </div>
 
+            <button
+              type="button"
+              onClick={() => setGroupBySection((v) => !v)}
+              aria-pressed={groupBySection}
+              title="조직(법인·본부·부·팀)별로 행을 묶어서 봅니다."
+              style={{
+                padding: '5px 14px',
+                borderRadius: 8,
+                fontSize: 'var(--fs-body)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
+                background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
+                color: groupBySection ? 'var(--ok-orange)' : 'var(--fg)',
+              }}
+            >
+              묶어서 보기 {groupBySection ? 'ON' : 'OFF'}
+            </button>
+          </>
+        }
+      />
+
+      <div style={{ padding: '24px 32px 32px' }}>
+        <div className="sd-card sd-card-lg" style={{ padding: 0, overflow: 'hidden' }}>
           {/* 다중 선택 일괄 작업 바 */}
           {selectedCount > 0 && (
             <div
@@ -1298,7 +1314,7 @@ const HrUsersPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pagedEmployees.map((employee) => {
+                {pagedEmployees.map((employee, index) => {
                   const evaluatorName = employee.evaluator_id
                     ? (employeeMap.get(employee.evaluator_id)?.name ?? employee.evaluator_id)
                     : '-';
@@ -1307,8 +1323,34 @@ const HrUsersPage = () => {
                   const currentStatus = evaluation?.evaluation_status;
                   const isEditing = editingEmployeeId === employee.employee_id && Boolean(editForm);
                   const isSaving = savingEmployeeId === employee.employee_id;
+                  // 묶어서 보기: 그룹 키가 바뀌는 첫 행 앞에 섹션 헤더를 넣는다(현재 페이지 기준).
+                  const groupKey = orgGroupKey(employee);
+                  const showGroupHeader =
+                    groupBySection &&
+                    (index === 0 || orgGroupKey(pagedEmployees[index - 1]) !== groupKey);
+                  const groupCount = showGroupHeader
+                    ? pagedEmployees.filter((e) => orgGroupKey(e) === groupKey).length
+                    : 0;
                   return (
                     <Fragment key={employee.id}>
+                    {showGroupHeader && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={14}
+                          style={{
+                            background: 'var(--ok-orange-50)',
+                            borderTop: '2px solid var(--ok-orange-100)',
+                            fontWeight: 800,
+                            color: 'var(--ok-brown)',
+                          }}
+                        >
+                          {groupKey}
+                          <span style={{ marginLeft: 8, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                            {groupCount}명
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    )}
                     <TableRow style={selectedIds.has(employee.employee_id) ? { background: 'var(--ok-orange-50)' } : undefined}>
                       <TableCell>
                         <input

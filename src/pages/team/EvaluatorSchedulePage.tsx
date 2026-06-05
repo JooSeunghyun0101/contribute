@@ -73,67 +73,68 @@ const EvaluatorSchedulePage = () => {
 
   return (
     <>
-      <PageHeader title="전체 일정" subtitle="팀원별 평가 데드라인 · 2026 연간" />
+      <PageHeader
+        title="전체 일정"
+        subtitle="팀원별 평가 데드라인 · 2026 연간"
+        filters={
+          !isLoading && !error && records.length > 0 ? (
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    fontWeight: 800,
+                    color: 'var(--fg-subtle)',
+                    letterSpacing: '0.06em',
+                    marginRight: 2,
+                  }}
+                >
+                  팀원
+                </span>
+                <FilterChip active={memberFilter === 'all'} onClick={() => setMemberFilter('all')}>
+                  전체 {records.length}명
+                </FilterChip>
+                {records.map((record) => (
+                  <FilterChip
+                    key={record.employee.employee_id}
+                    active={memberFilter === record.employee.employee_id}
+                    onClick={() => setMemberFilter(record.employee.employee_id)}
+                  >
+                    {record.employee.name}
+                  </FilterChip>
+                ))}
+              </div>
+
+              <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', minHeight: 24 }} />
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    fontWeight: 800,
+                    color: 'var(--fg-subtle)',
+                    letterSpacing: '0.06em',
+                    marginRight: 2,
+                  }}
+                >
+                  상태
+                </span>
+                {statusOptions.map((option) => (
+                  <FilterChip
+                    key={option.key}
+                    active={statusFilter === option.key}
+                    onClick={() => setStatusFilter(option.key)}
+                  >
+                    {option.label}
+                  </FilterChip>
+                ))}
+              </div>
+            </>
+          ) : undefined
+        }
+      />
 
       <div style={{ padding: '24px 32px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* 필터 바 */}
-        {!isLoading && !error && records.length > 0 && (
-          <div
-            className="sd-card"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}
-          >
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <span
-                style={{
-                  fontSize: 'var(--fs-xs)',
-                  fontWeight: 800,
-                  color: 'var(--fg-subtle)',
-                  letterSpacing: '0.06em',
-                  marginRight: 2,
-                }}
-              >
-                팀원
-              </span>
-              <FilterChip active={memberFilter === 'all'} onClick={() => setMemberFilter('all')}>
-                전체 {records.length}명
-              </FilterChip>
-              {records.map((record) => (
-                <FilterChip
-                  key={record.employee.employee_id}
-                  active={memberFilter === record.employee.employee_id}
-                  onClick={() => setMemberFilter(record.employee.employee_id)}
-                >
-                  {record.employee.name}
-                </FilterChip>
-              ))}
-            </div>
-
-            <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', minHeight: 24 }} />
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <span
-                style={{
-                  fontSize: 'var(--fs-xs)',
-                  fontWeight: 800,
-                  color: 'var(--fg-subtle)',
-                  letterSpacing: '0.06em',
-                  marginRight: 2,
-                }}
-              >
-                상태
-              </span>
-              {statusOptions.map((option) => (
-                <FilterChip
-                  key={option.key}
-                  active={statusFilter === option.key}
-                  onClick={() => setStatusFilter(option.key)}
-                >
-                  {option.label}
-                </FilterChip>
-              ))}
-            </div>
-          </div>
-        )}
 
         {isLoading ? (
           <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>

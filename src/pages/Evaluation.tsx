@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { ChevronDown, ChevronUp, CircleHelp, Clock3, PencilLine, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronUp, CircleHelp, Clock3, PencilLine } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { NumBadge, Pill } from '@/components/brand';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import {
@@ -156,7 +157,6 @@ const Evaluation = () => {
     isPeriodEditable,
     periodEditMessage,
     reloadData,
-    isAchieved,
   } = useEvaluationDataDB(id || '', { evaluationId: overrideEvaluationId });
 
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
@@ -354,6 +354,13 @@ const Evaluation = () => {
   ]);
 
   const groupKeys = useMemo(() => evaluatorGroups.map((group) => group.key), [evaluatorGroups]);
+
+  // 현재 평가자 그룹 — exactScore/flooredScore 는 과업별 점수 선택(draft)을 즉시 반영하므로
+  // 상단 "내 반영 점수 · 달성 여부"를 저장 전에도 라이브로 보여준다.
+  const currentEvaluatorGroup = useMemo(
+    () => evaluatorGroups.find((group) => group.isOwnedByCurrentUser) ?? null,
+    [evaluatorGroups],
+  );
 
   useEffect(() => {
     if (groupKeys.length === 0) {
@@ -572,8 +579,11 @@ const Evaluation = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
             <EvaluateeStatHero
               growthLevel={evaluationData.growthLevel}
-              currentScore={evaluatorGroups.find((group) => group.isOwnedByCurrentUser)?.exactScore ?? null}
-              achieved={isAchieved()}
+              currentScore={currentEvaluatorGroup?.exactScore ?? null}
+              achieved={
+                currentEvaluatorGroup != null &&
+                currentEvaluatorGroup.flooredScore >= evaluationData.growthLevel
+              }
               isFinalized={isEvaluationFinalized}
             />
             <div style={{ display: 'flex', gap: 8 }}>
@@ -615,14 +625,19 @@ const Evaluation = () => {
                     ? '임시저장'
                     : '임시저장'}
               </button>
-              <button
-                className="sd-btn sd-btn-primary sd-btn-sm"
-                onClick={onSaveClick}
-                disabled={isSaving || !canEvaluate}
-                title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
-              >
-                {isSaving ? 'AI 검토 중…' : '평가 저장'}
-              </button>
+              {isSaving ? (
+                // 저장 클릭 후 AI 검토 중 — AI 의견 버튼과 동일한 파랑+shine+이모지 로딩 효과.
+                <AiOpinionButton loading label="AI 검토 중…" />
+              ) : (
+                <button
+                  className="sd-btn sd-btn-primary sd-btn-sm"
+                  onClick={onSaveClick}
+                  disabled={!canEvaluate}
+                  title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
+                >
+                  평가 저장
+                </button>
+              )}
             </div>
           </div>
         }
@@ -723,14 +738,12 @@ const EvaluateeStatHero = ({ growthLevel, currentScore, achieved, isFinalized }:
         />
         <StatTile
           label="내 반영 점수"
-          value={
-            isFinalized && currentScore != null && currentScore > 0 ? formatScore(currentScore) : '–'
-          }
+          value={currentScore != null && currentScore > 0 ? formatScore(currentScore) : '–'}
           valueColor="var(--ok-orange)"
         />
         <StatTile
           label="달성 여부"
-          value={isFinalized ? (achieved ? '달성' : '미달성') : '–'}
+          value={currentScore != null && currentScore > 0 ? (achieved ? '달성' : '미달성') : '–'}
           valueColor={canCelebrate ? 'var(--ok-orange)' : 'var(--fg-muted)'}
         />
       </div>
@@ -1262,20 +1275,16 @@ const TaskDetail = ({
         <div style={{ marginTop: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div className="sd-label-mini">피드백</div>
-            <button
-              type="button"
-              className="sd-btn sd-btn-outline sd-btn-xs"
+            <AiOpinionButton
               onClick={handleGenerateFeedbackDraft}
-              disabled={!group.canEdit || feedbackAiLoading}
+              disabled={!group.canEdit}
+              loading={feedbackAiLoading}
               title={
                 group.canEdit
                   ? '선택한 점수와 과업 정보를 바탕으로 평가자 피드백 의견 초안을 작성합니다.'
                   : '현재 평가를 수정할 수 없습니다.'
               }
-            >
-              <Sparkles size={12} aria-hidden="true" />
-              {feedbackAiLoading ? '생성 중...' : 'AI 의견 초안'}
-            </button>
+            />
           </div>
           <div
             style={{
@@ -1330,7 +1339,6 @@ const TaskDetail = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <Sparkles size={13} aria-hidden="true" />
                 <span style={{ fontWeight: 900 }}>AI 의견</span>
               </div>
               {feedbackAiLoading

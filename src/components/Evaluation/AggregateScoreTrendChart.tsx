@@ -240,7 +240,9 @@ const AggregateScoreTrendChart = ({
       {!hasData ? (
         <div
           style={{
-            height: 240,
+            // 데이터 있을 때(290)와 동일 높이로 고정 — 레벨 선택에 따라 페이지 높이가 변해
+            // 스크롤이 튀고 고정 헤더가 풀리는 것을 막는다.
+            height: 290,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

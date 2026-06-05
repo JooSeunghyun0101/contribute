@@ -247,14 +247,16 @@ const HrHome = () => {
             </button>
           </div>
         }
+        filters={
+          <OrgFilterBar
+            items={records.map((r) => r.employee)}
+            value={orgFilter}
+            onChange={setOrgFilter}
+          />
+        }
       />
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
-        <OrgFilterBar
-          items={records.map((r) => r.employee)}
-          value={orgFilter}
-          onChange={setOrgFilter}
-        />
         {/* Stat cards */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
           {/* Total */}

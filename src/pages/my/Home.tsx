@@ -1,5 +1,6 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import PageHeader from '@/components/Layout/PageHeader';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import MonthlyScoreTrendChart from '@/components/Evaluation/MonthlyScoreTrendChart';
 import { NumBadge } from '@/components/brand';
@@ -209,33 +210,17 @@ const MyHome = () => {
   }
 
   return (
-    <div
-      style={{
-        flex: 1,
-        overflow: 'auto',
-        padding: '28px 32px 40px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-      }}
-    >
-      <CelebrationOverlay trigger={fireworkTrigger} />
-      {/* ── 헤더 ─────────────────────────────────────── */}
-      <div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: 16,
-          }}
-        >
-          <h1 style={{ fontSize: 'var(--fs-h1)', fontWeight: 900, letterSpacing: 0, lineHeight: 1.2 }}>
+    <>
+      <PageHeader
+        title={
+          <>
             {user?.name}{' '}
             <span style={{ fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--fg-muted)' }}>
               {user?.position} · {user?.department}
             </span>
-          </h1>
+          </>
+        }
+        actions={
           <div style={{ display: 'flex', gap: 24, flexShrink: 0, alignItems: 'flex-start' }}>
             <div style={{ textAlign: 'center' }}>
               <div
@@ -323,8 +308,19 @@ const MyHome = () => {
               )}
             </div>
           </div>
-        </div>
-      </div>
+        }
+      />
+      <div
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '24px 32px 40px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
+        }}
+      >
+        <CelebrationOverlay trigger={fireworkTrigger} />
 
       {!evaluationData ? (
         <div className="sd-card" style={{ padding: 24, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
@@ -971,7 +967,8 @@ const MyHome = () => {
           />
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

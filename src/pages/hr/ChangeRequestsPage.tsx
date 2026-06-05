@@ -144,35 +144,35 @@ const ChangeRequestsPage = () => {
             {loading ? '불러오는 중…' : '새로고침'}
           </button>
         }
+        filters={
+          <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {([
+              { id: 'pending', label: `대기 ${pendingCount}` },
+              { id: 'processed', label: '처리됨' },
+              { id: 'all', label: '전체' },
+            ] as Array<{ id: FilterKey; label: string }>).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setFilter(t.id)}
+                style={{
+                  padding: '6px 16px',
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: filter === t.id ? 'var(--ok-orange)' : 'transparent',
+                  color: filter === t.id ? '#fff' : 'var(--fg-muted)',
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       <div style={{ padding: '20px 32px' }}>
-        {/* 필터 */}
-        <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
-          {([
-            { id: 'pending', label: `대기 ${pendingCount}` },
-            { id: 'processed', label: '처리됨' },
-            { id: 'all', label: '전체' },
-          ] as Array<{ id: FilterKey; label: string }>).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setFilter(t.id)}
-              style={{
-                padding: '6px 16px',
-                fontSize: 'var(--fs-sm)',
-                fontWeight: 700,
-                border: 'none',
-                cursor: 'pointer',
-                background: filter === t.id ? 'var(--ok-orange)' : 'transparent',
-                color: filter === t.id ? '#fff' : 'var(--fg-muted)',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
         <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
           {loading ? (
             <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>

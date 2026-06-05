@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plus, RefreshCw, Save, Sparkles, Trash2 } from 'lucide-react';
+import { CheckCircle2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DateRangePicker, isValidDateValue } from '@/components/ui/date-picker';
@@ -951,20 +952,16 @@ const EvaluationAccordionCard = ({
                     <div className="sd-card sd-card-lg">
                       <div className="flex items-center justify-between gap-2">
                         <div className="sd-label-mini">과업 설명</div>
-                        <button
-                          type="button"
-                          className="sd-btn sd-btn-outline sd-btn-xs"
+                        <AiOpinionButton
                           onClick={handleGenerateReportDescription}
-                          disabled={!canEditTasks || reportAiLoading}
+                          disabled={!canEditTasks}
+                          loading={reportAiLoading}
                           title={
                             canEditTasks
                               ? '과업 제목과 현재 입력값을 바탕으로 성과보고 초안을 작성합니다.'
                               : taskEditMessage ?? undefined
                           }
-                        >
-                          <Sparkles size={12} aria-hidden="true" />
-                          {reportAiLoading ? '작성 중...' : 'AI 성과보고'}
-                        </button>
+                        />
                       </div>
                       <div
                         style={{
@@ -1019,7 +1016,6 @@ const EvaluationAccordionCard = ({
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                            <Sparkles size={13} aria-hidden="true" />
                             <span style={{ fontWeight: 900 }}>AI 의견</span>
                           </div>
                           {reportAiLoading

@@ -422,6 +422,21 @@
 .score-3 { background: var(--ok-yellow); color: #fff; }
 .score-4 { background: var(--ok-orange); color: #fff; }
 
+/* AI 의견 버튼 — 로딩 동안 반복되는 shine sweep + 이모지 위로 쓸어올림.
+   tailwind.config 가 아닌 여기(원시 CSS)에 둬, config 재처리 없이도 항상 적용되게 한다. */
+@keyframes ai-shine {
+  0% { transform: translateX(-100%) skewX(-12deg); }
+  55%, 100% { transform: translateX(220%) skewX(-12deg); }
+}
+@keyframes ai-emoji-up {
+  0% { transform: translateY(0); opacity: 1; }
+  35% { transform: translateY(-130%); opacity: 0; }
+  36% { transform: translateY(130%); opacity: 0; }
+  70%, 100% { transform: translateY(0); opacity: 1; }
+}
+.animate-ai-shine { animation: ai-shine 1.3s ease-in-out infinite; }
+.animate-ai-emoji-up { animation: ai-emoji-up 1.3s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

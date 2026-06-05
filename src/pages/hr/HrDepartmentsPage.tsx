@@ -42,6 +42,25 @@ const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
 // 카드 집계 단위 — 본부 > 부 > 팀 중 선택.
 const GROUP_LEVELS: OrgLevel[] = ['division', 'department', 'team'];
 
+// 그룹의 "가장 높은 평가자" 이름.
+// 그룹 내 최상위 직급(성장레벨이 가장 높은) 구성원의 평가자를 뽑는다.
+// 예) 본부 → 부장의 평가자, 부 → 팀장의 평가자, 팀 → 팀원의 평가자.
+// 최상위가 여럿이면 최빈 평가자명으로 결정한다.
+const topEvaluatorName = (members: EmployeeEvaluationRecord[]): string => {
+  if (!members.length) return '';
+  const maxLevel = Math.max(...members.map((m) => m.employee.growth_level ?? 0));
+  const counts = new Map<string, number>();
+  for (const m of members) {
+    if ((m.employee.growth_level ?? 0) !== maxLevel) continue;
+    const name = m.evaluation?.evaluator_name ?? m.employee.evaluator_id ?? '';
+    if (!name) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const entries = [...counts.entries()];
+  if (!entries.length) return '';
+  return entries.sort((a, b) => b[1] - a[1])[0][0];
+};
+
 const HrDepartmentsPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
@@ -186,6 +205,8 @@ const HrDepartmentsPage = () => {
           const levelEntries = Object.entries(department.levelCounts);
           const topLevel = levelEntries.length ? levelEntries.sort((a, b) => b[1] - a[1])[0][0] : 'none';
           const level: OrgLevel | null = topLevel === 'none' ? null : (topLevel as OrgLevel);
+          // 이 그룹의 최상위 직급 구성원의 평가자(가장 높은 평가자).
+          const evaluatorName = topEvaluatorName(recordsByDepartment.get(department.name) ?? []);
 
           return {
             ...department,
@@ -195,6 +216,7 @@ const HrDepartmentsPage = () => {
             averageScore,
             parentPath,
             level,
+            evaluatorName,
           };
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,7 +226,11 @@ const HrDepartmentsPage = () => {
   const visibleDepartments = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const filtered = normalizedQuery
-      ? departments.filter((dept) => dept.name.toLowerCase().includes(normalizedQuery))
+      ? departments.filter(
+          (dept) =>
+            dept.name.toLowerCase().includes(normalizedQuery) ||
+            dept.evaluatorName.toLowerCase().includes(normalizedQuery),
+        )
       : departments;
 
     const sorted = [...filtered].sort((a, b) => {
@@ -259,6 +285,99 @@ const HrDepartmentsPage = () => {
         title="부서별 진행 현황"
         subtitle="본부·부·팀 단위로 완료율, 목표 달성률, 점수 분포를 한 화면에서 확인합니다."
         actions={<Pill tone="orange">{groupLabel} {departments.length}개</Pill>}
+        filters={
+          <>
+            <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 360 }}>
+              <span
+                style={{ position: 'absolute', left: 12, top: 11, color: 'var(--fg-subtle)', pointerEvents: 'none' }}
+              >
+                <IconSearch width={16} height={16} />
+              </span>
+              <input
+                className="sd-input"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={`${groupLabel}·평가자 검색`}
+                style={{ paddingLeft: 36, width: '100%' }}
+              />
+            </div>
+
+            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 700,
+                color: 'var(--fg-muted)',
+              }}
+            >
+              집계 단위
+              <select
+                className="sd-input"
+                value={groupLevel}
+                onChange={(event) => setGroupLevel(event.target.value as OrgLevel)}
+                style={{ minWidth: 90, width: 90 }}
+              >
+                {GROUP_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {ORG_LEVEL_LABELS[level]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => setGroupBySection((v) => !v)}
+              aria-pressed={groupBySection}
+              title="상위 조직별로 카드를 묶어 봅니다. 끄면 전체를 한 번에 정렬합니다."
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
+                background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
+                color: groupBySection ? 'var(--ok-orange)' : 'var(--fg-muted)',
+              }}
+            >
+              상위조직 묶기 {groupBySection ? 'ON' : 'OFF'}
+            </button>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 700,
+                color: 'var(--fg-muted)',
+              }}
+            >
+              정렬
+              <select
+                className="sd-input"
+                value={sortKey}
+                onChange={(event) => setSortKey(event.target.value as SortKey)}
+                style={{ minWidth: 220, width: 220, whiteSpace: 'nowrap' }}
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div style={{ marginLeft: 'auto', fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+              {groupLabel} {visibleDepartments.length}/{departments.length}개
+            </div>
+          </>
+        }
       />
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
@@ -270,123 +389,6 @@ const HrDepartmentsPage = () => {
           </div>
         ) : (
           <>
-            <div
-              className="sd-card"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                flexWrap: 'wrap',
-                padding: '14px 18px',
-              }}
-            >
-              <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 360 }}>
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: 12,
-                    top: 11,
-                    color: 'var(--fg-subtle)',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <IconSearch width={16} height={16} />
-                </span>
-                <input
-                  className="sd-input"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder={`${groupLabel} 검색`}
-                  style={{ paddingLeft: 36, width: '100%' }}
-                />
-              </div>
-
-              <OrgFilterBar
-                items={records.map((r) => r.employee)}
-                value={orgFilter}
-                onChange={setOrgFilter}
-              />
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 'var(--fs-sm)',
-                  fontWeight: 700,
-                  color: 'var(--fg-muted)',
-                }}
-              >
-                집계 단위
-                <select
-                  className="sd-input"
-                  value={groupLevel}
-                  onChange={(event) => setGroupLevel(event.target.value as OrgLevel)}
-                  style={{ minWidth: 90, width: 90 }}
-                >
-                  {GROUP_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {ORG_LEVEL_LABELS[level]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                type="button"
-                onClick={() => setGroupBySection((v) => !v)}
-                aria-pressed={groupBySection}
-                title="상위 조직별로 카드를 묶어 봅니다. 끄면 전체를 한 번에 정렬합니다."
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 8,
-                  fontSize: 'var(--fs-sm)',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
-                  background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
-                  color: groupBySection ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                }}
-              >
-                상위조직 묶기 {groupBySection ? 'ON' : 'OFF'}
-              </button>
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 'var(--fs-sm)',
-                  fontWeight: 700,
-                  color: 'var(--fg-muted)',
-                }}
-              >
-                정렬
-                <select
-                  className="sd-input"
-                  value={sortKey}
-                  onChange={(event) => setSortKey(event.target.value as SortKey)}
-                  style={{ minWidth: 220, width: 220, whiteSpace: 'nowrap' }}
-                >
-                  {SORT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: 'var(--fs-sm)',
-                  color: 'var(--fg-muted)',
-                }}
-              >
-                {groupLabel} {visibleDepartments.length}/{departments.length}개
-              </div>
-            </div>
-
             {sections.map(([parent, depts]) => (
               <section key={parent} className="flex flex-col" style={{ gap: 12 }}>
                 {groupBySection && (
@@ -490,18 +492,49 @@ const HrDepartmentsPage = () => {
                   </Pill>
                 </div>
 
-                <div style={{ marginTop: 16, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                  <span
-                    className="tnum"
-                    style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
-                  >
-                    {department.finalizedMembers}
-                  </span>
-                  <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-h4)' }}>
-                    / {department.totalMembers}
-                  </span>
+                <div
+                  style={{
+                    marginTop: 16,
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span
+                        className="tnum"
+                        style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
+                      >
+                        {department.finalizedMembers}
+                      </span>
+                      <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-h4)' }}>
+                        / {department.totalMembers}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>평가 완료 인원</div>
+                  </div>
+                  {department.evaluatorName && (
+                    <div style={{ textAlign: 'right', minWidth: 0 }}>
+                      <div className="sd-label-mini">평가자</div>
+                      <div
+                        style={{
+                          marginTop: 2,
+                          fontSize: 'var(--fs-h3)',
+                          fontWeight: 900,
+                          color: 'var(--ok-brown)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={department.evaluatorName}
+                      >
+                        {department.evaluatorName}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>평가 완료 인원</div>
 
                 <div className="sd-bar" style={{ marginTop: 12, height: 8 }}>
                   <div className="sd-bar-fill" style={{ width: `${department.completionRate}%` }} />
@@ -516,25 +549,21 @@ const HrDepartmentsPage = () => {
                   }}
                 >
                   {[
-                    {
-                      label: '완료율',
-                      value: `${department.completionRate}%`,
-                      sub: `${department.finalizedMembers}/${department.totalMembers}`,
-                    },
+                    { label: '완료율', value: `${department.completionRate}%` },
                     { label: '목표 달성', value: `${department.achievementRate}%` },
                     { label: '평균 점수', value: department.averageScore },
                   ].map((item) => (
                     <div
                       key={item.label}
-                      style={{ padding: 12, borderRadius: 10, background: 'var(--bg-muted)' }}
+                      style={{ padding: 12, borderRadius: 10, background: 'var(--bg-muted)', textAlign: 'center' }}
                     >
                       <div className="sd-label-mini">{item.label}</div>
-                      <div style={{ marginTop: 4, fontWeight: 800 }}>{item.value}</div>
-                      {item.sub && (
-                        <div style={{ marginTop: 2, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-                          {item.sub}
-                        </div>
-                      )}
+                      <div
+                        className="tnum"
+                        style={{ marginTop: 4, fontWeight: 900, fontSize: 'var(--fs-h3)' }}
+                      >
+                        {item.value}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -760,7 +789,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
         onClick={(e) => e.stopPropagation()}
         className="sd-card sd-card-lg"
         style={{
-          width: 'min(960px, 100%)',
+          width: 'min(1200px, 100%)',
           maxHeight: '85vh',
           display: 'flex',
           flexDirection: 'column',
@@ -815,10 +844,16 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
             <Table>
               <TableHeader style={{ background: 'var(--bg-muted)' }}>
                 <TableRow>
-                  <TableHead>이름</TableHead>
-                  <TableHead>직급</TableHead>
-                  <TableHead>레벨</TableHead>
-                  <TableHead>평가자</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>사번</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>이름</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>직급</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>법인</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>본부</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>부</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>팀</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>직무</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>레벨</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>평가자</TableHead>
                   <TableHead>점수</TableHead>
                   <TableHead>달성</TableHead>
                   <TableHead>상태</TableHead>
@@ -829,24 +864,32 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                   const finalized = isEvaluationFinalized(record);
                   return (
                     <TableRow key={record.employee.id}>
-                      <TableCell>
-                        <div style={{ fontWeight: 800 }}>{record.employee.name}</div>
-                        <div
-                          style={{
-                            marginTop: 2,
-                            fontSize: 'var(--fs-xs)',
-                            color: 'var(--fg-muted)',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          {record.employee.employee_id}
-                        </div>
+                      <TableCell
+                        style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}
+                      >
+                        {record.employee.employee_id}
                       </TableCell>
-                      <TableCell>{record.employee.position}</TableCell>
-                      <TableCell>
+                      <TableCell style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{record.employee.name}</TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>{record.employee.position}</TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {getOrgValue(record.employee, 'corporation') || '-'}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {getOrgValue(record.employee, 'division') || '-'}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {getOrgValue(record.employee, 'department') || '-'}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {getOrgValue(record.employee, 'team') || '-'}
+                      </TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {record.employee.job_role ?? '-'}
+                      </TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>
                         {record.employee.growth_level ? `Lv.${record.employee.growth_level}` : '-'}
                       </TableCell>
-                      <TableCell style={{ color: 'var(--fg-muted)' }}>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                         {record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? '-'}
                       </TableCell>
                       <TableCell className="tnum">

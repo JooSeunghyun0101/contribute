@@ -192,14 +192,8 @@ const EvaluatorFeedbackPage = () => {
       <PageHeader
         title="피드백 내역"
         subtitle={`내가 작성한 피드백 ${totalFeedbacks}건 · 과업별 정리`}
-      />
-
-      <div style={{ padding: '24px 32px 32px' }}>
-        {!isLoading && !error && employeeOptions.length > 0 && (
-          <div
-            className="sd-card"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: 16 }}
-          >
+        filters={
+          !isLoading && !error && employeeOptions.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <span
                 style={{
@@ -228,9 +222,11 @@ const EvaluatorFeedbackPage = () => {
                 </FilterChip>
               ))}
             </div>
-          </div>
-        )}
+          ) : undefined
+        }
+      />
 
+      <div style={{ padding: '24px 32px 32px' }}>
         {isLoading ? (
           <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백 이력을 불러오는 중입니다.</div>
         ) : error ? (

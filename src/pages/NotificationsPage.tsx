@@ -31,19 +31,28 @@ const NotificationsPage = () => {
 
   return (
     <>
-      <PageHeader title="알림" subtitle={`총 ${notifications.length}건 · 읽지 않음 ${unreadCount}건`} />
-
-      <div style={{ padding: '24px 32px 32px' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 18,
-            flexWrap: 'wrap',
-          }}
-        >
+      <PageHeader
+        title="알림"
+        subtitle={`총 ${notifications.length}건 · 읽지 않음 ${unreadCount}건`}
+        actions={
+          <>
+            {unreadCount > 0 && (
+              <button onClick={markAllAsRead} className="sd-btn sd-btn-outline sd-btn-sm">
+                모두 읽음
+              </button>
+            )}
+            {notifications.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                style={{ color: 'var(--danger)' }}
+              >
+                전체 삭제
+              </button>
+            )}
+          </>
+        }
+        filters={
           <div style={{ display: 'flex', gap: 6 }}>
             {filters.map((f) => (
               <button
@@ -65,27 +74,10 @@ const NotificationsPage = () => {
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {unreadCount > 0 && (
-              <button
-                onClick={markAllAsRead}
-                className="sd-btn sd-btn-outline sd-btn-sm"
-              >
-                모두 읽음
-              </button>
-            )}
-            {notifications.length > 0 && (
-              <button
-                onClick={handleClearAll}
-                className="sd-btn sd-btn-outline sd-btn-sm"
-                style={{ color: 'var(--danger)' }}
-              >
-                전체 삭제
-              </button>
-            )}
-          </div>
-        </div>
+        }
+      />
 
+      <div style={{ padding: '24px 32px 32px' }}>
         <div
           className="sd-card"
           style={{
