@@ -37,7 +37,7 @@
 
 ## Phase B — 1차 기능 (인프라 있음·결정 불필요)
 
-- [ ] **F-B1.1** 매칭 정합성 점검 화면(read-only). `HrUsersPage` 매칭 데이터 재사용 → 누락·자기평가·이상 탐지 리스트/요약. ⚠ 피평가자 다중 평가자=발령(정상)이므로 중복으로 플래그 금지([[multi-evaluation-means-transfer]]); 진짜 이상만. 신규 라우트 + 사이드바(설정 그룹) 진입.
+- [x] **F-B1.1** 매칭 정합성 점검 화면(read-only). `HrUsersPage` 매칭 데이터 재사용 → 누락·자기평가·이상 탐지 리스트/요약. ⚠ 피평가자 다중 평가자=발령(정상)이므로 중복으로 플래그 금지([[multi-evaluation-means-transfer]]); 진짜 이상만. 신규 라우트 + 사이드바(설정 그룹) 진입.
 - [!] **F-B1.2** 드래그형 배정 보드(read-write). 배정 변경=매칭 데이터 쓰기 + 기존 HrUsersPage 엑셀 매칭 흐름과 중첩 → 스코프·UX 확정 필요. → **사용자 확인.**
 - [ ] **F-B2** AI 검수 모니터링 (#3, §3). `HrPromptsPage`/품질 화면에 평가의견 AI 플래그 목록(짧음·비구체·불일치)→반려. `feedbackApiService` 재사용. *처음 열 때 서브스텝 분해.*
 
@@ -75,3 +75,4 @@
   - 후속(비차단): server.js의 resetEmployees/resetMatching 엔드포인트는 여전히 열려 있음 → 운영 안전 강화 원하면 서버측 권한/플래그 가드 별도 추가 검토.
 - 2026-06-09 A-3: HrSettingsPage를 shadcn Tabs 4탭(일반·알림·권한역할·고급/시스템)으로 분해. 활성 평가기간 요약 중복 제거→/hr/periods 링크 카드, 위험영역은 고급 탭으로 이동하며 DANGER_ZONE_ENABLED 가드 유지. dead code 정리. typecheck+build 통과, 리뷰 pass(info 3). 설계+비평 단계가 IA 리스크(일반·권한 탭 콘텐츠 옅음) 명시 — 추후 전사 공통값/역할 UI 채워지면 해소.
 - 2026-06-09 **Phase A(기반) 완료.** F-B1을 F-B1.1(read-only 정합성)·F-B1.2(read-write 드래그 배정=신규 게이트)로 분해. F-B1.1 착수.
+- 2026-06-09 F-B1.1: 신규 `HrMatchingPage`(/hr/matching, 설정 그룹) 매칭 정합성 점검 화면(read-only). 규칙 5종(미배정·평가레코드없음·자기평가후보=anomaly / 발령가능·평가자신원미확인=neutral-info). 중복 카테고리 자체 없음(발령=정상 규칙 준수). 비평이 데이터모델 정정: evaluation LIMIT 1·evaluator_id 파생값·발령이력 lazy(요청폭주 방지). typecheck+build 통과, 리뷰 pass(read-only/발령규칙/중립톤 모두 OK). → **다음은 F-B1.2 게이트: 루프 정지, 사용자 확인 대기.**

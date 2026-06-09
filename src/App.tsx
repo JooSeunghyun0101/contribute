@@ -34,6 +34,7 @@ import HrPeriodsPage from "./pages/hr/HrPeriodsPage";
 import HrDepartmentsPage from "./pages/hr/HrDepartmentsPage";
 import HrMatrixPage from "./pages/hr/HrMatrixPage";
 import HrUsersPage from "./pages/hr/HrUsersPage";
+import HrMatchingPage from "./pages/hr/HrMatchingPage";
 import HrSettingsPage from "./pages/hr/HrSettingsPage";
 import HrPromptsPage from "./pages/hr/HrPromptsPage";
 import HrChangeRequestsPage from "./pages/hr/ChangeRequestsPage";
@@ -229,6 +230,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrUsersPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/matching"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrMatchingPage />
                     </ProtectedRoute>
                   }
                 />

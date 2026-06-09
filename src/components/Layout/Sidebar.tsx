@@ -53,6 +53,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
     { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },
+    { to: '/hr/matching', label: '매칭 정합성 점검', icon: IconCheck, group: '설정' },
     { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정' },
   ],
 };
