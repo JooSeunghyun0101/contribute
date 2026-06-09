@@ -9,7 +9,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { evaluationService, taskEvaluationEntryService } from '@/lib/services';
 import { feedbackValidation } from '@/utils/validation';
@@ -121,8 +133,12 @@ const gapBadgeStyle = (bucket: ScoreGapBucket): React.CSSProperties => {
 
 export const AiReviewMonitoring = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const { selectedPeriod, selectedPeriodId, periods, isLoading: periodLoading } =
     useEvaluationPeriod();
+
+  // HR 전용 surface지만 액션 게이트는 명시적으로 확인한다.
+  const isHr = user?.role === 'hr';
 
   const [rows, setRows] = useState<OpinionRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -349,6 +365,65 @@ export const AiReviewMonitoring = () => {
     }
   }, [visibleRows, selected, toast]);
 
+  // ── HR 재검토 요청 (기존 return-request 메커니즘 재사용, 명시 액션 + 확인 단계) ──
+  // 자동 발송 없음: 행 버튼은 다이얼로그만 연다. 확인(AlertDialogAction) 시에만 1건 발송.
+  // 평가 점수·상태를 변경하지 않는다 — return-request는 알림만 발송(서버 status 무변경).
+  const [reviewRequestRow, setReviewRequestRow] = useState<OpinionRow | null>(null);
+  const [reviewRequestComment, setReviewRequestComment] = useState('');
+  const [reviewRequestSending, setReviewRequestSending] = useState(false);
+  // 발송 완료 표시(메모리 전용): 새로고침·평가기간 변경 시 소멸. 컴포넌트의 무영속 정책과 일치.
+  const [requestedKeys, setRequestedKeys] = useState<Set<string>>(new Set());
+
+  const openReviewRequest = (row: OpinionRow) => {
+    setReviewRequestRow(row);
+    setReviewRequestComment('');
+  };
+  const closeReviewRequest = () => {
+    if (reviewRequestSending) return;
+    setReviewRequestRow(null);
+    setReviewRequestComment('');
+  };
+
+  const sendReviewRequest = useCallback(async () => {
+    const row = reviewRequestRow;
+    const comment = reviewRequestComment.trim();
+    if (!row || !comment) return;
+    if (!user?.employeeId) {
+      toast({
+        title: '요청 보낼 수 없음',
+        description: '로그인 정보를 확인할 수 없습니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setReviewRequestSending(true);
+    try {
+      const result = await evaluationService.requestReturn(row.evaluationId, {
+        requestedBy: user.employeeId,
+        reason: comment,
+        origin: 'hr',
+      });
+      // 평가 단위로 표시(같은 평가의 여러 플래그 항목을 함께 '요청 보냄' 처리·재발송 차단)
+      setRequestedKeys((prev) => new Set(prev).add(row.evaluationId));
+      toast({
+        title: '재검토 요청을 보냈습니다.',
+        description: result.recipient_id
+          ? '해당 평가의 담당 평가자에게 알림이 전달되었습니다.'
+          : '담당 평가자에게 알림이 전달되었습니다.',
+      });
+      setReviewRequestRow(null);
+      setReviewRequestComment('');
+    } catch (err) {
+      toast({
+        title: '재검토 요청 실패',
+        description: err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    } finally {
+      setReviewRequestSending(false);
+    }
+  }, [reviewRequestRow, reviewRequestComment, user?.employeeId, toast]);
+
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -565,7 +640,7 @@ export const AiReviewMonitoring = () => {
               <th style={{ ...headStyle, width: 110 }}>점수·갭</th>
               <th style={{ ...headStyle, width: 120 }}>휴리스틱</th>
               <th style={{ ...headStyle, width: 160 }}>AI 검수</th>
-              <th style={{ ...headStyle, width: 90 }}>액션</th>
+              <th style={{ ...headStyle, width: 150 }}>액션</th>
             </tr>
           </thead>
           <tbody>
@@ -653,14 +728,31 @@ export const AiReviewMonitoring = () => {
                     <td style={cellStyle}>{renderHeuristicBadges(row)}</td>
                     <td style={cellStyle}>{renderAiBadges(row)}</td>
                     <td style={cellStyle}>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => reviewRow(row)}
-                        disabled={state === 'loading'}
-                      >
-                        {state === 'loading' ? '검수 중' : '검수'}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => reviewRow(row)}
+                          disabled={state === 'loading'}
+                        >
+                          {state === 'loading' ? '검수 중' : '검수'}
+                        </Button>
+                        {isHr && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openReviewRequest(row)}
+                            disabled={requestedKeys.has(row.evaluationId)}
+                            title={
+                              requestedKeys.has(row.evaluationId)
+                                ? '이 평가에는 이미 재검토 요청을 보냈습니다.'
+                                : '담당 평가자에게 재검토를 요청합니다.'
+                            }
+                          >
+                            {requestedKeys.has(row.evaluationId) ? '요청 보냄' : '재검토 요청'}
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -672,8 +764,87 @@ export const AiReviewMonitoring = () => {
       <p style={{ color: 'var(--fg-muted)', fontSize: 12 }}>
         읽기 전용 모니터링입니다. 검수 결과는 화면에만 표시되며 저장·통지되지 않습니다.
         AI 검수(비구체·정서 불일치)는 행 ‘검수’ 또는 ‘선택 AI 검수’ 버튼을 눌렀을 때만 호출됩니다.
+        {isHr ? ' ‘재검토 요청’은 담당 평가자에게 알림만 보내며 평가 점수·상태를 변경하지 않습니다.' : ''}
         {selectedPeriod ? ` 평가기간: ${selectedPeriod.name}.` : ''}
       </p>
+
+      {/* HR 재검토 요청 — 명시 액션 + 확인 단계. 확인 시에만 1건 발송, 자동발송 없음. */}
+      <AlertDialog
+        open={reviewRequestRow !== null}
+        onOpenChange={(open) => {
+          if (!open) closeReviewRequest();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>HR 재검토 요청</AlertDialogTitle>
+            <AlertDialogDescription>
+              담당 평가자에게 평가의견 재검토를 요청하는 알림을 보냅니다. 평가 점수·내용·상태는
+              변경되지 않습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {reviewRequestRow && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* 수신자 안내 — 표시된 평가자명이 아닌 '발송 시점의 담당 평가자'에게 전달됨을 명시 */}
+              <div
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: 12,
+                  fontSize: 13,
+                }}
+              >
+                <div>
+                  수신: <strong>해당 평가의 현재 담당 평가자</strong>
+                </div>
+                <div style={{ color: 'var(--fg-muted)', fontSize: 12, marginTop: 4 }}>
+                  발송 시점에 배정된 담당 평가자에게 전달됩니다. 평가자가 변경(발령)된 경우 현재
+                  담당 평가자가 알림을 받습니다. (화면 표시 기준: {reviewRequestRow.evaluatorName})
+                </div>
+                <div style={{ color: 'var(--fg-muted)', fontSize: 12, marginTop: 6 }}>
+                  대상 평가의견:{' '}
+                  <span style={{ color: 'var(--fg)' }}>
+                    “
+                    {reviewRequestRow.feedback.length > 80
+                      ? `${reviewRequestRow.feedback.slice(0, 80)}…`
+                      : reviewRequestRow.feedback}
+                    ”
+                  </span>
+                </div>
+              </div>
+
+              <label
+                style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}
+              >
+                <span style={{ fontWeight: 600 }}>재검토 코멘트 (필수)</span>
+                <Textarea
+                  value={reviewRequestComment}
+                  onChange={(e) => setReviewRequestComment(e.target.value)}
+                  placeholder="어떤 점을 재검토하면 좋을지 평가자에게 전달할 내용을 적어 주세요."
+                  rows={4}
+                  disabled={reviewRequestSending}
+                />
+              </label>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reviewRequestSending}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                // 확인 단계에서만 발송. 빈 코멘트/발송 중에는 다이얼로그를 닫지 않는다.
+                e.preventDefault();
+                void sendReviewRequest();
+              }}
+              disabled={reviewRequestSending || reviewRequestComment.trim().length === 0}
+            >
+              {reviewRequestSending ? '보내는 중…' : '재검토 요청 보내기'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

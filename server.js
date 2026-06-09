@@ -6206,6 +6206,10 @@ app.post('/api/evaluation/:id/return-request', async (req, res) => {
   const evaluationId = req.params.id;
   const requestedBy = normalizeOptionalText(req.body?.requestedBy ?? req.body?.requested_by);
   const reason = normalizeOptionalText(req.body?.reason);
+  // origin: 발신 출처. 미지정(피평가자) 시 기존 문구 유지, 'hr' 시 HR 재검토 요청 문구로만 분기.
+  // 수신자 해석·status 무변경·notification_type·priority는 출처와 무관하게 동일.
+  const origin = normalizeOptionalText(req.body?.origin);
+  const isHrOrigin = origin === 'hr';
   if (!requestedBy) {
     return res.status(400).json({ error: 'requestedBy is required' });
   }
@@ -6233,13 +6237,19 @@ app.post('/api/evaluation/:id/return-request', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Evaluation has no assigned evaluator' });
     }
-    const requesterName = await resolveEmployeeName(client, requestedBy, '피평가자');
+    const requesterName = await resolveEmployeeName(
+      client,
+      requestedBy,
+      isHrOrigin ? 'HR' : '피평가자',
+    );
+    const title = isHrOrigin ? 'HR 재검토 요청' : '피평가자가 수정을 요청했습니다';
+    const baseMessage = isHrOrigin
+      ? `${requesterName}님이 평가의견 재검토를 요청했습니다.`
+      : `${requesterName}님이 과업 수정을 요청했습니다.`;
     await insertNotificationRow(client, {
       notificationType: 'evaluation_return_requested',
-      title: '피평가자가 수정을 요청했습니다',
-      message: reason
-        ? `${requesterName}님이 과업 수정을 요청했습니다. 사유: ${reason}`
-        : `${requesterName}님이 과업 수정을 요청했습니다.`,
+      title,
+      message: reason ? `${baseMessage} 사유: ${reason}` : baseMessage,
       priority: 'high',
       senderId: requestedBy,
       senderName: requesterName,

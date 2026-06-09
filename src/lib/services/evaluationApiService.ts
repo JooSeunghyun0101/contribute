@@ -125,14 +125,22 @@ export const evaluationService = {
     }
   },
 
-  // 피평가자가 평가자에게 수정 요청 (알림만 발송, evaluation_status 변경 없음)
-  async requestReturn(evaluationId: string, payload: { requestedBy: string; reason?: string }): Promise<void> {
+  // 평가자에게 재검토/수정 요청 (알림만 발송, evaluation_status 변경 없음)
+  // origin 미지정 시 피평가자 발신 문구, origin='hr' 시 HR 재검토 요청 문구로 분기.
+  // 수신자(담당 평가자)·상태 무변경·알림 타입·우선순위는 동일하게 서버에서 결정.
+  async requestReturn(
+    evaluationId: string,
+    payload: { requestedBy: string; reason?: string; origin?: 'hr' },
+  ): Promise<{ recipient_id: string }> {
     try {
-      await apiFetch<void>(`/api/evaluation/${evaluationId}/return-request`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return await apiFetch<{ recipient_id: string }>(
+        `/api/evaluation/${evaluationId}/return-request`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }
