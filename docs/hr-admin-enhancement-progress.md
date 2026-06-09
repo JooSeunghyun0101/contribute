@@ -32,7 +32,7 @@
 ## Phase A — 기반(IA·정리, 결정 불필요·저위험)
 
 - [x] **A-1** 사이드바 HR 메뉴 5그룹화 (§1). `Sidebar.tsx`의 평면 `menus.hr`를 그룹 헤더 지원 구조로 — 현황·분석 / 운영 / 품질 / 결과 / 설정. 기존 라우트는 유지, 그룹 라벨만 추가.
-- [ ] **A-2** 위험영역 env 격리 (§1). `HrSettingsPage.tsx`의 DB 일괄삭제 버튼을 `VITE_ENABLE_DANGER_ZONE` 플래그로 가드 → 기본 숨김.
+- [x] **A-2** 위험영역 env 격리 (§1). `HrSettingsPage.tsx`의 DB 일괄삭제 버튼을 `VITE_ENABLE_DANGER_ZONE` 플래그로 가드 → 기본 숨김. ⚠ 클라 숨김만 — server.js reset 엔드포인트 서버측 가드는 후속(아래 로그).
 - [ ] **A-3** 시스템 설정 탭 분해 (§1). `HrSettingsPage.tsx`를 상단 탭(일반·알림·권한역할·고급/시스템)으로. "활성 평가기간 요약" 중복 삭제→링크 한 줄.
 
 ## Phase B — 1차 기능 (인프라 있음·결정 불필요)
@@ -70,3 +70,5 @@
 - 2026-06-09 트래커 생성.
 - 2026-06-09 P0-1: `feat/hr-admin-enhancement` 브랜치 생성. 설계 문서 2건 커밋.
 - 2026-06-09 A-1: 사이드바 HR 메뉴 5그룹화(현황·분석/운영/품질/설정, 결과는 빈 그룹 미렌더). MenuItem.group 추가·Fragment 래핑. typecheck+build 통과, 적대적 리뷰 pass(이슈 0).
+- 2026-06-09 A-2: 위험영역(DB 일괄삭제) `DANGER_ZONE_ENABLED = import.meta.env.VITE_ENABLE_DANGER_ZONE === 'true'` 가드, 기본 숨김. `.env.example`에 플래그 추가. typecheck+build 통과, 리뷰 pass.
+  - 후속(비차단): server.js의 resetEmployees/resetMatching 엔드포인트는 여전히 열려 있음 → 운영 안전 강화 원하면 서버측 권한/플래그 가드 별도 추가 검토.

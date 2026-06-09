@@ -28,6 +28,10 @@ const PERIOD_STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: stri
 const formatDate = (value: string | null | undefined) =>
   value ? value.slice(0, 10).replace(/-/g, '.') : '-';
 
+// 위험 영역(DB 일괄삭제)은 명시적으로 켰을 때만 노출한다.
+// VITE_* 는 항상 string | undefined 이므로 정확히 'true' 일 때만 활성화.
+const DANGER_ZONE_ENABLED = import.meta.env.VITE_ENABLE_DANGER_ZONE === 'true';
+
 const HrSettingsPage = () => {
   const navigate = useNavigate();
   const { reload } = useAllEmployees();
@@ -262,7 +266,8 @@ const HrSettingsPage = () => {
           </div>
         </section>
 
-        {/* 위험 영역 — DB 일괄 삭제 */}
+        {/* 위험 영역 — DB 일괄 삭제 (VITE_ENABLE_DANGER_ZONE=true 일 때만 노출) */}
+        {DANGER_ZONE_ENABLED && (
         <section
           className="sd-card sd-card-lg"
           style={{ border: '1.5px solid rgba(220,69,69,0.45)', background: 'rgba(220,69,69,0.04)' }}
@@ -349,6 +354,7 @@ const HrSettingsPage = () => {
             </div>
           </div>
         </section>
+        )}
       </div>
     </>
   );
