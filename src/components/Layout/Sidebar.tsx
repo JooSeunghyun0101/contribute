@@ -49,7 +49,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
-    { to: '/hr/prompts', label: 'AI 프롬프트', icon: IconMsg, group: '품질' },
+    { to: '/hr/prompts', label: 'AI 품질·검수', icon: IconMsg, group: '품질' },
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
     { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },

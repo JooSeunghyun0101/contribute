@@ -39,7 +39,7 @@
 
 - [x] **F-B1.1** 매칭 정합성 점검 화면(read-only). `HrUsersPage` 매칭 데이터 재사용 → 누락·자기평가·이상 탐지 리스트/요약. ⚠ 피평가자 다중 평가자=발령(정상)이므로 중복으로 플래그 금지([[multi-evaluation-means-transfer]]); 진짜 이상만. 신규 라우트 + 사이드바(설정 그룹) 진입.
 - [보류] **F-B1.2** 드래그형 배정 보드(read-write). **사용자 결정(2026-06-09): 보류** — 추후 별도 설계(↓ 보류 섹션).
-- [ ] **F-B2.1** AI 검수 모니터링(read-only). `HrPromptsPage`/품질 영역에 평가의견 AI 플래그 목록(짧음·비구체·점수불일치)·분석. `feedbackApiService`·OpenAI 재사용. AI 호출 비용/배치/캐싱 고려.
+- [x] **F-B2.1** AI 검수 모니터링(read-only). `HrPromptsPage`/품질 영역에 평가의견 AI 플래그 목록(짧음·비구체·점수불일치)·분석. `feedbackApiService`·OpenAI 재사용. AI 호출 비용/배치/캐싱 고려.
 - [보류] **F-B2.2** 반려 액션(write=평가자 통지). 알림 채널(D-1) 의존 → **D-1 이후 진행**(↓ 보류 섹션).
 
 ## ⛔ 결정 게이트 1 — 알림 채널
@@ -83,3 +83,6 @@
 - 2026-06-09 **Phase A(기반) 완료.** F-B1을 F-B1.1(read-only 정합성)·F-B1.2(read-write 드래그 배정=신규 게이트)로 분해. F-B1.1 착수.
 - 2026-06-09 F-B1.1: 신규 `HrMatchingPage`(/hr/matching, 설정 그룹) 매칭 정합성 점검 화면(read-only). 규칙 5종(미배정·평가레코드없음·자기평가후보=anomaly / 발령가능·평가자신원미확인=neutral-info). 중복 카테고리 자체 없음(발령=정상 규칙 준수). 비평이 데이터모델 정정: evaluation LIMIT 1·evaluator_id 파생값·발령이력 lazy(요청폭주 방지). typecheck+build 통과, 리뷰 pass(read-only/발령규칙/중립톤 모두 OK). → **다음은 F-B1.2 게이트: 루프 정지, 사용자 확인 대기.**
 - 2026-06-09 F-B1.2 게이트: **사용자 결정=보류**. F-B2를 F-B2.1(read-only AI 검수 모니터링)·F-B2.2(반려 통지=write, D-1 의존→보류)로 분해. F-B2.1 착수.
+- 2026-06-09 F-B2.1: `HrPromptsPage`를 Tabs로 [AI 검수 모니터링][프롬프트 관리]. 신규 `AiReviewMonitoring`(read-only). 짧음/무의미=클라 휴리스틱 즉시, 비구체/점수-의견 정서불일치=온디맨드 AI(배치≤20·동시성3·캐싱). 자체 GPT-OSS 재사용(신규 엔드포인트 0), 신규 프롬프트 키 1개·reviewSentimentGap·detectGenericFeedback export 추가. 사이드바 라벨 'AI 품질·검수'. typecheck+build 통과, 리뷰 pass(read-only/비용통제/갭인지 OK; styleConsistent=인라인 style이나 HEX 위반 아님·코드베이스 idiom 일치).
+  - 알려진 경미 follow-up: 필터 변경 시 selected Set 미정리로 숨겨진 선택 행이 배치에서 조용히 누락(카운트-처리 불일치, UX 수준).
+- 2026-06-09 **Phase B 1차 read-only 완료(F-B1.1·F-B2.1).** 다음=D-1 알림 채널 게이트: 루프 정지, 사용자 확인 대기.

@@ -36,6 +36,7 @@ const PROMPT_USAGE: Record<string, { screen: string; route?: string }[]> = {
   feedback_generic_review: [{ screen: '평가 저장 · 피드백 일반성 검수', route: '/evaluation/:id' }],
   feedback_similarity_review: [{ screen: '평가 저장 · 피드백 유사도 검수', route: '/evaluation/:id' }],
   evaluation_feedback_review: [{ screen: '평가 저장 · 변경 피드백 일괄 검수', route: '/evaluation/:id' }],
+  feedback_sentiment_gap_review: [{ screen: 'AI 검수 모니터링 · 점수-의견 정서 정합성 검수', route: '/hr/prompts' }],
   ai_connection_test: [{ screen: '시스템 · AI 연결 테스트' }],
   evaluator_qna_assistant: [{ screen: '평가자 AI 도움말', route: '/team/ai' }],
   growth_suggestion: [{ screen: '피평가자 대시보드 · AI 성장 제안', route: '/my' }],

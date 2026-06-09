@@ -68,6 +68,23 @@ const DEFAULT_PROMPTS: PromptTemplate[] = [
 문제가 없으면 [] 만 답하세요.`,
   },
   {
+    key: 'feedback_sentiment_gap_review',
+    description: 'HR 검수: 점수-성장레벨 갭과 의견 논조의 정합성 판단 (read-only 모니터링용)',
+    content: `당신은 성과평가 의견을 검수하는 HR 분석 도우미입니다.
+절대평가 체계에서 점수는 본인 성장레벨 대비 기대수준 달성도를 뜻하며, 갭버킷이 그 의미를 요약합니다.
+- 탁월 기여(exceed): 기대수준을 명확히 초과
+- 기준 충족(meet): 기대수준을 안정적으로 충족
+- 보완 필요(near): 기대수준에 근접하나 일부 보완 필요
+- 미달성(below): 기대수준에 미치지 못함
+주어진 갭버킷의 의미와 평가의견(피드백) 논조가 서로 정합한지 판단하세요.
+- 갭버킷은 칭찬인데 의견은 강한 질책이거나, 갭버킷은 미달성인데 의견이 무조건적 칭찬이면 불일치입니다.
+- 점수 자체의 적정성이나 의견의 길이·구체성은 판단하지 마세요. 오직 '갭버킷 의미 ↔ 의견 논조'의 방향 일치만 봅니다.
+- 단정적 표현은 피하고, 검토가 필요한 정황을 중립적으로 기술하세요.
+판정 결과만 다음 형식으로 답하세요.
+- 정합: "MATCH: 점수 맥락과 의견 논조가 어울립니다"
+- 불일치: "MISMATCH: [어떤 방향으로 어긋나는지 한 문장]"`,
+  },
+  {
     key: 'ai_connection_test',
     description: 'AI 연결 상태 테스트',
     content: 'AI 연결 상태를 확인하기 위한 짧은 응답을 한국어로 작성하세요.',
@@ -700,6 +717,63 @@ ${JSON.stringify(existingFeedbacks.slice(0, 12), null, 2)}
   }
 }
 
+// ---- HR 검수 모니터링 전용: 점수-성장레벨 갭 ↔ 의견 논조 정합성 (read-only, 온디맨드) ----
+// AiReviewMonitoring 컴포넌트에서 행 단위/배치 온디맨드로만 호출한다. DB 쓰기 없음.
+export type SentimentGapInput = {
+  feedback: string;
+  // 갭버킷 라벨/설명 (evaluationMatrix.SCORE_GAP_EXPECTATIONS[bucket] 에서 주입)
+  bucketLabel: string;
+  bucketDetail: string;
+  score: number;
+  growthLevel: number;
+};
+
+export async function reviewSentimentGap(
+  input: SentimentGapInput,
+): Promise<{ isMismatch: boolean; summary: string; skipped: boolean }> {
+  const feedback = input.feedback.trim();
+  if (!feedback) {
+    return { isMismatch: false, summary: '의견이 비어 있어 검수를 건너뜁니다.', skipped: true };
+  }
+
+  try {
+    const template = await fetchPrompt('feedback_sentiment_gap_review');
+    const prompt = `${template}
+
+[점수 맥락]
+- 성장레벨: ${input.growthLevel}
+- 부여 점수: ${input.score}
+- 갭버킷: ${input.bucketLabel} (${input.bucketDetail})
+
+[검수할 평가의견]
+"${feedback}"
+
+위 형식(MATCH 또는 MISMATCH)으로만 답하세요. 다른 설명 문장은 쓰지 마세요.`;
+
+    const result = await callGptOss(prompt, { timeoutMs: 15000 });
+    const trimmed = result.trim();
+    if (/^MISMATCH:/i.test(trimmed)) {
+      return {
+        isMismatch: true,
+        summary: trimmed.replace(/^MISMATCH:/i, '').trim() || '점수 맥락과 의견 논조가 어긋나 보입니다.',
+        skipped: false,
+      };
+    }
+    if (/^MATCH:/i.test(trimmed)) {
+      return {
+        isMismatch: false,
+        summary: trimmed.replace(/^MATCH:/i, '').trim() || '점수 맥락과 의견 논조가 어울립니다.',
+        skipped: false,
+      };
+    }
+    // 형식 외 응답은 보류(미스매치로 단정하지 않음)
+    return { isMismatch: false, summary: '정합성 판단 결과를 해석하지 못했습니다.', skipped: true };
+  } catch (error) {
+    console.warn('AI 정서-갭 검수 실패:', error);
+    return { isMismatch: false, summary: '검수 중 오류가 발생했습니다.', skipped: true };
+  }
+}
+
 /* ---------- 기존 Gemini 파일에 포함된 유틸리티 함수들 (detectMeaninglessContent, detectGenericFeedback, checkSimilarFeedback 등) ----------
    이 부분은 그대로 복사해도 무방합니다. 아래는 원본과 동일하게 유지됩니다. ---------- */
 
@@ -765,7 +839,7 @@ function detectMeaninglessContent(feedback: string): { isValid: boolean; reason?
   return { isValid: true };
 }
 
-async function detectGenericFeedback(feedback: string): Promise<{ isGeneric: boolean; reason?: string }> {
+export async function detectGenericFeedback(feedback: string): Promise<{ isGeneric: boolean; reason?: string }> {
   const text = feedback.trim();
 
   // 1. 기본적인 일반적 표현 패턴 검사
