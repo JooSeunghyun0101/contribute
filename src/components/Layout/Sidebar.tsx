@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { Fragment } from 'react';
 import type { ComponentType, SVGProps } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
@@ -24,6 +25,7 @@ type MenuItem = {
   label: string;
   icon: IconComp;
   end?: boolean;
+  group?: string;
 };
 
 const menus: Record<UserRole, MenuItem[]> = {
@@ -44,14 +46,14 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/team/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   hr: [
-    { to: '/hr', label: '전사 현황', icon: IconHome, end: true },
-    { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar },
-    { to: '/hr/departments', label: '부서별 진행', icon: IconChart },
-    { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid },
-    { to: '/hr/users', label: '사용자 관리', icon: IconUsers },
-    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck },
-    { to: '/hr/prompts', label: 'AI 프롬프트', icon: IconMsg },
-    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings },
+    { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
+    { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
+    { to: '/hr/prompts', label: 'AI 프롬프트', icon: IconMsg, group: '품질' },
+    { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
+    { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
+    { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },
+    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정' },
   ],
 };
 
@@ -60,6 +62,8 @@ export const Sidebar = () => {
   if (!user) return null;
 
   const list = menus[user.role] ?? menus.evaluatee;
+  const hasGroups = list.some((item) => item.group);
+  let prevGroup: string | undefined;
 
   return (
     <aside
@@ -74,54 +78,60 @@ export const Sidebar = () => {
         gap: 2,
       }}
     >
-      <div className="sd-label-mini" style={{ padding: '6px 10px 10px' }}>
-        MENU
-      </div>
+      {!hasGroups && (
+        <div className="sd-label-mini" style={{ padding: '6px 10px 10px' }}>
+          MENU
+        </div>
+      )}
 
       {list.map((item) => {
         const Icon = item.icon;
+        const showHeader = item.group !== undefined && item.group !== prevGroup;
+        prevGroup = item.group;
         return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className="sd-sidebar-link"
-          >
-            {({ isActive }) => (
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 11,
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  fontSize: 'var(--fs-body)',
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? 'var(--ok-orange)' : 'var(--fg)',
-                  background: isActive ? 'var(--ok-orange-50)' : 'transparent',
-                  textAlign: 'left',
-                  position: 'relative',
-                  transition: 'background-color 160ms, color 160ms',
-                }}
-              >
-                {isActive && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 6,
-                      bottom: 6,
-                      width: 3,
-                      background: 'var(--ok-orange)',
-                      borderRadius: 2,
-                    }}
-                  />
-                )}
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </span>
+          <Fragment key={item.to}>
+            {showHeader && (
+              <div className="sd-label-mini" style={{ padding: '12px 10px 6px' }}>
+                {item.group}
+              </div>
             )}
-          </NavLink>
+            <NavLink to={item.to} end={item.end} className="sd-sidebar-link">
+              {({ isActive }) => (
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 11,
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    fontSize: 'var(--fs-body)',
+                    fontWeight: isActive ? 700 : 500,
+                    color: isActive ? 'var(--ok-orange)' : 'var(--fg)',
+                    background: isActive ? 'var(--ok-orange-50)' : 'transparent',
+                    textAlign: 'left',
+                    position: 'relative',
+                    transition: 'background-color 160ms, color 160ms',
+                  }}
+                >
+                  {isActive && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 6,
+                        bottom: 6,
+                        width: 3,
+                        background: 'var(--ok-orange)',
+                        borderRadius: 2,
+                      }}
+                    />
+                  )}
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                </span>
+              )}
+            </NavLink>
+          </Fragment>
         );
       })}
 
