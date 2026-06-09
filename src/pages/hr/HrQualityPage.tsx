@@ -3,7 +3,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { EvaluationPeriodSelector } from '@/components/Layout/EvaluationPeriodSelector';
 import { IconSearch, Pill, type PillTone } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
+import { useCompanyDashboardRecords, usePriorYearRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -36,7 +36,26 @@ import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 //   발령(다중 평가자) 피평가자는 "현재 평가자" 갭만 집계된다 — 이상이 아니다.
 //   상단 caveat 로 명시하고 절대 이상 플래그하지 않는다(메모리: 다중 평가자=정상).
 //
-// [종단 미포함] 전보 코호트·전년 드리프트·잔차·관대도 사분면은 F-C2b 로 분리.
+// [종단 보조 패널 — F-C2b] 화면 하단(변별력 ↔ 무결성 사이)에 종단 4신호를 보조로 덧붙인다.
+//   전보 코호트·전년 드리프트·코호트-잔차·기질 vs 급변. 모두 §2.1 원칙을 그대로 따른다:
+//   판정 아님('~정황/참고' 톤)·인원 병기·소표본 회색·중립색·종착은 기존 requestReturn 단일.
+//
+//   [무폭주 — 정확한 정의] 2025·2026 두 기간을 각각 '한 번의 회사 단위 배치'로만 로드한다.
+//     - 2026(또는 선택 기간): useCompanyDashboardRecords() 1훅
+//     - 2025(직전연도): usePriorYearRecords(priorEmployees, priorPeriodId) 1훅
+//     ⚠ 각 훅 내부의 loadEmployeeEvaluationRecords 는 직원당 getEvaluationByEmployeeId 를 1회씩
+//       동시성 6 배치(mapWithConcurrency)로 호출한다. 즉 '1인씩 순차 폭주'가 아니라
+//       '양 기간 각 1배치'다(커밋 8fc884c 준수). 종단은 횡단(F-C2a)이 이미 지불하는 비용에
+//       prior-year 배치 1패스만 더한다. getEvaluatorAssignmentHistory 등 1인씩 조회는 0건.
+//     코호트 식별·전환 판정·잔차·드리프트는 모두 이미 로드된 records/priorRecords 의
+//       메모리 내 join + useMemo 파생으로 완결한다. 추가 lazy 조회 없음.
+//
+//   [P3 — by-employee LIMIT 1 한계] 서버 by-employee 엔드포인트는 기간당 evaluation 을
+//     '현재/최신 평가자' 우선 ORDER BY + LIMIT 1 로 단 1건만 반환한다(server.js). 따라서
+//     한 기간 안에서 평가자가 A→B 로 바뀐(기내 전보) 피평가자는 그 기간 record 가
+//     '대표 평가자 1인'으로만 잡힌다. 전보 코호트의 '2025 평가자'가 gap2025 를 실제로
+//     형성한 평가자와 다를 수 있다 — 이는 '이상'이 아니라 '평가자 효과 근사의 한계'이며
+//     caveat 로 명시한다. 절대 개인 단위로 플래그/삭제/취소하지 않는다(메모리: 다중 평가자=정상).
 // ────────────────────────────────────────────────────────────────────────────
 
 const MIN_SAMPLE = 5; // 소표본 임계값. n<5 평가자는 통계 회색 처리.
@@ -313,6 +332,290 @@ const orgLabelOf = (r: EmployeeEvaluationRecord): string => {
 
 const formatGap = (gap: number): string => (gap > 0 ? `+${gap}` : String(gap));
 const formatMean = (m: number): string => (m > 0 ? `+${m.toFixed(2)}` : m.toFixed(2));
+const formatDelta = (d: number): string => (d > 0 ? `+${d.toFixed(2)}` : d.toFixed(2));
+
+// ════════════════════════════════════════════════════════════════════════════
+// 종단 보조 패널 (F-C2b) — 2025(직전연도) vs 2026(선택 기간) 두 기간 비교.
+//
+// [핵심 원칙 — 횡단과 동일하게 §2.1 엄수]
+//  · 어떤 신호도 '판정'이 아니다. Δ·잔차·드리프트·'급변'은 모두 '정황/참고'이며
+//    tone='neutral' 고정, 위험색(var(--danger))은 무결성 전용으로 남긴다.
+//  · 양 기간 중 하나라도 완료 표본 n<MIN_SAMPLE 이면 회색·'표본 부족'·통계 '―'.
+//  · 인원·구성을 항상 병기한다(Δ·잔차 옆 n명, 가능하면 갭 버킷).
+//  · 종착점은 신설 액션 없이 기존 DrilldownPanel→requestReturn 하나로만 수렴.
+//
+// [임계 상수 — 휴리스틱] 드리프트 안정/급변 경계는 실데이터(평가기간 다년치) 보정
+//   전까지 SD_FLAT_THRESHOLD 와 같은 잠정 휴리스틱이다. 단정 카피 금지.
+// ════════════════════════════════════════════════════════════════════════════
+
+const DRIFT_STABLE = 0.3; // |Δ평균갭| 이 이 값 이하 → '기질(안정)' 정황
+const DRIFT_SHOCK = 0.6; // |Δ평균갭| 이 이 값 이상 → '급변' 정황(상단 우선 배치 대상)
+
+// 같은 평가자를 양 기간에서 잇는 키. evaluatorKeyOf 재사용.
+// 피평가자를 양 기간에서 잇는 키는 employee.employee_id (문자열 고유키).
+
+type CohortStats = {
+  /** 완료·유효 표본의 평균갭. null = 표본 0 */
+  meanGap: number | null;
+  /** 완료 표본 수 */
+  n: number;
+  buckets: GapBucketCounts;
+};
+
+const cohortStatsOf = (samples: ValidSample[]): CohortStats => {
+  const buckets = emptyBuckets();
+  for (const s of samples) buckets[s.bucket] += 1;
+  const gaps = samples.map((s) => s.gap);
+  return { meanGap: gaps.length ? mean(gaps) : null, n: gaps.length, buckets };
+};
+
+// 한 기간 records → employee_id 별 ValidSample 1건(완료·유효만). 미완료/무효는 제외.
+const sampleByEmployee = (records: EmployeeEvaluationRecord[]): Map<string, ValidSample> => {
+  const map = new Map<string, ValidSample>();
+  for (const r of records) {
+    const s = toValidSample(r);
+    if (s) map.set(r.employee.employee_id, s);
+  }
+  return map;
+};
+
+// ── (1) 전보 코호트 — 2025 평가자 A → 2026 평가자 B 로 옮긴 피평가자들의 갭 이동 ──
+//   본인 성장·직무변화 노이즈가 섞이므로 **개인이 아니라 코호트 단위**로만 본다.
+//   A 기준(2025) 평균갭 vs B 기준(2026) 평균갭의 차이 Δ를 '평가자 효과 근사'로 제시.
+//   ⚠ by-employee LIMIT 1 한계(P3)로 양 기간 각 1건의 대표 평가만 비교한다.
+
+type TransferCohortRow = {
+  key: string; // `${prevEvaluatorKey}→${nextEvaluatorKey}`
+  prevName: string;
+  nextName: string;
+  members: string[]; // employee_id 목록
+  prior: CohortStats; // 2025 (A 평가자 기준)
+  current: CohortStats; // 2026 (B 평가자 기준)
+  /** current.meanGap - prior.meanGap. 양쪽 표본 있을 때만 */
+  delta: number | null;
+  isSmall: boolean; // 양 기간 중 하나라도 n<MIN_SAMPLE
+};
+
+const buildTransferCohorts = (
+  currentSamples: Map<string, ValidSample>,
+  priorSamples: Map<string, ValidSample>,
+  priorRecordByEmp: Map<string, EmployeeEvaluationRecord>,
+  currentRecordByEmp: Map<string, EmployeeEvaluationRecord>,
+): TransferCohortRow[] => {
+  // (A→B) 묶음별로 양 기간 표본을 적재.
+  const groups = new Map<
+    string,
+    { prevKey: string; nextKey: string; prevName: string; nextName: string; members: Set<string>; prior: ValidSample[]; current: ValidSample[] }
+  >();
+
+  // 양 기간 모두에 record 가 존재하는 피평가자만 전환 후보(평가자 비교 가능).
+  for (const [empId, currentRecord] of currentRecordByEmp) {
+    const priorRecord = priorRecordByEmp.get(empId);
+    if (!priorRecord) continue;
+    const prevKey = evaluatorKeyOf(priorRecord);
+    const nextKey = evaluatorKeyOf(currentRecord);
+    if (prevKey === '__unassigned__' || nextKey === '__unassigned__') continue;
+    if (prevKey === nextKey) continue; // 전보 아님(같은 평가자)
+    const groupKey = `${prevKey}→${nextKey}`;
+    let g = groups.get(groupKey);
+    if (!g) {
+      g = {
+        prevKey,
+        nextKey,
+        prevName: evaluatorNameOf(priorRecord),
+        nextName: evaluatorNameOf(currentRecord),
+        members: new Set(),
+        prior: [],
+        current: [],
+      };
+      groups.set(groupKey, g);
+    }
+    g.members.add(empId);
+    const cs = currentSamples.get(empId);
+    const ps = priorSamples.get(empId);
+    if (cs) g.current.push(cs);
+    if (ps) g.prior.push(ps);
+  }
+
+  const rows: TransferCohortRow[] = [];
+  for (const [groupKey, g] of groups) {
+    const prior = cohortStatsOf(g.prior);
+    const current = cohortStatsOf(g.current);
+    const isSmall = prior.n < MIN_SAMPLE || current.n < MIN_SAMPLE;
+    const delta =
+      prior.meanGap != null && current.meanGap != null ? current.meanGap - prior.meanGap : null;
+    rows.push({
+      key: groupKey,
+      prevName: g.prevName,
+      nextName: g.nextName,
+      members: [...g.members],
+      prior,
+      current,
+      delta,
+      isSmall,
+    });
+  }
+  // 표본 충분한 코호트 우선, 그 안에서 |Δ| 큰 순.
+  return rows.sort((a, b) => {
+    if (a.isSmall !== b.isSmall) return a.isSmall ? 1 : -1;
+    return Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0);
+  });
+};
+
+// ── (2) 전년 드리프트 — 같은 평가자의 2025 평균갭 vs 2026 평균갭 변화(관대도 이동) ──
+//   같은 evaluatorKey 의 양 기간 교집합. Δ는 중립색, 완료율 병기. driftDelta 는 신호4 입력으로 재사용.
+
+type DriftRow = {
+  key: string; // evaluatorKey
+  name: string;
+  org: string;
+  prior: CohortStats; // 2025
+  current: CohortStats; // 2026
+  delta: number | null; // current - prior
+  isSmall: boolean;
+};
+
+const buildDriftRows = (
+  currentRows: EvaluatorRow[],
+  priorSamplesByEvaluator: Map<string, ValidSample[]>,
+  priorNameByEvaluator: Map<string, string>,
+): DriftRow[] => {
+  const rows: DriftRow[] = [];
+  for (const cur of currentRows) {
+    const priorSamplesArr = priorSamplesByEvaluator.get(cur.key);
+    if (!priorSamplesArr) continue; // 양 기간 교집합만(같은 평가자가 작년에도 있어야)
+    const prior = cohortStatsOf(priorSamplesArr);
+    const current: CohortStats = { meanGap: cur.meanGap, n: cur.n, buckets: cur.buckets };
+    const isSmall = prior.n < MIN_SAMPLE || current.n < MIN_SAMPLE;
+    const delta =
+      prior.meanGap != null && current.meanGap != null ? current.meanGap - prior.meanGap : null;
+    rows.push({
+      key: cur.key,
+      name: cur.name || priorNameByEvaluator.get(cur.key) || cur.key,
+      org: cur.org,
+      prior,
+      current,
+      delta,
+      isSmall,
+    });
+  }
+  return rows.sort((a, b) => {
+    if (a.isSmall !== b.isSmall) return a.isSmall ? 1 : -1;
+    return Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0);
+  });
+};
+
+// ── (3) 코호트-잔차 — 기대값=전사 동일 `${growth_level}|${job_role}` 평균갭, 실제−기대 잔차 ──
+//   **대화용 맥락 only. 잔차로 절대 줄세우거나 플래그하지 않는다(§2.1 판정금지 직접 위반).**
+//   그룹 n<MIN_SAMPLE 인 기대값은 'expectation-thin' 으로 제외(부정확한 기대값 차단).
+//   2026 단일 기준 우선(현재 기간), 2025 는 보조.
+
+const EXPECTATION_GROUP_MIN = MIN_SAMPLE; // 기대값 그룹 표본 하한.
+
+const expectationKeyOf = (r: EmployeeEvaluationRecord): string => {
+  const growth = toNum(r.employee.growth_level);
+  const level = Number.isFinite(growth) && growth > 0 ? String(Math.round(growth)) : '?';
+  const role = r.employee.job_role?.trim() || '(직종 미상)';
+  return `${level}|${role}`;
+};
+
+type ExpectationTable = {
+  /** 기대값 그룹키 → { 평균갭, n }. n<EXPECTATION_GROUP_MIN 그룹은 thin 으로 제외됨 */
+  byGroup: Map<string, { meanGap: number; n: number }>;
+};
+
+const buildExpectationTable = (records: EmployeeEvaluationRecord[]): ExpectationTable => {
+  const acc = new Map<string, number[]>();
+  for (const r of records) {
+    const s = toValidSample(r);
+    if (!s) continue;
+    const k = expectationKeyOf(r);
+    const arr = acc.get(k);
+    if (arr) arr.push(s.gap);
+    else acc.set(k, [s.gap]);
+  }
+  const byGroup = new Map<string, { meanGap: number; n: number }>();
+  for (const [k, gaps] of acc) {
+    if (gaps.length < EXPECTATION_GROUP_MIN) continue; // expectation-thin 제외
+    byGroup.set(k, { meanGap: mean(gaps), n: gaps.length });
+  }
+  return { byGroup };
+};
+
+type ResidualRow = {
+  key: string; // evaluatorKey
+  name: string;
+  org: string;
+  /** 평균 잔차(실제갭 − 기대갭). 기대값 있는 표본만 평균. null=계산 불가 */
+  meanResidual: number | null;
+  /** 잔차 계산에 쓰인 표본 수(기대값 있는 표본만) */
+  scoredN: number;
+  /** 평가자의 전체 완료 표본 수 */
+  totalN: number;
+  isSmall: boolean;
+};
+
+const buildResidualRows = (
+  currentRows: EvaluatorRow[],
+  expectation: ExpectationTable,
+): ResidualRow[] => {
+  const rows: ResidualRow[] = [];
+  for (const row of currentRows) {
+    const residuals: number[] = [];
+    for (const s of row.samples) {
+      const k = expectationKeyOf(s.record);
+      const exp = expectation.byGroup.get(k);
+      if (!exp) continue; // expectation-thin 표본은 잔차 산출 제외
+      residuals.push(s.gap - exp.meanGap);
+    }
+    const isSmall = row.n < MIN_SAMPLE;
+    rows.push({
+      key: row.key,
+      name: row.name,
+      org: row.org,
+      meanResidual: residuals.length ? mean(residuals) : null,
+      scoredN: residuals.length,
+      totalN: row.n,
+      isSmall,
+    });
+  }
+  // 표본순(정렬은 표본 충분/부족만 가른다). **잔차로 정렬하지 않는다**(판정 금지).
+  return rows.sort((a, b) => {
+    if (a.isSmall !== b.isSmall) return a.isSmall ? 1 : -1;
+    return b.totalN - a.totalN;
+  });
+};
+
+// ── (4) 기질 vs 급변 — 드리프트 |Δ| 로 평가자를 분류, '급변' 후보를 상단 우선 배치 ──
+//   양 기간 n>=MIN_SAMPLE 만 판정 대상, 한쪽 소표본='판정 보류'(회색).
+//   '급변'은 actionable 후보일 뿐 이상 판정이 아니다 → 칩은 중립색(주황 accent 금지).
+
+type TemperamentClass = 'stable' | 'drifting' | 'shock' | 'hold';
+
+const classifyDrift = (row: DriftRow): TemperamentClass => {
+  if (row.isSmall || row.delta == null) return 'hold';
+  const abs = Math.abs(row.delta);
+  if (abs >= DRIFT_SHOCK) return 'shock';
+  if (abs <= DRIFT_STABLE) return 'stable';
+  return 'drifting';
+};
+
+const TEMPERAMENT_LABEL: Record<TemperamentClass, string> = {
+  stable: '기질(안정)',
+  drifting: '소폭 변동',
+  shock: '급변(우선 검토 후보)',
+  hold: '판정 보류',
+};
+
+// 급변 > 소폭 변동 > 안정 > 보류 순으로 상단 우선(급변이 actionable 이라 맨 위).
+const TEMPERAMENT_RANK: Record<TemperamentClass, number> = {
+  shock: 0,
+  drifting: 1,
+  stable: 2,
+  hold: 3,
+};
+
+type LongitudinalTab = 'temperament' | 'transfer' | 'drift' | 'residual';
 
 // ── 페이지 ───────────────────────────────────────────────────────────────────
 
@@ -320,7 +623,7 @@ type TabKey = 'evaluator' | 'org';
 
 const HrQualityPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
-  const { selectedPeriod } = useEvaluationPeriod();
+  const { selectedPeriod, periods } = useEvaluationPeriod();
 
   const [tab, setTab] = useState<TabKey>('evaluator');
   const [searchQuery, setSearchQuery] = useState('');
@@ -328,6 +631,8 @@ const HrQualityPage = () => {
   const [sortKey, setSortKey] = useState<SortKey>('sample');
   const [hideSmall, setHideSmall] = useState(false);
   const [drilldown, setDrilldown] = useState<EvaluatorRow | null>(null);
+  // 종단 보조 패널 — 기본 탭은 '기질 vs 급변'(급변 후보 상단 우선이 가장 actionable).
+  const [longTab, setLongTab] = useState<LongitudinalTab>('temperament');
 
   // 점검 대상: 평가 대상자(evaluatee) 롤 + org 필터.
   const targetRecords = useMemo(
@@ -396,6 +701,78 @@ const HrQualityPage = () => {
       ),
     [targetRecords],
   );
+
+  // ── 종단 보조 패널 데이터 (F-C2b) ──────────────────────────────────────────
+  // 직전연도(선택 기간의 evaluation_year − 1) 기간을 양 기간 일괄 로드(무폭주, hr/Home.tsx 패턴).
+  const priorYear = selectedPeriod?.evaluation_year != null ? selectedPeriod.evaluation_year - 1 : null;
+  const priorPeriodId = useMemo(
+    () => (priorYear == null ? null : periods.find((p) => p.evaluation_year === priorYear)?.id ?? null),
+    [periods, priorYear],
+  );
+  // 현재 기간 점검 대상 직원들의 직전연도 평가만 1배치로 로드(추가 1인 조회 없음).
+  const priorEmployees = useMemo(() => records.map((r) => r.employee), [records]);
+  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
+
+  // 직전연도도 동일 evaluatee 롤 + 같은 org 필터를 적용해 비교 모집단을 맞춘다.
+  const priorTargetRecords = useMemo(
+    () =>
+      priorRecords.filter(
+        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgFilter(r.employee, orgFilter),
+      ),
+    [priorRecords, orgFilter],
+  );
+
+  // 패널 표시 여부 — 직전 기간이 없거나(현 환경: 평가기간 1개) 직전 표본 0건이면 전체 숨김.
+  const showLongitudinal = priorPeriodId != null && priorTargetRecords.length > 0;
+
+  const longitudinal = useMemo(() => {
+    if (!showLongitudinal) return null;
+
+    const currentByEmp = sampleByEmployee(targetRecords);
+    const priorByEmp = sampleByEmployee(priorTargetRecords);
+    const currentRecordByEmp = new Map(targetRecords.map((r) => [r.employee.employee_id, r] as const));
+    const priorRecordByEmp = new Map(priorTargetRecords.map((r) => [r.employee.employee_id, r] as const));
+
+    // (1) 전보 코호트.
+    const transfer = buildTransferCohorts(currentByEmp, priorByEmp, priorRecordByEmp, currentRecordByEmp);
+
+    // (2) 전년 드리프트 — 직전연도 평가자별 ValidSample 묶음을 만들어 같은 평가자 교집합 비교.
+    const priorSamplesByEvaluator = new Map<string, ValidSample[]>();
+    const priorNameByEvaluator = new Map<string, string>();
+    for (const r of priorTargetRecords) {
+      const key = evaluatorKeyOf(r);
+      if (key === '__unassigned__') continue;
+      const s = toValidSample(r);
+      if (!priorNameByEvaluator.has(key)) priorNameByEvaluator.set(key, evaluatorNameOf(r));
+      if (!s) continue;
+      const arr = priorSamplesByEvaluator.get(key);
+      if (arr) arr.push(s);
+      else priorSamplesByEvaluator.set(key, [s]);
+    }
+    const drift = buildDriftRows(evaluatorRows, priorSamplesByEvaluator, priorNameByEvaluator);
+
+    // (3) 코호트-잔차 — 2026(현재 기간) 단일 기준 기대값 테이블로 평가자별 평균잔차(대화용 only).
+    const expectation = buildExpectationTable(targetRecords);
+    const residual = buildResidualRows(evaluatorRows, expectation);
+    const expectationGroupCount = expectation.byGroup.size;
+
+    // (4) 기질 vs 급변 — 드리프트를 분류해 급변 후보를 상단 우선 배치.
+    const temperament = [...drift]
+      .map((row) => ({ row, cls: classifyDrift(row) }))
+      .sort((a, b) => {
+        const rd = TEMPERAMENT_RANK[a.cls] - TEMPERAMENT_RANK[b.cls];
+        if (rd !== 0) return rd;
+        return Math.abs(b.row.delta ?? 0) - Math.abs(a.row.delta ?? 0);
+      });
+
+    return { transfer, drift, residual, temperament, expectationGroupCount };
+  }, [showLongitudinal, targetRecords, priorTargetRecords, evaluatorRows]);
+
+  const priorPeriodLabel = useMemo(() => {
+    if (priorPeriodId == null) return null;
+    const p = periods.find((period) => period.id === priorPeriodId);
+    return p ? `${p.name} · ${p.evaluation_year}` : (priorYear != null ? `${priorYear}` : null);
+  }, [periods, priorPeriodId, priorYear]);
 
   const periodLabel = selectedPeriod
     ? `${selectedPeriod.name} · ${selectedPeriod.evaluation_year}`
@@ -529,6 +906,17 @@ const HrQualityPage = () => {
               )}
             </section>
 
+            {/* 종단 보조 패널 (F-C2b) — 직전연도가 있을 때만 노출 */}
+            {showLongitudinal && longitudinal && (
+              <LongitudinalPanel
+                tab={longTab}
+                onTabChange={setLongTab}
+                data={longitudinal}
+                periodLabel={periodLabel}
+                priorPeriodLabel={priorPeriodLabel}
+              />
+            )}
+
             {/* 무결성 자동 플래그 (분리 카드) */}
             <IntegritySection
               defs={INTEGRITY_DEFS}
@@ -562,7 +950,7 @@ const CaveatBar = () => (
   >
     <div className="sd-label-mini">읽어두기</div>
     <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-      <li>표시 수치는 현재 평가 데이터 기준입니다(데모/합성 데이터 GEN25-·GEN26- 포함 가능).</li>
+      <li>표시 수치는 선택한 평가기간 데이터 기준입니다.</li>
       <li>완료된 평가만 집계합니다. 상단에 완료율을 병기하며, 미완료 평가는 통계에서 제외됩니다.</li>
       <li>
         발령(전보)으로 평가자가 여럿인 피평가자는 현재 평가자 기준으로만 집계됩니다. 이는 정상 케이스이며 이상이
@@ -572,6 +960,422 @@ const CaveatBar = () => (
     </ul>
   </div>
 );
+
+// ── 종단 보조 패널 (F-C2b) ───────────────────────────────────────────────────
+// 화면 하단 보조 카드 1장 + 탭 4개(기본=기질 vs 급변). 모든 셀은 §2.1 톤을 따른다.
+// 종착점은 신설하지 않는다 — 자세히 검토가 필요하면 위 변별력 표의 '자세히'(재검토 요청)로 간다.
+
+type LongitudinalData = {
+  transfer: TransferCohortRow[];
+  drift: DriftRow[];
+  residual: ResidualRow[];
+  temperament: { row: DriftRow; cls: TemperamentClass }[];
+  expectationGroupCount: number;
+};
+
+const LONG_TAB_LABEL: Record<LongitudinalTab, string> = {
+  temperament: '기질 vs 급변',
+  transfer: '전보 코호트',
+  drift: '전년 드리프트',
+  residual: '코호트-잔차',
+};
+
+const LONG_TAB_ORDER: LongitudinalTab[] = ['temperament', 'transfer', 'drift', 'residual'];
+
+const LongitudinalPanel = ({
+  tab,
+  onTabChange,
+  data,
+  periodLabel,
+  priorPeriodLabel,
+}: {
+  tab: LongitudinalTab;
+  onTabChange: (t: LongitudinalTab) => void;
+  data: LongitudinalData;
+  periodLabel: string;
+  priorPeriodLabel: string | null;
+}) => {
+  const compareLabel = `${priorPeriodLabel ?? '직전연도'} → ${periodLabel}`;
+  return (
+    <section className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div
+        style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div className="sd-label-mini">보조 · 종단 패턴 (참고)</div>
+          <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--fg)' }}>
+            두 기간 비교 · 평가자 효과 정황
+          </h2>
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }} className="tnum">
+            {compareLabel}
+          </span>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            padding: 3,
+            borderRadius: 8,
+            background: 'var(--bg-muted)',
+            border: '1px solid var(--border)',
+            flexWrap: 'wrap',
+          }}
+        >
+          {LONG_TAB_ORDER.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onTabChange(key)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: tab === key ? 800 : 600,
+                color: tab === key ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                background: tab === key ? 'var(--bg-card)' : 'transparent',
+                boxShadow: tab === key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {LONG_TAB_LABEL[key]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <LongitudinalCaveat tab={tab} expectationGroupCount={data.expectationGroupCount} />
+
+      {tab === 'temperament' && <TemperamentTable rows={data.temperament} />}
+      {tab === 'transfer' && <TransferTable rows={data.transfer} />}
+      {tab === 'drift' && <DriftTable rows={data.drift} />}
+      {tab === 'residual' && <ResidualTable rows={data.residual} />}
+    </section>
+  );
+};
+
+// 탭별 caveat — 정황·근사·미플래그 기조를 못박는다(§2.1).
+const LongitudinalCaveat = ({
+  tab,
+  expectationGroupCount,
+}: {
+  tab: LongitudinalTab;
+  expectationGroupCount: number;
+}) => {
+  const lines: string[] = (() => {
+    switch (tab) {
+      case 'transfer':
+        return [
+          '발령으로 평가자가 바뀐 것은 정상입니다. 아래 Δ는 평가자 효과의 근사일 뿐 이상 판정이 아니며, 본인 성장·직무 변화가 함께 섞여 있어 코호트 단위로만 봅니다.',
+          '양 기간 각 1건의 대표 평가만 비교하므로 기간 내 다중 평가자가 있던 경우 평가자 효과 근사에 한계가 있습니다. 전환자 코호트는 본질적으로 소표본이라 대부분 회색(표본 부족)으로 비어 보이는 것이 정상입니다.',
+        ];
+      case 'drift':
+        return [
+          '같은 평가자의 두 기간 평균갭 변화입니다. Δ는 관대도 이동의 정황일 뿐 "관대해졌다/엄격해졌다"는 단정이 아닙니다.',
+          '양 기간 중 한쪽이라도 완료 표본이 적으면(n<' + MIN_SAMPLE + ') 회색 처리하고 비교에서 제외합니다.',
+        ];
+      case 'residual':
+        return [
+          '대화용 맥락 전용입니다. 잔차로 평가자를 줄 세우거나 플래그하지 않습니다.',
+          `기대값은 전사 "성장레벨 × 직종" 평균갭이며, 표본이 적은 그룹(n<${MIN_SAMPLE})은 제외합니다(현재 유효 기대값 그룹 ${expectationGroupCount}개). 직종 미상 버킷이 크면 기대값이 부정확할 수 있습니다.`,
+        ];
+      case 'temperament':
+      default:
+        return [
+          '두 기간 모두 표본이 충분한 평가자만 분류하며, 한쪽이라도 소표본이면 "판정 보류"(회색)입니다.',
+          '"급변"은 주의해서 들여다볼 후보일 뿐 이상 판정이 아닙니다. 임계값(±' +
+            DRIFT_STABLE +
+            '/±' +
+            DRIFT_SHOCK +
+            ')은 실데이터 보정 전의 잠정 휴리스틱입니다.',
+        ];
+    }
+  })();
+  return (
+    <div
+      style={{
+        padding: '12px 20px',
+        background: 'var(--bg-muted)',
+        borderBottom: '1px solid var(--border)',
+      }}
+    >
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+        {lines.map((line, idx) => (
+          <li key={idx}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+// 두 기간 평균갭 + n 을 한 칸에 묶어 노출(인원·구성 병기, §2.1-3).
+const PeriodStatCell = ({ stats, dim }: { stats: CohortStats; dim: boolean }) => {
+  const color = dim ? 'var(--fg-subtle)' : 'var(--fg)';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, whiteSpace: 'nowrap' }}>
+      <span className="tnum" style={{ fontWeight: 700, color }}>
+        {stats.meanGap == null ? '―' : formatMean(stats.meanGap)}
+      </span>
+      <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }} className="tnum">
+        n={stats.n}
+      </span>
+    </div>
+  );
+};
+
+// Δ 칩 — 항상 중립색. tnum. dim 이면 '―'.
+const DeltaCell = ({ delta, dim }: { delta: number | null; dim: boolean }) => {
+  if (dim || delta == null) {
+    return <span style={{ color: 'var(--fg-subtle)' }}>―</span>;
+  }
+  return (
+    <span
+      className="tnum"
+      style={{ fontWeight: 800, color: 'var(--fg-muted)' }}
+      title="두 기간 평균갭 차이(정황·중립)"
+    >
+      {formatDelta(delta)}
+    </span>
+  );
+};
+
+const SmallSamplePill = () => (
+  <div style={{ marginTop: 2 }}>
+    <Pill tone="neutral">표본 부족 (n&lt;{MIN_SAMPLE})</Pill>
+  </div>
+);
+
+const LongEmpty = ({ message }: { message: string }) => (
+  <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--fg-subtle)', fontSize: 'var(--fs-sm)' }}>
+    {message}
+  </div>
+);
+
+// ── (4) 기질 vs 급변 테이블 (기본 탭, 급변 상단 우선) ─────────────────────────
+const TemperamentTable = ({ rows }: { rows: { row: DriftRow; cls: TemperamentClass }[] }) => {
+  if (rows.length === 0) {
+    return <LongEmpty message="두 기간에 모두 존재하는 평가자가 없습니다." />;
+  }
+  return (
+    <div style={{ overflow: 'auto' }}>
+      <Table>
+        <TableHeader style={{ background: 'var(--bg-muted)' }}>
+          <TableRow>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>평가자 · 소속</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>분류 (참고)</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>직전</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>현재</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>Δ평균갭</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map(({ row, cls }) => {
+            const dim = cls === 'hold';
+            const muted = dim ? 'var(--fg-subtle)' : 'var(--fg)';
+            return (
+              <TableRow key={row.key} style={{ opacity: dim ? 0.62 : 1 }}>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 800, color: muted }}>{row.name}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{row.org}</div>
+                </TableCell>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  {/* 급변 칩도 중립색 — 위험색은 무결성 전용. */}
+                  <Pill tone="neutral">{TEMPERAMENT_LABEL[cls]}</Pill>
+                  {dim && <SmallSamplePill />}
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.prior} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.current} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <DeltaCell delta={row.delta} dim={dim} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
+// ── (1) 전보 코호트 테이블 ───────────────────────────────────────────────────
+const TransferTable = ({ rows }: { rows: TransferCohortRow[] }) => {
+  if (rows.length === 0) {
+    return <LongEmpty message="두 기간 사이 평가자가 바뀐 피평가자 코호트가 없습니다." />;
+  }
+  return (
+    <div style={{ overflow: 'auto' }}>
+      <Table>
+        <TableHeader style={{ background: 'var(--bg-muted)' }}>
+          <TableRow>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>전 평가자 → 현 평가자</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>코호트</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>직전(전 평가자)</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>현재(현 평가자)</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>Δ평균갭</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>현재 갭 구성</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const dim = row.isSmall;
+            const muted = dim ? 'var(--fg-subtle)' : 'var(--fg)';
+            return (
+              <TableRow key={row.key} style={{ opacity: dim ? 0.62 : 1 }}>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  <span style={{ fontWeight: 800, color: muted }}>{row.prevName}</span>
+                  <span style={{ color: 'var(--fg-subtle)' }}> → </span>
+                  <span style={{ fontWeight: 800, color: muted }}>{row.nextName}</span>
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <span className="tnum" style={{ fontWeight: 800, color: muted }}>
+                    {row.members.length}
+                  </span>
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>명</span>
+                  {dim && <SmallSamplePill />}
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.prior} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.current} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <DeltaCell delta={row.delta} dim={dim} />
+                </TableCell>
+                <TableCell>
+                  <BucketChips buckets={row.current.buckets} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
+// ── (2) 전년 드리프트 테이블 ─────────────────────────────────────────────────
+const DriftTable = ({ rows }: { rows: DriftRow[] }) => {
+  if (rows.length === 0) {
+    return <LongEmpty message="두 기간에 모두 존재하는 평가자가 없습니다." />;
+  }
+  return (
+    <div style={{ overflow: 'auto' }}>
+      <Table>
+        <TableHeader style={{ background: 'var(--bg-muted)' }}>
+          <TableRow>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>평가자 · 소속</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>직전</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>현재</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>Δ평균갭</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>현재 갭 구성</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const dim = row.isSmall;
+            const muted = dim ? 'var(--fg-subtle)' : 'var(--fg)';
+            return (
+              <TableRow key={row.key} style={{ opacity: dim ? 0.62 : 1 }}>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 800, color: muted }}>{row.name}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{row.org}</div>
+                  {dim && <SmallSamplePill />}
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.prior} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right' }}>
+                  <PeriodStatCell stats={row.current} dim={dim} />
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <DeltaCell delta={row.delta} dim={dim} />
+                </TableCell>
+                <TableCell>
+                  <BucketChips buckets={row.current.buckets} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
+// ── (3) 코호트-잔차 테이블 (대화용 only · 정렬/플래그 금지) ───────────────────
+const ResidualTable = ({ rows }: { rows: ResidualRow[] }) => {
+  if (rows.length === 0) {
+    return <LongEmpty message="잔차를 계산할 평가자 표본이 없습니다." />;
+  }
+  return (
+    <div style={{ overflow: 'auto' }}>
+      <Table>
+        <TableHeader style={{ background: 'var(--bg-muted)' }}>
+          <TableRow>
+            <TableHead style={{ whiteSpace: 'nowrap' }}>평가자 · 소속</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>완료 표본</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>기대값 적용 표본</TableHead>
+            <TableHead style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>평균 잔차 (참고)</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const dim = row.isSmall;
+            const muted = dim ? 'var(--fg-subtle)' : 'var(--fg)';
+            const showResidual = !dim && row.meanResidual != null && row.scoredN > 0;
+            return (
+              <TableRow key={row.key} style={{ opacity: dim ? 0.62 : 1 }}>
+                <TableCell style={{ whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 800, color: muted }}>{row.name}</div>
+                  <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{row.org}</div>
+                  {dim && <SmallSamplePill />}
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <span className="tnum" style={{ fontWeight: 700, color: muted }}>
+                    {row.totalN}
+                  </span>
+                  <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>명</span>
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                    {row.scoredN}
+                  </span>
+                </TableCell>
+                <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {showResidual ? (
+                    <span
+                      className="tnum"
+                      style={{ fontWeight: 800, color: 'var(--fg-muted)' }}
+                      title="평균(실제갭 − 전사 성장레벨×직종 기대갭). 대화용 맥락 · 정렬/판정 아님."
+                    >
+                      {formatDelta(row.meanResidual!)}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--fg-subtle)' }}>―</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
 
 // ── 탭/정렬 컨트롤 ───────────────────────────────────────────────────────────
 
