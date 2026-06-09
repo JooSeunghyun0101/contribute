@@ -826,8 +826,13 @@ function isPromotion(employeeId, ability2025) {
       const rngTs2025 = makePrng(employeeId, 'ah_ts_2025');
       const rngTs2026 = makePrng(employeeId, 'ah_ts_2026');
 
-      const ev2025 = emp.evaluator_id || null;
-      const ev2026 = isInterTransfer ? getEvaluatorFor(employeeId, 2026, true) : ev2025;
+      // 불변식: 2026 '최신' 배정 = 마스터(= employees.evaluator_id = 앱이 보는 '현재 평가자').
+      // 전보가 있으면 '더 이른 시점'에 다른(이전) 평가자(otherEv)를 두고, 최신 배정을 마스터로 끝낸다.
+      // (마스터=실제 매칭 평가자를 '현재'로 보존하면서 발령 이력의 최신과 일치시킴.)
+      const master = emp.evaluator_id || null;
+      const otherEv = getEvaluatorFor(employeeId, 2026, true);
+      const ev2025 = isInterTransfer ? otherEv : master;      // 기간간 전보: 2025=과거(다른) 평가자, 2026=마스터
+      const ev2026First = isIntraTransfer ? otherEv : master; // 기간내 전보: 2026 이른 배정=otherEv, 최신=마스터
 
       // 2025 기간 행
       const ah2025Id = genUUID();
@@ -854,7 +859,7 @@ function isPromotion(employeeId, ability2025) {
         id: ah2026Id,
         employee_id: employeeId,
         previous_evaluator_id: ev2025,
-        new_evaluator_id: ev2026,
+        new_evaluator_id: ev2026First,
         evaluation_period_id: PERIOD_2026,
         changed_at: changedAt2026First(rngTs2026),
         changed_by: RECONSTRUCT_TAG,
@@ -868,14 +873,13 @@ function isPromotion(employeeId, ability2025) {
       // 기간내 전보: 두 번째 행 (2026 연중)
       if (isIntraTransfer) {
         const rngIntra = makePrng(employeeId, 'ah_intra_2026');
-        const ev2026b = getEvaluatorFor(employeeId, 2026, true);
         const ah2026bId = genUUID();
         ahIdMap.set(`${employeeId}:${PERIOD_2026}:intra`, ah2026bId);
         newAssignmentHistory.push({
           id: ah2026bId,
           employee_id: employeeId,
-          previous_evaluator_id: ev2026,
-          new_evaluator_id: ev2026b,
+          previous_evaluator_id: ev2026First,
+          new_evaluator_id: master, // 기간내 전보 최신(현재) = 마스터
           evaluation_period_id: PERIOD_2026,
           changed_at: changedAt2026Transfer(rngIntra),
           changed_by: RECONSTRUCT_TAG,
@@ -897,8 +901,8 @@ function isPromotion(employeeId, ability2025) {
         newAssignmentHistory.push({
           id: corrId,
           employee_id: employeeId,
-          previous_evaluator_id: ev2026,
-          new_evaluator_id: getEvaluatorFor(employeeId, 2026, true),
+          previous_evaluator_id: ev2026First,
+          new_evaluator_id: master, // 정정 후에도 최신=마스터 유지(현재 평가자 정합)
           evaluation_period_id: PERIOD_2026,
           changed_at: changedAt2026Transfer(rngCorr),
           changed_by: `${RECONSTRUCT_TAG}-correction`,
@@ -930,20 +934,24 @@ function isPromotion(employeeId, ability2025) {
       // 평가자 파라미터
       // 기간내 전보의 경우 두 번째 evaluation은 두 번째 평가자
       const isIntraTransfer = inPeriodTransferEvaluatees.includes(employeeId);
+      const isInterTransfer = interPeriodTransferSet.has(employeeId);
       const eval2026ForEmp = evalsByEvaluatee.get(`${employeeId}:2026`) || [];
       const isSecondEvalOf2026 = year === 2026 && eval2026ForEmp.length > 1
         && eval2026ForEmp[1]?.id === evalId;
 
+      // 1패스 AH 생성과 '동일 규칙'으로 평가자를 맞춘다(eval↔AH 정합 필수).
+      // 불변식: 2026 최신(현재) 평가 = 마스터, 더 이른 시점만 otherEv.
+      const master = emp.evaluator_id || null;
+      const otherEv = getEvaluatorFor(employeeId, 2026, true);
       let evaluatorId;
       if (year === 2025) {
-        evaluatorId = emp.evaluator_id;
-      } else if (isSecondEvalOf2026 && isIntraTransfer) {
-        // 두 번째 2026 평가: 전보 후 새 평가자
-        evaluatorId = getEvaluatorFor(employeeId, 2026, true);
+        evaluatorId = isInterTransfer ? otherEv : master; // 기간간 전보면 2025=과거(다른) 평가자
+      } else if (isIntraTransfer && isSecondEvalOf2026) {
+        evaluatorId = master;  // 기간내 전보 최신(현재) 평가 = 마스터
+      } else if (isIntraTransfer) {
+        evaluatorId = otherEv; // 기간내 전보 첫(이전) 평가
       } else {
-        evaluatorId = interPeriodTransferSet.has(employeeId)
-          ? getEvaluatorFor(employeeId, 2026, true)
-          : emp.evaluator_id;
+        evaluatorId = master;  // 단일 2026(기간간 전보 포함) = 마스터(현재)
       }
 
       const evParams = evaluatorId ? evaluatorParams.get(evaluatorId) : null;
@@ -1288,6 +1296,23 @@ function isPromotion(employeeId, ability2025) {
     );
     stats.intraTransferCount = transferCount.rows[0]?.n;
 
+    // ★ 정합성 불변식: 각 피평가자의 '최신(현재) 2026 배정 평가자' = 마스터(employees.evaluator_id)
+    // (앱은 마스터를 '현재 평가자'로 보고 배지를, assignment_history 최신으로 날짜를 계산.
+    //  최신 배정=마스터면 '현재 평가' 카드가 ongoing(~현재)과 일치. 이전 평가(earlier)는 비-마스터가 정상.)
+    const masterConsistency = await c.query(
+      `SELECT COUNT(*) n FROM (
+         SELECT DISTINCT ON (h.employee_id) h.employee_id, h.new_evaluator_id
+         FROM evaluator_assignment_history h
+         WHERE h.evaluation_period_id = $1 AND h.status='applied'
+           AND h.change_type<>'cancel' AND h.new_evaluator_id IS NOT NULL
+         ORDER BY h.employee_id, h.changed_at DESC, h.id DESC
+       ) latest
+       JOIN employees em ON em.employee_id = latest.employee_id
+       WHERE latest.new_evaluator_id IS DISTINCT FROM em.evaluator_id`,
+      [PERIOD_2026]
+    );
+    stats.masterMismatch2026 = masterConsistency.rows[0]?.n;
+
     // 의견 unique율
     const fbUniq = await c.query(
       `SELECT COUNT(*) total, COUNT(DISTINCT content) uniq,
@@ -1351,6 +1376,7 @@ function isPromotion(employeeId, ability2025) {
     console.log(`평가자평균점수 분산  : ${stats.evaluatorMeanVariance}`);
     console.log(`연도간 ρ (weighted) : ${stats.yearRho}`);
     console.log(`기간내 전보 건수     : ${stats.intraTransferCount}`);
+    console.log(`★피평가자 최신배정≠마스터: ${stats.masterMismatch2026}명 (0이어야 정합)`);
     console.log(`의견 unique율        : ${stats.feedbackUniqPct}% (${stats.feedbackUniq}/${stats.feedbackTotal})`);
     console.log(`짧은 의견(<30자)     : ${stats.shortFb}건`);
     console.log(`의견 누락 과업       : ${stats.missingFb}건`);

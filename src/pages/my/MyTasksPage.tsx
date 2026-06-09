@@ -27,7 +27,12 @@ const MyTasksPage = () => {
       try {
         const [emp, evals, history] = await Promise.all([
           employeeService.getEmployeeById(employeeId),
-          evaluationService.getEvaluationsByEmployeeId(employeeId),
+          // 선택한 평가기간을 서버에 전달 — 미전달 시 서버가 활성기간(2026)만 반환해
+          // 이전 연도(2025) 선택 시 빈 목록이 되는 문제를 막는다.
+          evaluationService.getEvaluationsByEmployeeId(
+            employeeId,
+            selectedPeriod?.id ? { periodId: selectedPeriod.id } : undefined,
+          ),
           employeeService.getEvaluatorAssignmentHistory(employeeId).catch((error) => {
             console.warn('평가자 이력 로드 실패:', error);
             return [];
@@ -47,9 +52,9 @@ const MyTasksPage = () => {
     return () => {
       cancelled = true;
     };
-    // reloadKey 변경시 다시 로드
+    // reloadKey 또는 선택 평가기간 변경 시 다시 로드(기간 전환 시 해당 기간 평가를 새로 가져옴)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employeeId, reloadKey]);
+  }, [employeeId, reloadKey, selectedPeriod?.id]);
 
   // current evaluator로 분류
   const employeeEvaluatorId = employee?.evaluator_id ?? null;
