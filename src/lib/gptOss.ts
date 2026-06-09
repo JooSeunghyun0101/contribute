@@ -774,6 +774,80 @@ export async function reviewSentimentGap(
   }
 }
 
+// ---- F-C3 평가의견 복붙 탐지 전용: 경계 쌍 1:1 AI 유사도 (read-only, 온디맨드) ----
+// FeedbackDuplicateDetector 가 휴리스틱(정규화 해시·편집거리)으로 추린 '경계 쌍'에만
+// 온디맨드·배치로 호출한다. DB 쓰기 없음.
+//
+// checkSimilarFeedback 를 직접 재사용하지 않는 이유(보정 1):
+//  - checkSimilarFeedback 는 AI 호출 전 (i)빈값 (ii)무의미 (iii)비구체(내부 AI 1콜 추가)
+//    (iv)길이<30 (v)1문장&<50자 게이트가 있어, 짧지만 정당한 의견을 '길이 미달'로
+//    isDuplicate:true 처리해 근거를 오염시키고, 내부 detectGenericFeedback 가 AI 를 한 콜 더 써
+//    경계 쌍당 비용이 2배가 된다.
+//  - 여기서는 feedback_similarity_review 프롬프트만 사용하는 얇은 래퍼로, a/b 두 의견이
+//    이미 1단계 휴리스틱에서 trivial·무의미가 제외된 비-trivial 텍스트임을 전제로 1:1 비교만 한다.
+export type FeedbackPairInput = {
+  // 같은 평가자가 서로 다른 피평가자에게 작성한 두 의견 (비-trivial 전제)
+  feedbackA: string;
+  feedbackB: string;
+  evaluatorName: string;
+};
+
+export async function reviewFeedbackPairSimilarity(
+  input: FeedbackPairInput,
+): Promise<{ isSimilar: boolean; summary: string; skipped: boolean }> {
+  const a = input.feedbackA.trim();
+  const b = input.feedbackB.trim();
+  if (!a || !b) {
+    return { isSimilar: false, summary: '비교할 의견이 비어 있어 건너뜁니다.', skipped: true };
+  }
+
+  try {
+    const template = await fetchPrompt('feedback_similarity_review');
+    const prompt = `${template}
+
+평가자 "${input.evaluatorName}"가 서로 다른 두 피평가자에게 작성한 두 평가의견이 복사·붙여넣기 또는 단어 몇 개만 바꾼 사실상 동일한 의견인지 판정해주세요.
+이미 무의미·정형 단문은 사전 제외되었으니, 두 의견의 '내용 유사도'만 보고 판정하세요.
+
+**감지 기준:**
+1. 복사·붙여넣기 (95% 이상 동일)
+2. 단어 몇 개(피평가자명·과업명 등)만 바꾼 경우 (85% 이상 유사)
+
+서로 다른 피평가자라 표현 일부가 비슷한 것은 정상일 수 있으니, 사실상 같은 문장을 재사용한 경우에만 유사로 판정하세요.
+
+**의견 A:**
+"${a}"
+
+**의견 B:**
+"${b}"
+
+**응답 형식:**
+사실상 동일/재사용이면: "SIMILAR: [근거를 한 문장으로]"
+서로 다른 의견이면: "DISTINCT: 서로 다른 의견입니다"`;
+
+    const result = await callGptOss(prompt, { timeoutMs: 15000 });
+    const trimmed = result.trim();
+    if (/^SIMILAR:/i.test(trimmed)) {
+      return {
+        isSimilar: true,
+        summary: trimmed.replace(/^SIMILAR:/i, '').trim() || '두 의견이 사실상 동일/재사용으로 보입니다.',
+        skipped: false,
+      };
+    }
+    if (/^DISTINCT:/i.test(trimmed)) {
+      return {
+        isSimilar: false,
+        summary: trimmed.replace(/^DISTINCT:/i, '').trim() || '서로 다른 의견입니다.',
+        skipped: false,
+      };
+    }
+    // 형식 외 응답은 보류(유사로 단정하지 않음)
+    return { isSimilar: false, summary: '유사도 판단 결과를 해석하지 못했습니다.', skipped: true };
+  } catch (error) {
+    console.warn('AI 의견쌍 유사도 검수 실패:', error);
+    return { isSimilar: false, summary: '검수 중 오류가 발생했습니다.', skipped: true };
+  }
+}
+
 /* ---------- 기존 Gemini 파일에 포함된 유틸리티 함수들 (detectMeaninglessContent, detectGenericFeedback, checkSimilarFeedback 등) ----------
    이 부분은 그대로 복사해도 무방합니다. 아래는 원본과 동일하게 유지됩니다. ---------- */
 

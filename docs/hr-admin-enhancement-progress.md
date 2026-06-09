@@ -55,7 +55,7 @@
 - [x] **F-C2b** 평가 품질 점검 — **종단**(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변). `HrQualityPage` 하단 보조 패널 탭 4개(기본=기질vs급변), 양 기간 일괄 로드(useCompanyDashboardRecords+usePriorYearRecords, 무폭주), 2026 선택 시 prior=2025 실데이터 표시. 발령=정상·코호트 맥락·소표본 회색·중립색·완료율 caveat. read-only(requestReturn 재사용). typecheck+build·리뷰 pass.
 - [x] **CLEANUP** F-C2a 데모/합성 caveat 제거(F-C2b 구현에 포함). CaveatBar GEN 문구→"선택한 평가기간 데이터 기준", grep 잔존 0. 완료율·발령정상 기능 표기 유지.
   - (※ 원 F-C2는 위 F-C2a/F-C2b로 분해됨.) 변별력(갭 분산)×분포 건전성 주력 + 종단 보조 + 무결성 리스트 + 드릴다운 + 재검토 요청. *서브스텝 분해 필수, 설계원칙 §2.1 준수.*
-- [ ] **F-C3** 평가의견 표절·복붙 탐지 (#4). 품질 화면 탭, AI 유사도.
+- [x] **F-C3** 평가의견 표절·복붙 탐지 (#4). 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭). 평가자 내부 의견 정규화 해시·편집거리 휴리스틱 즉시 + 경계 쌍만 AI 유사도 온디맨드(신규 `reviewFeedbackPairSimilarity` 래퍼). trivial 정형 단문 제외·발령정상·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass.
 - [ ] **F-C4** 점수-의견 정서 정합성 (#5). ⚠ **핵심은 F-B2.1에서 이미 구현됨**(`reviewSentimentGap`=갭↔의견 논조). 도달 시 중복 정리 — 별도 탭 승격 여부만 결정, 신규 로직 최소.
 - [ ] **F-C5** 일괄 공지·FAQ 푸시 (#2). *D-1 결과 반영.*
 
@@ -94,6 +94,7 @@
 - 2026-06-09 D-1 게이트: 사실확인=인앱전용·이메일 백엔드 없음. **사용자 결정=인앱+이메일 추상화 준비.** F-C1에서 채널 dispatch 추상화 구현(첫 소비자=독려). F-B2.2 활성화(F-C1 후), F-C4는 F-B2.1과 중복 확인. F-C1 착수.
 - 2026-06-09 F-C2a: 신규 `HrQualityPage`(/hr/quality, 품질 그룹 '평가 품질 점검'). 주력=변별력(갭 표본SD·분산)×분포 건전성(하향변별부재·갭집중·평행이동 '정황' 중립칩) + 무결성 4종(빈평가·전원동일점수·가중치≠100·의견미작성) + 평가자 드릴다운(피평가자 성장레벨·점수·갭) + 재검토 요청(requestReturn 재사용). §2.1 5원칙 1:1 구현(판정아님·HR전용·인원구성 병기·소표본<5 회색/표본부족·중립색), 데모·완료율 caveat 상시. 종단·관대도 사분면 0건(grep). useCompanyDashboardRecords 1훅(무폭주). typecheck+build·리뷰 pass. low 2건 직접 수정: ①드릴다운 점수표시를 floored 정수+가중 병기(갭 계산기준 일치) ②가중치 무결성 epsilon(|합−100|>0.5, 부동소수 오탐 방지). 재검증 tsc+build EXIT 0.
   - info follow-up(비차단): 재검토 사유 입력이 window.prompt(추후 shadcn 다이얼로그 권장); 분포 임계값은 데모데이터 휴리스틱→F-C2b 종단 확보 후 캘리브레이션.
+- 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
 - 2026-06-09 F-C2b-prep: 데이터 재구성 설계(조사·비평이 갭분포 산술모순 등 치명오류 5건 보정)→스크립트 작성·비평(needs-fix 보정: feedback_history 컬럼·0점 의견 NULL·.cjs)→DRY_RUN 2회 튜닝(score4 37%→26%, 갭 meet중심화, 가중치결함 3→22)→COMMIT 적용. 독립 DB 검증 통과(의견 다양화 확인). 메모리·MEMORY.md 갱신.
 - 2026-06-09 F-C2 게이트: 센터피스 체크포인트. 사용자 결정=**점진(횡단+무결성 먼저)**. 종단 데이터 "확인 필요"→DB 직접 조회: **evaluation_periods 2개**(2025-annual closed 695완결 / 2026-annual active 754·730완료) → 종단 viable, §0 전제 맞음. F-C2를 F-C2a(횡단+무결성, 착수)·F-C2b(종단, F-C2a 후)로 분해. ⚠ **데이터 상당수 데모/합성(GEN25-/GEN26-)** — 분석 수치는 실데이터 채워지기 전까진 데모 기반(기능 로직은 무관). MEMORY.md 인덱스 줄 교정(1개뿐→2개).
