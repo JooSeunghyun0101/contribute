@@ -38,6 +38,7 @@ import HrMatchingPage from "./pages/hr/HrMatchingPage";
 import HrSettingsPage from "./pages/hr/HrSettingsPage";
 import HrPromptsPage from "./pages/hr/HrPromptsPage";
 import HrChangeRequestsPage from "./pages/hr/ChangeRequestsPage";
+import HrRemindersPage from "./pages/hr/RemindersPage";
 
 const queryClient = new QueryClient();
 
@@ -262,6 +263,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrPromptsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/reminders"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrRemindersPage />
                     </ProtectedRoute>
                   }
                 />

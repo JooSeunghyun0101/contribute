@@ -16,7 +16,8 @@ export type NotificationType =
   | 'evaluation_return_requested'
   | 'evaluation_reopened'
   | 'change_request'
-  | 'change_request_result';
+  | 'change_request_result'
+  | 'reminder';
 
 export type NotificationPriority = 'low' | 'medium' | 'high';
 
