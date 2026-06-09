@@ -1,0 +1,272 @@
+import { useMemo, useState } from 'react';
+import { Download, X, Copy, Sparkles } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { generateEvaluationSummaryReport } from '@/lib/gptOss';
+import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
+import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// 마크다운(소제목 ##) 일부를 Word 용 HTML 로 변환.
+const toDocHtml = (text: string, title: string) => {
+  const body = text
+    .split('\n')
+    .map((line) => {
+      const t = line.trim();
+      if (t.startsWith('## ')) return `<h2>${escapeHtml(t.slice(3))}</h2>`;
+      if (t.startsWith('# ')) return `<h1>${escapeHtml(t.slice(2))}</h1>`;
+      if (!t) return '<br/>';
+      return `<p>${escapeHtml(t)}</p>`;
+    })
+    .join('');
+  return `<html><head><meta charset="utf-8"></head><body style="font-family:'Malgun Gothic',sans-serif;line-height:1.7;color:#222">
+<h1>${escapeHtml(title)}</h1>${body}</body></html>`;
+};
+
+const download = (filename: string, content: string, mime: string) => {
+  const blob = new Blob(['﻿' + content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+const AiSummaryReportModal = ({
+  records,
+  onClose,
+}: {
+  records: EmployeeEvaluationRecord[];
+  onClose: () => void;
+}) => {
+  const { toast } = useToast();
+  const [dept, setDept] = useState<string>('all');
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [report, setReport] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach((r) => set.add(r.employee.department || '미지정'));
+    return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [records]);
+
+  const pool = useMemo(
+    () => (dept === 'all' ? records : records.filter((r) => (r.employee.department || '미지정') === dept)),
+    [records, dept],
+  );
+  const selected = useMemo(
+    () => pool.filter((r) => !excluded.has(r.employee.employee_id)),
+    [pool, excluded],
+  );
+
+  const scopeLabel = dept === 'all' ? '전사' : dept;
+
+  const handleGenerate = async () => {
+    if (selected.length === 0) {
+      toast({ title: '대상자를 1명 이상 선택해 주세요.', variant: 'destructive' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const total = selected.length;
+      const completed = selected.filter((r) => r.status === 'completed').length;
+      const achieved = selected.filter((r) => r.status === 'completed' && r.achieved).length;
+      const fin = selected.filter((r) => r.status === 'completed');
+      const averageScore =
+        fin.length > 0 ? (fin.reduce((s, r) => s + r.weightedScore, 0) / fin.length).toFixed(1) : '-';
+      const levelLines = [1, 2, 3, 4]
+        .map((lv) => {
+          const n = selected.filter((r) => (r.employee.growth_level ?? 1) === lv).length;
+          return n > 0 ? `- Lv.${lv}: ${n}명` : null;
+        })
+        .filter(Boolean)
+        .join('\n');
+      const memberLines = selected
+        .map(
+          (r) =>
+            `- ${r.employee.name}(${r.employee.position}, Lv.${r.employee.growth_level ?? '-'}): ` +
+            `${r.status === 'completed' ? `점수 ${r.weightedScore.toFixed(1)}, ${r.achieved ? '달성' : '미달성'}` : '평가 전(미완료)'}`,
+        )
+        .join('\n');
+
+      const text = await generateEvaluationSummaryReport({
+        scopeLabel,
+        totalMembers: total,
+        completed,
+        achieved,
+        completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+        achievementRate: total > 0 ? Math.round((achieved / total) * 100) : 0,
+        averageScore,
+        levelLines: levelLines || '- (없음)',
+        memberLines,
+      });
+      if (text.startsWith('⚠')) {
+        toast({ title: 'AI 보고서 생성 실패', description: text, variant: 'destructive' });
+      } else {
+        setReport(text);
+        toast({ title: 'AI 요약 보고서를 생성했습니다.', description: `${scopeLabel} · ${total}명` });
+      }
+    } catch (error) {
+      toast({
+        title: 'AI 보고서 생성 실패',
+        description: error instanceof Error ? error.message : 'AI 호출 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reportTitle = `기여도 평가 요약 보고서 - ${scopeLabel}`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(report);
+      toast({ title: '보고서를 복사했습니다.' });
+    } catch {
+      toast({ title: '복사 실패', variant: 'destructive' });
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="sd-card sd-card-lg"
+        style={{ width: 'min(1100px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}
+      >
+        <div
+          style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={18} color="#3B82F6" />
+            <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900 }}>AI 요약 보고서</h2>
+          </div>
+          <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>
+            <X size={16} />
+            닫기
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', minHeight: 0, flex: 1 }}>
+          {/* 좌: 대상 선택 */}
+          <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid var(--border)' }}>
+              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--fg-muted)' }}>부서</label>
+              <select
+                className="sd-input"
+                value={dept}
+                onChange={(e) => {
+                  setDept(e.target.value);
+                  setExcluded(new Set());
+                }}
+              >
+                <option value="all">전사 전체</option>
+                {deptOptions.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                대상자 <b style={{ color: 'var(--fg)' }}>{selected.length}</b>/{pool.length}명
+              </div>
+              <AiOpinionButton label="보고서 생성" loading={loading} onClick={handleGenerate} />
+            </div>
+            <div style={{ overflow: 'auto', padding: '8px 12px', flex: 1, minHeight: 0 }}>
+              {pool.map((r) => {
+                const checked = !excluded.has(r.employee.employee_id);
+                return (
+                  <label
+                    key={r.employee.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setExcluded((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(r.employee.employee_id)) next.delete(r.employee.employee_id);
+                          else next.add(r.employee.employee_id);
+                          return next;
+                        })
+                      }
+                    />
+                    <span style={{ fontWeight: 700 }}>{r.employee.name}</span>
+                    <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-xs)' }}>
+                      {r.employee.position} · Lv.{r.employee.growth_level ?? '-'}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 우: 보고서(편집 가능) */}
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <textarea
+              value={report}
+              onChange={(e) => setReport(e.target.value)}
+              placeholder={loading ? 'AI가 보고서를 작성 중입니다…' : '좌측에서 대상을 고르고 "보고서 생성"을 누르면 여기에 표시됩니다. 생성 후 직접 편집할 수 있습니다.'}
+              style={{
+                flex: 1,
+                minHeight: 360,
+                resize: 'none',
+                border: 'none',
+                outline: 'none',
+                padding: '18px 22px',
+                fontSize: 'var(--fs-body)',
+                lineHeight: 1.7,
+                fontFamily: 'inherit',
+                background: 'transparent',
+                color: 'var(--fg)',
+              }}
+            />
+            <div style={{ borderTop: '1px solid var(--border)', padding: '12px 18px', display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button className="sd-btn sd-btn-outline sd-btn-sm" disabled={!report} onClick={handleCopy}>
+                <Copy size={14} />
+                복사
+              </button>
+              <button
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                disabled={!report}
+                onClick={() => download(`${reportTitle}.txt`, report, 'text/plain;charset=utf-8')}
+              >
+                <Download size={14} />
+                텍스트(.txt)
+              </button>
+              <button
+                className="sd-btn sd-btn-primary sd-btn-sm"
+                disabled={!report}
+                onClick={() => download(`${reportTitle}.doc`, toDocHtml(report, reportTitle), 'application/msword')}
+              >
+                <Download size={14} />
+                워드(.doc)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AiSummaryReportModal;

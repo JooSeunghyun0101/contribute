@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { IconSearch, Pill } from '@/components/brand';
@@ -64,6 +65,9 @@ const topEvaluatorName = (members: EmployeeEvaluationRecord[]): string => {
 const HrDepartmentsPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deptParam = searchParams.get('dept');
+  const consumedDeptParam = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
@@ -107,6 +111,18 @@ const HrDepartmentsPage = () => {
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRecords, groupLevel]);
+
+  // 대시보드 등에서 ?dept=<부서명> 으로 들어오면 해당 부서 모달을 자동으로 연다(1회).
+  useEffect(() => {
+    if (!deptParam || consumedDeptParam.current) return;
+    if (recordsByDepartment.has(deptParam)) {
+      setOpenDepartment(deptParam);
+      consumedDeptParam.current = true;
+      const next = new URLSearchParams(searchParams);
+      next.delete('dept');
+      setSearchParams(next, { replace: true });
+    }
+  }, [deptParam, recordsByDepartment, searchParams, setSearchParams]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
@@ -739,6 +755,19 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
     finalized > 0
       ? (finalizedRecords.reduce((sum, r) => sum + r.weightedScore, 0) / finalized).toFixed(1)
       : '-';
+  const total = records.length;
+  const completionRate = total > 0 ? Math.round((finalized / total) * 100) : 0;
+  const achievementRate = total > 0 ? Math.round((achieved / total) * 100) : 0;
+  const missed = Math.max(0, finalized - achieved);
+  const pending = Math.max(0, total - finalized);
+  const levelChips = [4, 3, 2, 1]
+    .map((lv) => ({ lv, n: records.filter((r) => (r.employee.growth_level ?? 1) === lv).length }))
+    .filter((x) => x.n > 0);
+  const achSegments = [
+    { key: 'a', label: '달성', n: achieved, color: 'var(--ok-orange)' },
+    { key: 'm', label: '미달성', n: missed, color: '#FFAA00' },
+    { key: 'p', label: '미평가', n: pending, color: 'var(--border)' },
+  ];
 
   const handleDownload = () => {
     try {
@@ -815,8 +844,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
             </div>
             <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{name}</h2>
             <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-              {records.length}명 · 평가 완료 {finalized} · 목표 달성 {achieved} · 평균 점수{' '}
-              {averageScore}
+              대상자 {total}명
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -834,6 +862,60 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
             </button>
           </div>
         </div>
+
+        {records.length > 0 && (
+          <div
+            style={{
+              padding: '16px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 22,
+              flexWrap: 'wrap',
+            }}
+          >
+            <ModalStat label="완료율" value={`${completionRate}%`} sub={`${finalized}/${total}`} bar={completionRate} barColor="var(--ok-orange)" />
+            <ModalStat label="목표 달성" value={`${achievementRate}%`} sub={`${achieved}명`} bar={achievementRate} barColor="#FFAA00" />
+            <ModalStat label="평균 점수" value={averageScore} sub="완료자 기준" />
+            <div style={{ flex: '1 1 240px', minWidth: 200 }}>
+              <div className="sd-label-mini" style={{ marginBottom: 6 }}>달성 현황</div>
+              <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: 'var(--bg-muted)' }}>
+                {achSegments.map((s) =>
+                  s.n > 0 ? (
+                    <div
+                      key={s.key}
+                      style={{ width: `${(s.n / (total || 1)) * 100}%`, background: s.color }}
+                      title={`${s.label} ${s.n}명`}
+                    />
+                  ) : null,
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+                {achSegments.map((s) => (
+                  <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, display: 'inline-block' }} />
+                    {s.label} {s.n}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {levelChips.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="sd-label-mini">레벨 분포</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {levelChips.map((c) => (
+                    <span
+                      key={c.lv}
+                      style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
+                    >
+                      Lv.{c.lv} <b className="tnum">{c.n}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ overflow: 'auto', padding: '0 4px 4px' }}>
           {records.length === 0 ? (
@@ -854,6 +936,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                   <TableHead style={{ whiteSpace: 'nowrap' }}>직무</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>레벨</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>평가자</TableHead>
+                  <TableHead style={{ minWidth: 120 }}>진행률</TableHead>
                   <TableHead>점수</TableHead>
                   <TableHead>달성</TableHead>
                   <TableHead>상태</TableHead>
@@ -892,9 +975,28 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                       <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                         {record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? '-'}
                       </TableCell>
+                      <TableCell style={{ minWidth: 120 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--bg-muted)', overflow: 'hidden', minWidth: 56 }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${record.progress}%`,
+                                background: record.progress >= 100 ? 'var(--ok-orange)' : '#FFAA00',
+                                borderRadius: 3,
+                              }}
+                            />
+                          </div>
+                          <span className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', minWidth: 30, textAlign: 'right' }}>
+                            {record.progress}%
+                          </span>
+                        </div>
+                      </TableCell>
                       <TableCell className="tnum">
                         {finalized ? (
-                          <span style={{ fontWeight: 800 }}>{record.weightedScore.toFixed(1)}</span>
+                          <span style={{ fontWeight: 800, color: record.achieved ? 'var(--ok-orange)' : 'var(--fg)' }}>
+                            {record.weightedScore.toFixed(1)}
+                          </span>
                         ) : (
                           <span style={{ color: 'var(--fg-muted)' }}>-</span>
                         )}
@@ -926,5 +1028,32 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
     </div>
   );
 };
+
+const ModalStat = ({
+  label,
+  value,
+  sub,
+  bar,
+  barColor,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  bar?: number;
+  barColor?: string;
+}) => (
+  <div style={{ minWidth: 92 }}>
+    <div className="sd-label-mini">{label}</div>
+    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, marginTop: 2, lineHeight: 1 }}>
+      {value}
+    </div>
+    {sub && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>{sub}</div>}
+    {bar !== undefined && (
+      <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: 'var(--bg-muted)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${bar}%`, background: barColor ?? 'var(--ok-orange)', borderRadius: 3 }} />
+      </div>
+    )}
+  </div>
+);
 
 export default HrDepartmentsPage;

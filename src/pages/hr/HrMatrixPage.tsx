@@ -11,17 +11,20 @@ import {
   cloneDefaultGrowthLevelExpectations,
   cloneDefaultScoreExpectations,
   cloneDefaultScoreGapExpectations,
+  cloneDefaultMatrixGuide,
   getScoreColor,
   getScoreTextColor,
+  MATRIX_METHODS,
+  MATRIX_SCOPES,
   type ContributionScoreLevel,
   type GrowthLevel,
   type GrowthLevelExpectation,
   type ScoreExpectation,
   type ScoreGapBucket,
   type ScoreGapExpectation,
+  type MatrixGuide,
 } from '@/lib/evaluationMatrix';
 
-const SCORE_ORDER: ContributionScoreLevel[] = [4, 3, 2, 1];
 const LEVEL_ORDER: GrowthLevel[] = [1, 2, 3, 4];
 const GAP_ORDER: ScoreGapBucket[] = ['exceed', 'meet', 'near', 'below'];
 const GAP_DESCRIPTION: Record<ScoreGapBucket, { title: string; gapDesc: string }> = {
@@ -40,41 +43,41 @@ const HrMatrixPage = () => {
   const { selectedPeriod } = useEvaluationPeriod();
   const inProgressCount = records.filter((r) => r.status !== 'completed').length;
   const {
-    scoreExpectations,
     growthLevelExpectations,
     scoreGapExpectations,
-    saveScoreExpectations,
+    matrixGuide,
     saveGrowthLevelExpectations,
     saveScoreGapExpectations,
+    saveMatrixGuide,
   } = useExpectations();
   const { toast } = useToast();
 
-  const [scoreDraft, setScoreDraft] = useState(scoreExpectations);
   const [growthDraft, setGrowthDraft] = useState(growthLevelExpectations);
   const [gapDraft, setGapDraft] = useState(scoreGapExpectations);
-  const [savingScore, setSavingScore] = useState(false);
+  const [guideDraft, setGuideDraft] = useState<MatrixGuide>(matrixGuide);
   const [savingGrowth, setSavingGrowth] = useState(false);
   const [savingGap, setSavingGap] = useState(false);
+  const [savingGuide, setSavingGuide] = useState(false);
 
-  useEffect(() => {
-    setScoreDraft(scoreExpectations);
-  }, [scoreExpectations]);
   useEffect(() => {
     setGrowthDraft(growthLevelExpectations);
   }, [growthLevelExpectations]);
   useEffect(() => {
     setGapDraft(scoreGapExpectations);
   }, [scoreGapExpectations]);
+  useEffect(() => {
+    setGuideDraft(matrixGuide);
+  }, [matrixGuide]);
 
-  const scoreDirty = JSON.stringify(scoreDraft) !== JSON.stringify(scoreExpectations);
   const growthDirty = JSON.stringify(growthDraft) !== JSON.stringify(growthLevelExpectations);
   const gapDirty = JSON.stringify(gapDraft) !== JSON.stringify(scoreGapExpectations);
+  const guideDirty = JSON.stringify(guideDraft) !== JSON.stringify(matrixGuide);
 
-  const handleSaveScore = async () => {
-    setSavingScore(true);
+  const handleSaveGuide = async () => {
+    setSavingGuide(true);
     try {
-      await saveScoreExpectations(scoreDraft);
-      toast({ title: '저장 완료', description: '점수별 기대수준이 저장되었습니다.' });
+      await saveMatrixGuide(guideDraft);
+      toast({ title: '저장 완료', description: '매트릭스 가이드가 저장되었습니다.' });
     } catch (err) {
       toast({
         title: '저장 실패',
@@ -82,9 +85,10 @@ const HrMatrixPage = () => {
         variant: 'destructive',
       });
     } finally {
-      setSavingScore(false);
+      setSavingGuide(false);
     }
   };
+  const handleGuideReset = () => setGuideDraft(cloneDefaultMatrixGuide());
 
   const handleSaveGrowth = async () => {
     setSavingGrowth(true);
@@ -102,7 +106,6 @@ const HrMatrixPage = () => {
     }
   };
 
-  const handleScoreReset = () => setScoreDraft(cloneDefaultScoreExpectations());
   const handleGrowthReset = () => setGrowthDraft(cloneDefaultGrowthLevelExpectations());
   const handleGapReset = () => setGapDraft(cloneDefaultScoreGapExpectations());
 
@@ -235,41 +238,56 @@ const HrMatrixPage = () => {
           </div>
         </div>
 
-        {/* 점수별 기대수준 편집 */}
+        {/* 기여 방식·범위 가이드 편집 */}
         <section className="sd-card sd-card-lg">
           <SectionHeader
-            label="점수별 기대수준"
-            title="1~4점 기여도 기준"
-            description="평가 화면 · 피평가자 매트릭스의 점수 hover 툴팁에 표시됩니다."
-            onSave={handleSaveScore}
-            onReset={handleScoreReset}
-            dirty={scoreDirty}
-            saving={savingScore}
+            index={1}
+            label="기여 방식·범위 가이드"
+            title="기여 방식 · 범위 정의"
+            description="평가 화면·점수표의 방식/범위 라벨 hover 시, 그리고 매트릭스 가이드에 표시됩니다."
+            onSave={handleSaveGuide}
+            onReset={handleGuideReset}
+            dirty={guideDirty}
+            saving={savingGuide}
           />
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 14,
-              marginTop: 14,
-            }}
-          >
-            {SCORE_ORDER.map((score) => (
-              <ScoreEditor
-                key={score}
-                score={score}
-                value={scoreDraft[score]}
-                onChange={(next) =>
-                  setScoreDraft((prev) => ({ ...prev, [score]: { ...next, score } }))
-                }
-              />
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20, marginTop: 14 }}>
+            <div>
+              <div className="sd-label-mini" style={{ marginBottom: 10 }}>기여 방식</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {MATRIX_METHODS.map((m) => (
+                  <GuideFieldRow
+                    key={m}
+                    term={m}
+                    value={guideDraft.methods[m] ?? ''}
+                    onChange={(v) =>
+                      setGuideDraft((prev) => ({ ...prev, methods: { ...prev.methods, [m]: v } }))
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="sd-label-mini" style={{ marginBottom: 10 }}>기여 범위</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {MATRIX_SCOPES.map((s) => (
+                  <GuideFieldRow
+                    key={s}
+                    term={s}
+                    value={guideDraft.scopes[s] ?? ''}
+                    onChange={(v) =>
+                      setGuideDraft((prev) => ({ ...prev, scopes: { ...prev.scopes, [s]: v } }))
+                    }
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
         {/* 성장레벨별 기대수준 편집 */}
         <section className="sd-card sd-card-lg">
           <SectionHeader
+            index={2}
             label="성장 레벨별 기대수준"
             title="Lv.1~4 직급별 기준"
             description="평가 화면 헤더의 성장 레벨 hover 툴팁에 표시됩니다."
@@ -302,6 +320,7 @@ const HrMatrixPage = () => {
         {/* 점수-성장레벨 갭별 기대수준 편집 (상대적 메시지) */}
         <section className="sd-card sd-card-lg">
           <SectionHeader
+            index={3}
             label="점수-성장레벨 갭별 기대수준"
             title="상대 평가 메시지 (초과/충족/근접/미달)"
             description="평가 화면·매트릭스 셀 hover 시, 피평가자의 성장레벨 대비 점수 갭에 따라 표시되는 상대적 메시지입니다."
@@ -355,6 +374,8 @@ type SectionHeaderProps = {
   label: string;
   title: string;
   description: string;
+  /** 편집 섹션 단계 번호(있으면 제목 앞 배지로 표시). */
+  index?: number;
   onSave: () => void;
   onReset: () => void;
   dirty: boolean;
@@ -365,6 +386,7 @@ const SectionHeader = ({
   label,
   title,
   description,
+  index,
   onSave,
   onReset,
   dirty,
@@ -381,7 +403,28 @@ const SectionHeader = ({
   >
     <div>
       <div className="sd-label-mini">{label}</div>
-      <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginTop: 2 }}>{title}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+        {index !== undefined && (
+          <span
+            style={{
+              flexShrink: 0,
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              background: 'var(--ok-orange)',
+              color: '#fff',
+              fontSize: 'var(--fs-xs)',
+              fontWeight: 900,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {index}
+          </span>
+        )}
+        <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>{title}</h3>
+      </div>
       <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 4 }}>
         {description}
       </div>
@@ -449,66 +492,6 @@ const Field = ({
         lineHeight: 1.55,
         fontFamily: 'inherit',
       }}
-    />
-  </div>
-);
-
-const ScoreEditor = ({
-  score,
-  value,
-  onChange,
-}: {
-  score: ContributionScoreLevel;
-  value: ScoreExpectation;
-  onChange: (next: ScoreExpectation) => void;
-}) => (
-  <div
-    style={{
-      padding: 14,
-      borderRadius: 10,
-      background: 'var(--bg-muted)',
-      border: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
-    }}
-  >
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 8,
-          background: getScoreColor(score),
-          color: getScoreTextColor(score),
-          fontSize: 'var(--fs-h4)',
-          fontWeight: 900,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {score}
-      </div>
-      <input
-        value={value.label}
-        onChange={(e) => onChange({ ...value, label: e.target.value })}
-        className="sd-input"
-        placeholder="등급명 (예: 탁월 기여)"
-        style={{ flex: 1, fontSize: 'var(--fs-body)', fontWeight: 800 }}
-      />
-    </div>
-    <Field
-      label="요약"
-      value={value.summary}
-      onChange={(v) => onChange({ ...value, summary: v })}
-    />
-    <Field
-      label="상세 설명"
-      value={value.detail}
-      onChange={(v) => onChange({ ...value, detail: v })}
-      rows={3}
     />
   </div>
 );
@@ -630,5 +613,36 @@ const GapEditor = ({
     </div>
   );
 };
+
+const GuideFieldRow = ({
+  term,
+  value,
+  onChange,
+}: {
+  term: string;
+  value: string;
+  onChange: (v: string) => void;
+}) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <span
+      style={{
+        flexShrink: 0,
+        minWidth: 52,
+        fontSize: 'var(--fs-sm)',
+        fontWeight: 800,
+        color: 'var(--ok-orange)',
+      }}
+    >
+      {term}
+    </span>
+    <input
+      className="sd-input"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="설명을 입력하세요"
+      style={{ flex: 1, fontSize: 'var(--fs-sm)' }}
+    />
+  </div>
+);
 
 export default HrMatrixPage;

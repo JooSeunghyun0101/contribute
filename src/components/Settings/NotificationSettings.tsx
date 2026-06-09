@@ -11,7 +11,9 @@ import { settingService as settingsService } from '@/lib/services';
 import { X, Save, Bell } from 'lucide-react';
 
 interface NotificationSettingsProps {
-  onClose: () => void;
+  onClose?: () => void;
+  /** 설정 페이지에 인라인 임베드 시 모달 헤더(중복 제목·닫기)를 숨긴다. */
+  embedded?: boolean;
 }
 
 interface NotificationConfig {
@@ -24,7 +26,7 @@ interface NotificationConfig {
   reminderFrequency: number;
 }
 
-export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onClose }) => {
+export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onClose, embedded }) => {
   const { toast } = useToast();
   const { user } = useAuth();
   
@@ -97,16 +99,18 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onCl
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">알림 설정</h2>
-            <p className="text-muted-foreground">데이터를 로딩 중입니다...</p>
+        {!embedded && (
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">알림 설정</h2>
+              <p className="text-muted-foreground">데이터를 로딩 중입니다...</p>
+            </div>
+            <Button variant="outline" onClick={onClose}>
+              <X className="mr-2 h-4 w-4" />
+              닫기
+            </Button>
           </div>
-          <Button variant="outline" onClick={onClose}>
-            <X className="mr-2 h-4 w-4" />
-            닫기
-          </Button>
-        </div>
+        )}
         <Card>
           <CardContent className="p-6">
             <div className="text-center">로딩 중...</div>
@@ -118,16 +122,18 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onCl
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">알림 설정</h2>
-          <p className="text-muted-foreground">시스템 알림 및 마감일 설정을 관리하세요</p>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">알림 설정</h2>
+            <p className="text-muted-foreground">시스템 알림 및 마감일 설정을 관리하세요</p>
+          </div>
+          <Button variant="outline" onClick={onClose}>
+            <X className="mr-2 h-4 w-4" />
+            닫기
+          </Button>
         </div>
-        <Button variant="outline" onClick={onClose}>
-          <X className="mr-2 h-4 w-4" />
-          닫기
-        </Button>
-      </div>
+      )}
 
       <Card>
         <CardHeader>

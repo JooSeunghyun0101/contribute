@@ -1,12 +1,29 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Download, X } from 'lucide-react';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import PageHeader from '@/components/Layout/PageHeader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Pill } from '@/components/brand';
+import AiSummaryReportModal from '@/components/Dashboard/AiSummaryReportModal';
 import { useCompanyDashboardRecords, usePriorYearRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
-import { downloadFullEvaluationDataWorkbook } from '@/utils/hrDataExport';
+import {
+  downloadFullEvaluationDataWorkbook,
+  downloadDepartmentMembersWorkbook,
+  type DepartmentExportMember,
+} from '@/utils/hrDataExport';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import {
+  Donut,
+  ChartCard,
+  LevelDistChart,
+  ScoreDistChart,
+  DeptHeadcountList,
+  HR_COLOR,
+  type DeptSort,
+} from '@/components/Dashboard/HrDashboardCharts';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
 import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
@@ -71,10 +88,23 @@ const HrHome = () => {
   const { toast } = useToast();
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [deptSort, setDeptSort] = useState<DeptSort>('achievement');
+  const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
+  const [memberModal, setMemberModal] = useState<{ title: string; records: EmployeeEvaluationRecord[] } | null>(null);
+  const [showAiReport, setShowAiReport] = useState(false);
 
   const filteredRecords = useMemo(
     () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
     [records, orgFilter],
+  );
+
+  // 레벨 필터 적용 — 도넛·점수분포·부서·추이는 선택 레벨로 스코프. (성장레벨 분포 차트는 전체 유지)
+  const scopedRecords = useMemo(
+    () =>
+      selectedLevel === 'all'
+        ? filteredRecords
+        : filteredRecords.filter((r) => (r.employee.growth_level ?? 1) === selectedLevel),
+    [filteredRecords, selectedLevel],
   );
 
   const trendYear = useMemo(() => {
@@ -87,7 +117,7 @@ const HrHome = () => {
   }, [selectedPeriod?.evaluation_year, selectedPeriod?.starts_on]);
 
   const summary = useMemo(() => {
-    const records = filteredRecords;
+    const records = scopedRecords;
     const totalMembers = records.length;
     const completedMembers = records.filter((r) => r.status === 'completed').length;
     const achievedMembers = records.filter((r) => r.achieved).length;
@@ -107,12 +137,18 @@ const HrHome = () => {
 
     const departments = Object.values(
       records.reduce<
-        Record<string, { name: string; total: number; completed: number; totalProgress: number }>
+        Record<
+          string,
+          { name: string; total: number; completed: number; achieved: number; totalProgress: number }
+        >
       >((acc, r) => {
         const key = r.employee.department || '미지정';
-        if (!acc[key]) acc[key] = { name: key, total: 0, completed: 0, totalProgress: 0 };
+        if (!acc[key]) acc[key] = { name: key, total: 0, completed: 0, achieved: 0, totalProgress: 0 };
         acc[key].total += 1;
-        acc[key].completed += r.status === 'completed' ? 1 : 0;
+        if (r.status === 'completed') {
+          acc[key].completed += 1;
+          if (r.achieved) acc[key].achieved += 1;
+        }
         acc[key].totalProgress += r.progress;
         return acc;
       }, {}),
@@ -120,21 +156,46 @@ const HrHome = () => {
       .map((d) => ({
         ...d,
         rate: d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0,
+        achievementRate: d.total > 0 ? Math.round((d.achieved / d.total) * 100) : 0,
         avgProgress: d.total > 0 ? Math.round(d.totalProgress / d.total) : 0,
       }))
       .sort((a, b) => b.total - a.total);
 
-    const recentActivities = records
-      .flatMap((r) =>
-        r.tasks.flatMap((t) =>
-          (t.feedbackHistory ?? []).map((fb) => ({
-            text: `${fb.evaluatorName ?? '평가자'}이(가) ${r.employee.name}의 평가를 완료했습니다.`,
-            date: fb.date ?? fb.created_at ?? '',
-          })),
-        ),
-      )
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 8);
+    // 상태 분포(완료/진행중/미시작)
+    const statusCounts = {
+      completed: completedMembers,
+      inProgress: records.filter((r) => r.status === 'in-progress').length,
+      notStarted: records.filter((r) => r.status === 'not-started').length,
+    };
+    // 달성 분포(완료자 기준): 달성 / 미달성 / 미평가
+    const achievedCompleted = records.filter((r) => r.status === 'completed' && r.achieved).length;
+    const achievement = {
+      achieved: achievedCompleted,
+      missed: Math.max(0, completedMembers - achievedCompleted),
+      pending: Math.max(0, totalMembers - completedMembers),
+      rate: totalMembers > 0 ? Math.round((achievedCompleted / totalMembers) * 100) : 0,
+    };
+    // 성장레벨별(Lv.1~4) 달성/미달성/미평가 — 레벨 필터와 무관하게 항상 전체 분포 표시
+    const levelDist = [1, 2, 3, 4].map((level) => {
+      const inLevel = filteredRecords.filter((r) => (r.employee.growth_level ?? 1) === level);
+      const completed = inLevel.filter((r) => r.status === 'completed');
+      const achieved = completed.filter((r) => r.achieved).length;
+      return {
+        label: `Lv.${level}`,
+        level,
+        achieved,
+        missed: completed.length - achieved,
+        pending: inLevel.length - completed.length,
+      };
+    });
+    // 점수(1~4점) 분포 — 완료자 기준 반영점수 반올림
+    const scoreDist = [1, 2, 3, 4].map((s) => ({
+      label: `${s}점`,
+      score: s,
+      count: records.filter(
+        (r) => r.status === 'completed' && Math.min(4, Math.max(1, Math.round(r.weightedScore))) === s,
+      ).length,
+    }));
 
     return {
       totalMembers,
@@ -143,16 +204,19 @@ const HrHome = () => {
       achievementRate,
       inProgress,
       departments,
-      recentActivities,
+      statusCounts,
+      achievement,
+      levelDist,
+      scoreDist,
       monthlyTrend,
       completionDelta,
     };
-  }, [filteredRecords, trendYear]);
+  }, [scopedRecords, filteredRecords, trendYear]);
 
   // 모수(분모)는 전체 대상자(미완료 포함). 점수/달성은 완료(또는 잠금)만 반영(미완료는 빈 과업).
   const hrTrendMembers = useMemo(
     () =>
-      filteredRecords.map((r) => ({
+      scopedRecords.map((r) => ({
         tasks:
           r.reviewStatus === 'completed' || r.reviewStatus === 'locked'
             ? r.tasks.map((t) => ({
@@ -163,7 +227,7 @@ const HrHome = () => {
             : [],
         growthLevel: Math.max(1, r.employee.growth_level ?? 1),
       })),
-    [filteredRecords],
+    [scopedRecords],
   );
 
   // 직전연도 비교 — 직전 평가기간(연도-1)의 조직 평균 점수 추이.
@@ -177,6 +241,7 @@ const HrHome = () => {
   const priorScoreTrend = useMemo(() => {
     const members = priorRecords
       .filter((r) => matchesOrgFilter(r.employee, orgFilter))
+      .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
       .map((r) => ({
         tasks:
           r.reviewStatus === 'completed' || r.reviewStatus === 'locked'
@@ -185,7 +250,7 @@ const HrHome = () => {
         growthLevel: Math.max(1, r.employee.growth_level ?? 1),
       }));
     return buildAggregateMonthlyTrend(members, { year: priorYear });
-  }, [priorRecords, orgFilter, priorYear]);
+  }, [priorRecords, orgFilter, priorYear, selectedLevel]);
 
   const deadlineInfo = useMemo(() => {
     const endsOn = selectedPeriod?.ends_on;
@@ -200,16 +265,6 @@ const HrHome = () => {
     if (diffDays === 0) return { label: '오늘 마감', emphasize: true };
     return { label: `마감 ${-diffDays}일 경과`, emphasize: true };
   }, [selectedPeriod?.ends_on]);
-
-  const formatRelativeTime = (dateStr: string) => {
-    if (!dateStr) return '';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.round(diff / 60000);
-    if (mins < 60) return `${mins}분 전`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `${hours}시간 전`;
-    return `${Math.round(hours / 24)}일 전`;
-  };
 
   const handleExportEvaluationData = async () => {
     setIsExportingReport(true);
@@ -239,6 +294,13 @@ const HrHome = () => {
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button
+              className="sd-btn sd-btn-sm"
+              onClick={() => setShowAiReport(true)}
+              style={{ background: '#2563EB', color: '#fff', border: 'none' }}
+            >
+              AI 요약 보고서
+            </button>
+            <button
               className="sd-btn sd-btn-outline sd-btn-sm"
               onClick={handleExportEvaluationData}
               disabled={isExportingReport}
@@ -248,93 +310,129 @@ const HrHome = () => {
           </div>
         }
         filters={
-          <OrgFilterBar
-            items={records.map((r) => r.employee)}
-            value={orgFilter}
-            onChange={setOrgFilter}
-          />
+          <>
+            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {(['all', 1, 2, 3, 4] as const).map((lv) => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => setSelectedLevel(lv)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 8,
+                    border: '1px solid',
+                    borderColor: selectedLevel === lv ? 'var(--ok-orange)' : 'var(--border)',
+                    background: selectedLevel === lv ? 'var(--ok-orange)' : 'transparent',
+                    color: selectedLevel === lv ? '#fff' : 'var(--fg)',
+                    fontSize: 'var(--fs-sm)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {lv === 'all' ? '전체' : `Lv.${lv}`}
+                </button>
+              ))}
+            </div>
+          </>
         }
       />
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
-        {/* Stat cards */}
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
-          {/* Total */}
-          <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
-              전체 직원
-            </div>
-            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>{summary.totalMembers}</div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>
-              완성 평가자 {summary.completedMembers}
-            </div>
-          </div>
-
-          {/* Completion rate — highlighted */}
-          <div
-            className="sd-card"
-            style={{
-              padding: '20px 22px',
-              background: 'var(--ok-orange)',
-              border: 'none',
-            }}
-          >
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'rgba(255,255,255,0.75)', marginBottom: 10 }}>
-              완료율
-            </div>
-            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: '#fff', lineHeight: 1 }}>
-              {summary.completionRate}%
-            </div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
-              {summary.completedMembers} / {summary.totalMembers}
-            </div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: '#FFD4B8', marginTop: 4, fontWeight: 700 }}>
-              {summary.completionDelta > 0
-                ? `↑ +${summary.completionDelta}%`
-                : summary.completionDelta < 0
-                ? `↓ ${summary.completionDelta}%`
-                : '변동 없음'}{' '}
-              <span style={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>vs 전월</span>
-            </div>
-          </div>
-
-          {/* Achievement rate */}
-          <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
-              달성률
-            </div>
-            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>
-              {summary.achievementRate}%
-            </div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6 }}>목표 Lv. 이상</div>
-          </div>
-
-          {/* In progress */}
-          <div className="sd-card" style={{ padding: '20px 22px' }}>
-            <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10 }}>
-              진행 중
-            </div>
-            <div style={{ fontSize: 'var(--fs-display)', fontWeight: 900, lineHeight: 1 }}>{summary.inProgress}</div>
-            <div
-              style={{
-                fontSize: 'var(--fs-sm)',
-                color: deadlineInfo.emphasize ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                marginTop: 6,
-                fontWeight: deadlineInfo.emphasize ? 700 : 500,
-              }}
-            >
-              {deadlineInfo.label}
-            </div>
-          </div>
+        {/* 핵심 지표 — 큰 숫자 카드 나열 대신 슬림 스트립(상세 수치는 아래 그래프에서) */}
+        <section
+          className="sd-card"
+          style={{ display: 'flex', alignItems: 'center', gap: 26, padding: '14px 22px', flexWrap: 'wrap' }}
+        >
+          <KpiStat label="전체 직원" value={`${summary.totalMembers}명`} />
+          <KpiDivider />
+          <KpiStat label="평가 완료" value={`${summary.completedMembers}명`} accent />
+          <KpiDivider />
+          <KpiStat label="진행 중" value={`${summary.inProgress}명`} />
+          <KpiDivider />
+          <KpiStat label="마감" value={deadlineInfo.label} emphasize={deadlineInfo.emphasize} />
         </section>
 
         {isLoading ? (
           <div className="sd-card">전사 평가 데이터를 불러오는 중입니다.</div>
         ) : (
-          <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) 320px', gap: 20 }}>
-            {/* Left column */}
-            <div className="flex flex-col gap-5">
-              {/* Weekly completion trend chart */}
+          <>
+            {/* Row 1: 핵심 도넛 — 평가 진행(완료율) · 목표 달성 */}
+            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+              <ChartCard
+                title="평가 진행"
+                subtitle={
+                  summary.completionDelta > 0
+                    ? `완료율 ▲ +${summary.completionDelta}% vs 전월`
+                    : summary.completionDelta < 0
+                      ? `완료율 ▼ ${summary.completionDelta}% vs 전월`
+                      : '완료율 · 전월 대비 변동 없음'
+                }
+              >
+                <Donut
+                  centerValue={`${summary.completionRate}%`}
+                  centerLabel="완료율"
+                  segments={[
+                    { key: 'c', name: '완료', value: summary.statusCounts.completed, color: HR_COLOR.orange },
+                    { key: 'i', name: '진행 중', value: summary.statusCounts.inProgress, color: HR_COLOR.amber },
+                    { key: 'n', name: '미시작', value: summary.statusCounts.notStarted, color: HR_COLOR.pending },
+                  ]}
+                />
+              </ChartCard>
+
+              <ChartCard title="목표 달성" subtitle="완료자 기준 성장레벨 달성">
+                <Donut
+                  centerValue={`${summary.achievement.rate}%`}
+                  centerLabel="달성률"
+                  centerColor={HR_COLOR.achieved}
+                  segments={[
+                    { key: 'a', name: '달성', value: summary.achievement.achieved, color: HR_COLOR.achieved },
+                    { key: 'm', name: '미달성', value: summary.achievement.missed, color: HR_COLOR.missed },
+                    { key: 'p', name: '미평가', value: summary.achievement.pending, color: HR_COLOR.pending },
+                  ]}
+                />
+              </ChartCard>
+            </section>
+
+            {/* Row 2: 성장레벨 분포 + 점수 분포 */}
+            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+              <ChartCard title="성장레벨별 인원 · 달성" subtitle="Lv.1~4 · 달성/미달성/미평가 · 막대 클릭 시 명단">
+                <LevelDistChart
+                  data={summary.levelDist}
+                  onSelect={(level) =>
+                    setMemberModal({
+                      title: `Lv.${level}`,
+                      records: filteredRecords.filter((r) => (r.employee.growth_level ?? 1) === level),
+                    })
+                  }
+                />
+              </ChartCard>
+              <ChartCard title="점수 분포" subtitle="완료 평가 반영점수(1~4점) · 막대 클릭 시 명단">
+                <ScoreDistChart
+                  data={summary.scoreDist}
+                  onSelect={(score) =>
+                    setMemberModal({
+                      title: `${score}점`,
+                      records: scopedRecords.filter(
+                        (r) =>
+                          r.status === 'completed' &&
+                          Math.min(4, Math.max(1, Math.round(r.weightedScore))) === score,
+                      ),
+                    })
+                  }
+                />
+              </ChartCard>
+            </section>
+
+            {/* Row 3: 월별 추이 + 부서별 비교 */}
+            <section
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)',
+                gap: 20,
+                alignItems: 'stretch',
+              }}
+            >
               <AggregateScoreTrendChart
                 members={hrTrendMembers}
                 year={trendYear}
@@ -342,111 +440,254 @@ const HrHome = () => {
                 comparisonLabel="전년도"
                 title="월별 추이 (조직)"
                 subtitle={`${trendYear}년`}
+                fill
               />
-
-              {/* Recent activity */}
-              <div className="sd-card sd-card-lg">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>최근 시스템 활동</h3>
+              <ChartCard
+                title="부서별 인원 구성"
+                subtitle="달성/미달성/미완료 · 클릭 시 해당 부서로 이동"
+                action={
                   <button
                     className="sd-btn sd-btn-ghost sd-btn-sm"
                     style={{ color: 'var(--ok-orange)' }}
-                    onClick={() => navigate('/notifications')}
+                    onClick={() => navigate('/hr/departments')}
                   >
                     전체 보기 →
                   </button>
-                </div>
-                <div className="flex flex-col gap-0">
-                  {summary.recentActivities.length > 0 ? (
-                    summary.recentActivities.map((act, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 10,
-                          padding: '10px 0',
-                          borderBottom: i < summary.recentActivities.length - 1 ? '1px solid var(--border)' : 'none',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            background: i === 0 ? '#F55000' : 'var(--fg-muted)',
-                            marginTop: 5,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <span style={{ fontSize: 'var(--fs-body)', color: 'var(--fg)' }}>{act.text}</span>
-                        </div>
-                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
-                          {formatRelativeTime(act.date)}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>최근 활동이 없습니다.</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Right: department bar list */}
-            <div className="sd-card sd-card-lg">
-              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 18 }}>부서별 진행률</h3>
-              <div className="flex flex-col gap-4">
-                {summary.departments.map((dept) => {
-                  const barColor =
-                    dept.rate >= 80 ? '#16A34A' : dept.rate >= 60 ? '#F55000' : '#FFAA00';
-                  return (
-                    <div key={dept.name}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'baseline',
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{dept.name}</span>
-                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-                          {dept.completed}/{dept.total} · {dept.rate}%
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 8,
-                          background: 'var(--bg-muted)',
-                          borderRadius: 4,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: '100%',
-                            width: `${dept.rate}%`,
-                            background: barColor,
-                            borderRadius: 4,
-                            transition: 'width 0.4s',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {!summary.departments.length && (
-                  <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>부서 데이터가 없습니다.</div>
-                )}
-              </div>
-            </div>
-          </section>
+                }
+              >
+                <DeptHeadcountList
+                  data={summary.departments.map((d) => ({
+                    name: d.name,
+                    total: d.total,
+                    achieved: d.achieved,
+                    missed: Math.max(0, d.completed - d.achieved),
+                    pending: Math.max(0, d.total - d.completed),
+                    achievementRate: d.achievementRate,
+                  }))}
+                  sort={deptSort}
+                  onSortChange={setDeptSort}
+                  rowsVisible={5}
+                  onSelect={(name) => navigate(`/hr/departments?dept=${encodeURIComponent(name)}`)}
+                />
+              </ChartCard>
+            </section>
+          </>
         )}
       </div>
+
+      {memberModal && (
+        <DashboardMemberModal
+          title={memberModal.title}
+          records={memberModal.records}
+          onClose={() => setMemberModal(null)}
+        />
+      )}
+
+      {showAiReport && (
+        <AiSummaryReportModal records={records} onClose={() => setShowAiReport(false)} />
+      )}
     </>
+  );
+};
+
+const KpiStat = ({
+  label,
+  value,
+  accent,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  emphasize?: boolean;
+}) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>{label}</span>
+    <span
+      className="tnum"
+      style={{
+        fontSize: 'var(--fs-h3)',
+        fontWeight: 900,
+        lineHeight: 1,
+        color: emphasize ? 'var(--ok-orange)' : accent ? 'var(--ok-orange)' : 'var(--fg)',
+      }}
+    >
+      {value}
+    </span>
+  </div>
+);
+
+const KpiDivider = () => (
+  <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', minHeight: 28 }} />
+);
+
+const DASH_STATUS_LABEL: Record<EmployeeEvaluationRecord['reviewStatus'], string> = {
+  'not-started': '시작 전',
+  draft: '작성 중',
+  submitted: '검토 대기',
+  evaluating: '평가 중',
+  completed: '완료',
+  locked: '잠금',
+};
+const DASH_STATUS_TONE: Record<
+  EmployeeEvaluationRecord['reviewStatus'],
+  'success' | 'orange' | 'warning' | 'info' | 'neutral'
+> = {
+  'not-started': 'warning',
+  draft: 'warning',
+  submitted: 'orange',
+  evaluating: 'info',
+  completed: 'success',
+  locked: 'neutral',
+};
+const isFinalizedRec = (r: EmployeeEvaluationRecord) =>
+  r.reviewStatus === 'completed' || r.reviewStatus === 'locked';
+
+// 성장레벨·점수 막대 클릭 시 뜨는 대상자 명단 모달(+엑셀 다운로드).
+const DashboardMemberModal = ({
+  title,
+  records,
+  onClose,
+}: {
+  title: string;
+  records: EmployeeEvaluationRecord[];
+  onClose: () => void;
+}) => {
+  const { toast } = useToast();
+  const handleDownload = () => {
+    try {
+      const members: DepartmentExportMember[] = records.map((r) => ({
+        employeeId: r.employee.employee_id,
+        name: r.employee.name,
+        position: r.employee.position,
+        department: r.employee.department,
+        jobRole: r.employee.job_role ?? null,
+        growthLevel: r.employee.growth_level,
+        evaluatorName: r.evaluation?.evaluator_name ?? r.employee.evaluator_id ?? null,
+        reviewStatusLabel: DASH_STATUS_LABEL[r.reviewStatus],
+        weightedScore: r.weightedScore,
+        isFinalized: isFinalizedRec(r),
+        achieved: r.achieved,
+        progress: r.progress,
+      }));
+      const result = downloadDepartmentMembersWorkbook(title, members);
+      toast({ title: '명단 다운로드 완료', description: `${title} · ${result.memberCount}명` });
+    } catch (error) {
+      toast({
+        title: '명단 다운로드 실패',
+        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="sd-card sd-card-lg"
+        style={{ width: 'min(1000px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}
+      >
+        <div
+          style={{
+            padding: '20px 24px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div>
+            <div className="sd-label-mini">대상자 명단</div>
+            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{title}</h2>
+            <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{records.length}명</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={handleDownload} disabled={records.length === 0}>
+              <Download size={14} />
+              엑셀 다운로드
+            </button>
+            <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>
+              <X size={16} />
+              닫기
+            </button>
+          </div>
+        </div>
+
+        <div style={{ overflow: 'auto', padding: '0 4px 4px' }}>
+          {records.length === 0 ? (
+            <div style={{ padding: 24, color: 'var(--fg-muted)' }}>해당하는 대상자가 없습니다.</div>
+          ) : (
+            <Table>
+              <TableHeader style={{ background: 'var(--bg-muted)' }}>
+                <TableRow>
+                  <TableHead>사번</TableHead>
+                  <TableHead>이름</TableHead>
+                  <TableHead>직급</TableHead>
+                  <TableHead>부서</TableHead>
+                  <TableHead>레벨</TableHead>
+                  <TableHead>평가자</TableHead>
+                  <TableHead>점수</TableHead>
+                  <TableHead>달성</TableHead>
+                  <TableHead>상태</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((r) => {
+                  const fin = isFinalizedRec(r);
+                  return (
+                    <TableRow key={r.employee.id}>
+                      <TableCell style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                        {r.employee.employee_id}
+                      </TableCell>
+                      <TableCell style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{r.employee.name}</TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>{r.employee.position}</TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>{r.employee.department || '-'}</TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>{r.employee.growth_level ? `Lv.${r.employee.growth_level}` : '-'}</TableCell>
+                      <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                        {r.evaluation?.evaluator_name ?? r.employee.evaluator_id ?? '-'}
+                      </TableCell>
+                      <TableCell className="tnum">
+                        {fin ? (
+                          <span style={{ fontWeight: 800, color: r.achieved ? 'var(--ok-orange)' : 'var(--fg)' }}>
+                            {r.weightedScore.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--fg-muted)' }}>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {fin ? (
+                          r.achieved ? <Pill tone="success">달성</Pill> : <Pill tone="warning">미달성</Pill>
+                        ) : (
+                          <span style={{ color: 'var(--fg-muted)' }}>-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Pill tone={DASH_STATUS_TONE[r.reviewStatus]}>{DASH_STATUS_LABEL[r.reviewStatus]}</Pill>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 

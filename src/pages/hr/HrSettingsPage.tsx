@@ -11,12 +11,6 @@ import { employeeService } from '@/lib/services';
 import { downloadEvaluatorQnaLogsWorkbook } from '@/utils/hrDataExport';
 import type { EvaluationPeriodStatus } from '@/types';
 
-const ROLE_CARDS = [
-  { id: 'hr', label: 'HR', desc: '시스템 설정 전체', borderColor: '#2563EB', color: '#EFF6FF' },
-  { id: 'evaluator', label: '평가자', desc: '팀원 평가 · 피드백 작성', borderColor: '#F55000', color: 'var(--ok-orange-50)' },
-  { id: 'evaluatee', label: '피평가자', desc: '과업 등록 · 피드백 열람', borderColor: 'var(--border)', color: 'var(--bg-muted)' },
-];
-
 const PERIOD_STATUS_LABEL: Record<EvaluationPeriodStatus, string> = {
   draft: '작성 전',
   active: '진행 중',
@@ -36,7 +30,7 @@ const formatDate = (value: string | null | undefined) =>
 
 const HrSettingsPage = () => {
   const navigate = useNavigate();
-  const { employees, reload } = useAllEmployees();
+  const { reload } = useAllEmployees();
   const { user } = useAuth();
   const { toast } = useToast();
   const { periods, selectedPeriod } = useEvaluationPeriod();
@@ -64,12 +58,6 @@ const HrSettingsPage = () => {
     } finally {
       setDownloadingQna(false);
     }
-  };
-
-  const counts = {
-    hr: employees.filter((e) => e.available_roles.includes('hr')).length,
-    evaluator: employees.filter((e) => e.available_roles.includes('evaluator')).length,
-    evaluatee: employees.filter((e) => e.available_roles.includes('evaluatee')).length,
   };
 
   const handleResetEmployees = async () => {
@@ -237,52 +225,7 @@ const HrSettingsPage = () => {
         {/* 알림 설정 */}
         <section className="sd-card sd-card-lg">
           <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
-          <NotificationSettings onClose={() => {}} />
-        </section>
-
-        {/* 권한 & 역할 */}
-        <section className="sd-card sd-card-lg">
-          <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>권한 &amp; 역할</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-            {ROLE_CARDS.map((card) => {
-              const count = counts[card.id as keyof typeof counts];
-              return (
-                <div
-                  key={card.id}
-                  style={{
-                    padding: '20px 22px',
-                    borderRadius: 14,
-                    background: card.color,
-                    border: `1.5px solid ${card.borderColor}`,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 'var(--fs-xs)',
-                      fontWeight: 800,
-                      letterSpacing: '0.06em',
-                      color: card.borderColor,
-                      marginBottom: 10,
-                    }}
-                  >
-                    {card.label}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 'var(--fs-display)',
-                      fontWeight: 900,
-                      color: card.borderColor,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {count}
-                    <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 600, marginLeft: 4 }}>명</span>
-                  </div>
-                  <div style={{ marginTop: 8, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{card.desc}</div>
-                </div>
-              );
-            })}
-          </div>
+          <NotificationSettings embedded />
         </section>
 
         {/* 데이터 내보내기 */}

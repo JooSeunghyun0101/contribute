@@ -226,7 +226,10 @@ export interface FeedbackSuggestion {
  * GPT‑OSS에 프롬프트를 전달하고 응답 텍스트를 반환합니다.
  */
 
-async function callGptOss(prompt: string, options: { timeoutMs?: number } = {}): Promise<string> {
+async function callGptOss(
+  prompt: string,
+  options: { timeoutMs?: number; fullLength?: boolean } = {},
+): Promise<string> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 20000);
 
@@ -255,6 +258,10 @@ async function callGptOss(prompt: string, options: { timeoutMs?: number } = {}):
       throw new Error('GPT‑OSS 응답에서 텍스트를 찾을 수 없습니다');
     }
 
+    // 보고서 등 긴 응답은 절단하지 않는다.
+    if (options.fullLength) {
+      return content;
+    }
     // 500자 제한 강화 - 완전한 문장으로 끝내기
     if (content.length > 500) {
       const truncated = content.substring(0, 500);
@@ -318,6 +325,44 @@ ${input.currentDescription?.trim() ? `**기존 작성 내용:** ${input.currentD
 4. 500자 이내, 한국어 존댓말 또는 보고서 문체로 완성`;
 
   return await callGptOss(prompt);
+}
+
+/**
+ * HR 요약 보고서 생성 — 선택한 부서/대상자의 기여도 평가 현황을 경영진 보고용으로 요약.
+ */
+export async function generateEvaluationSummaryReport(input: {
+  scopeLabel: string;
+  totalMembers: number;
+  completed: number;
+  achieved: number;
+  completionRate: number;
+  achievementRate: number;
+  averageScore: string;
+  levelLines: string;
+  memberLines: string;
+}): Promise<string> {
+  let guide = '';
+  try {
+    guide = await fetchPrompt('evaluation_guide');
+  } catch {
+    guide = '';
+  }
+  const prompt = `당신은 OK금융그룹 HR을 돕는 분석가입니다. 아래 기여도 평가 데이터를 바탕으로 경영진 보고용 요약 보고서를 한국어로 작성하세요.
+${guide ? `\n[평가 기준]\n${guide}\n` : ''}
+[대상] ${input.scopeLabel}
+[개요] 대상자 ${input.totalMembers}명 · 평가완료 ${input.completed}명(완료율 ${input.completionRate}%) · 목표달성 ${input.achieved}명(달성률 ${input.achievementRate}%) · 평균점수 ${input.averageScore}
+
+[성장레벨 분포]
+${input.levelLines}
+
+[대상자 상세]
+${input.memberLines}
+
+[작성 요구사항]
+1. 다음 순서의 보고서 형식으로: "## 핵심 요약", "## 강점", "## 개선 필요·리스크", "## 권고사항"
+2. 위 데이터에 근거한 사실만 기술하고, 없는 수치나 이름은 만들지 말 것
+3. 한국어 보고서 문체, 마크다운 소제목(## ) 사용, 800~1500자 내외`;
+  return await callGptOss(prompt, { fullLength: true, timeoutMs: 45000 });
 }
 
 /**

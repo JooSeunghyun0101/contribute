@@ -1,9 +1,7 @@
 import { useExpectations } from '@/contexts/ExpectationContext';
 import {
   getGrowthLevelExpectation,
-  getScoreExpectation,
   getScoreGapBucket,
-  type ContributionScoreLevel,
   type GrowthLevel,
 } from '@/lib/evaluationMatrix';
 
@@ -20,24 +18,10 @@ export const ScoreExpectationContent = ({
   scope,
   growthLevel,
 }: ScoreExpectationContentProps) => {
-  const { scoreExpectations, scoreGapExpectations } = useExpectations();
+  // 점수 자체의 절대 등급/의미는 사용하지 않는다(기여방식·범위가 의미를 담당).
+  // 성장레벨 대비 상대 평가(초과/충족/근접/미달)만 표시한다.
+  const { scoreGapExpectations } = useExpectations();
   const rounded = Math.round(Number(score));
-
-  // 절대 점수 등급명 (탁월/우수/기본/제한적) — 점수 자체 의미
-  const baseExpectation =
-    rounded >= 1 && rounded <= 4
-      ? scoreExpectations[rounded as ContributionScoreLevel]
-      : getScoreExpectation(score);
-
-  if (!baseExpectation) {
-    return (
-      <div className="max-w-[280px] text-sm leading-relaxed">
-        점수 기준을 확인할 수 없습니다.
-      </div>
-    );
-  }
-
-  // 성장레벨 정보가 있으면 갭 기반 상대 메시지로 교체
   const normalizedLevel =
     growthLevel != null && Number.isFinite(growthLevel) ? Math.round(Number(growthLevel)) : null;
   const gapExpectation =
@@ -45,16 +29,13 @@ export const ScoreExpectationContent = ({
       ? scoreGapExpectations[getScoreGapBucket(rounded, normalizedLevel)]
       : null;
 
-  const summary = gapExpectation ? gapExpectation.summary : baseExpectation.summary;
-  const detail = gapExpectation ? gapExpectation.detail : baseExpectation.detail;
-
   return (
     <div className="max-w-[320px] text-sm leading-relaxed">
       <div className="font-extrabold text-foreground">
-        {baseExpectation.score}점 · {baseExpectation.label}
+        {rounded}점
         {gapExpectation && (
           <span className="ml-2 text-xs font-bold text-primary">
-            (Lv.{normalizedLevel} 기준 · {gapExpectation.label})
+            Lv.{normalizedLevel} 기준 · {gapExpectation.label}
           </span>
         )}
       </div>
@@ -63,8 +44,38 @@ export const ScoreExpectationContent = ({
           {method} × {scope}
         </div>
       )}
-      <div className="mt-2 font-bold text-primary">{summary}</div>
-      <div className="mt-1 text-muted-foreground">{detail}</div>
+      {gapExpectation ? (
+        <>
+          <div className="mt-2 font-bold text-primary">{gapExpectation.summary}</div>
+          <div className="mt-1 text-muted-foreground">{gapExpectation.detail}</div>
+        </>
+      ) : (
+        <div className="mt-2 text-muted-foreground">성장레벨 기준 상대 평가는 평가 대상자의 레벨이 있을 때 표시됩니다.</div>
+      )}
+    </div>
+  );
+};
+
+type MethodScopeGuideContentProps = {
+  kind: 'method' | 'scope';
+  term: string;
+};
+
+// 기여 방식/범위 라벨 hover 시 — 점수-갭 툴팁과 동일한 UI 스타일.
+export const MethodScopeGuideContent = ({ kind, term }: MethodScopeGuideContentProps) => {
+  const { matrixGuide } = useExpectations();
+  const desc = kind === 'method' ? matrixGuide.methods[term] : matrixGuide.scopes[term];
+  return (
+    <div className="max-w-[320px] text-sm leading-relaxed">
+      <div className="font-extrabold text-foreground">{term}</div>
+      <div className="mt-1 text-xs font-bold text-muted-foreground">
+        {kind === 'method' ? '기여 방식' : '기여 범위'}
+      </div>
+      {desc ? (
+        <div className="mt-2 text-muted-foreground">{desc}</div>
+      ) : (
+        <div className="mt-2 text-muted-foreground">설명이 등록되지 않았습니다.</div>
+      )}
     </div>
   );
 };

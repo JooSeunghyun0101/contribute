@@ -37,6 +37,10 @@ interface AggregateScoreTrendChartProps {
   subtitle?: string;
   comparison?: AggregateMonthlyPoint[];
   comparisonLabel?: string;
+  /** 차트 영역 높이(px). 기본 290. fill 이면 무시. */
+  chartHeight?: number;
+  /** 카드 높이를 부모(stretch)에 맞추고 차트가 남는 공간을 채움. */
+  fill?: boolean;
 }
 
 const fmtRate = (v: number | null | undefined) => (v === null || v === undefined ? '-' : `${v}%`);
@@ -91,6 +95,15 @@ const makeTooltip = (comparisonLabel: string, showComparison: boolean) =>
           <span style={{ color: 'var(--fg-muted)' }}>{dot(COLOR_PENDING)}미완료</span>
           <span className="tnum" style={cell}>{p.pendingCount}명</span>
           {showComparison && <span className="tnum" style={{ ...cell, color: 'var(--fg-subtle)' }}>{p.comparePending}명</span>}
+          <span style={{ color: 'var(--fg)', fontWeight: 800, marginTop: 4, borderTop: '1px solid var(--border)', paddingTop: 4 }}>합계</span>
+          <span className="tnum" style={{ ...cell, marginTop: 4, borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+            {p.achievedCount + p.missedCount + p.pendingCount}명
+          </span>
+          {showComparison && (
+            <span className="tnum" style={{ ...cell, marginTop: 4, color: 'var(--fg-subtle)', borderTop: '1px solid var(--border)', paddingTop: 4 }}>
+              {p.compareAchieved + p.compareMissed + p.comparePending}명
+            </span>
+          )}
           <span style={{ color: 'var(--fg-muted)', marginTop: 4 }}>달성률</span>
           <span className="tnum" style={{ ...cell, marginTop: 4, color: RATE_TEXT }}>{fmtRate(p.achievementRate)}</span>
           {showComparison && <span className="tnum" style={{ ...cell, marginTop: 4, color: PRIOR_RATE_TEXT }}>{fmtRate(p.compareRate)}</span>}
@@ -174,6 +187,8 @@ const AggregateScoreTrendChart = ({
   subtitle,
   comparison,
   comparisonLabel = '전년도',
+  chartHeight = 290,
+  fill = false,
 }: AggregateScoreTrendChartProps) => {
   const [metric, setMetric] = useState<Metric>('both');
   const [showPrior, setShowPrior] = useState(true);
@@ -220,7 +235,10 @@ const AggregateScoreTrendChart = ({
   const TooltipContent = makeTooltip(comparisonLabel, showComparison);
 
   return (
-    <div className="sd-card" style={{ padding: 18 }}>
+    <div
+      className="sd-card"
+      style={{ padding: 18, ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column' } : {}) }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>{title}</h3>
@@ -240,9 +258,9 @@ const AggregateScoreTrendChart = ({
       {!hasData ? (
         <div
           style={{
-            // 데이터 있을 때(290)와 동일 높이로 고정 — 레벨 선택에 따라 페이지 높이가 변해
-            // 스크롤이 튀고 고정 헤더가 풀리는 것을 막는다.
-            height: 290,
+            // 데이터 있을 때와 동일 높이로 고정 — 레벨 선택에 따라 페이지 높이가 변해
+            // 스크롤이 튀고 고정 헤더가 풀리는 것을 막는다. fill 이면 남는 공간을 채운다.
+            ...(fill ? { flex: 1, minHeight: 240 } : { height: chartHeight }),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -257,7 +275,7 @@ const AggregateScoreTrendChart = ({
           평가가 진행되면 월별 추이가 표시됩니다.
         </div>
       ) : (
-        <div style={{ height: 290 }}>
+        <div style={fill ? { flex: 1, minHeight: 240 } : { height: chartHeight }}>
           <ResponsiveContainer width="100%" height="100%">
             {/* barGap 음수 → 전년 누적막대(올해와 동일 두께)가 뒤에, 올해 막대가 앞에서 전년 좌측을 가려 전년이 우측으로 겹쳐 보임 */}
             <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }} barGap={-44}>

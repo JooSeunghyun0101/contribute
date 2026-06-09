@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { EvaluationMatrixScores } from '@/lib/evaluationMatrix';
 import { MATRIX_METHODS, MATRIX_SCOPES, MATRIX_SCORES } from '@/lib/evaluationMatrix';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { MethodScopeGuideContent } from '@/components/Evaluation/ExpectationTooltipContent';
 
 type MatrixGridProps = {
   className?: string;
@@ -72,9 +74,16 @@ export const MatrixGrid = ({
       }}
     >
       {MATRIX_METHODS.flatMap((method, methodIndex) => [
-        <div key={`method-${method}`} style={{ display: 'flex', alignItems: 'stretch' }}>
-          {renderMethodLabel(method, methodIndex)}
-        </div>,
+        <Tooltip key={`method-${method}`}>
+          <TooltipTrigger asChild>
+            <div style={{ display: 'flex', alignItems: 'stretch', cursor: 'help' }}>
+              {renderMethodLabel(method, methodIndex)}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <MethodScopeGuideContent kind="method" term={method} />
+          </TooltipContent>
+        </Tooltip>,
         ...MATRIX_SCOPES.map((scope, scopeIndex) => (
           <div key={`cell-${method}-${scope}`} style={{ minWidth: 0 }}>
             {renderCell(
@@ -89,7 +98,14 @@ export const MatrixGrid = ({
       ])}
       <div />
       {MATRIX_SCOPES.map((scope, scopeIndex) => (
-        <div key={`scope-${scope}`}>{renderScopeLabel(scope, scopeIndex)}</div>
+        <Tooltip key={`scope-${scope}`}>
+          <TooltipTrigger asChild>
+            <div style={{ cursor: 'help' }}>{renderScopeLabel(scope, scopeIndex)}</div>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <MethodScopeGuideContent kind="scope" term={scope} />
+          </TooltipContent>
+        </Tooltip>
       ))}
     </div>
   );

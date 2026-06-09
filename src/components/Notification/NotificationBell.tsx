@@ -6,25 +6,42 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContextDB';
+import { rolesOf } from '@/lib/notificationRoles';
 import NotificationItem from './NotificationItem';
 
 const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'unread' | 'read'>('unread');
-  const { notifications, unreadCount, markAllAsRead, markAsRead } = useNotifications();
+  const { notifications, markAllAsRead, markAsRead } = useNotifications();
   const { user } = useAuth();
   const navigate = useNavigate();
 
   if (!user) return null;
 
+  // 다중 역할이면 현재 역할 알림만 — 전체 알림 화면의 역할 분리와 동일 기준.
+  const roleScoped =
+    user.availableRoles.length > 1
+      ? notifications.filter((n) => rolesOf(n.type).includes(user.role))
+      : notifications;
+  const unreadCount = roleScoped.filter((n) => !n.isRead).length;
+
   // 최신순 정렬 보장 후 탭별 필터
-  const sorted = [...notifications].sort(
+  const sorted = [...roleScoped].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   const filtered =
     tab === 'unread'
       ? sorted.filter((n) => !n.isRead)
       : sorted.filter((n) => n.isRead).slice(0, 5);
+
+  // 다중 역할이면 "모두 읽음"도 현재 역할 알림만 처리.
+  const handleMarkAllRead = () => {
+    if (user.availableRoles.length > 1) {
+      for (const n of roleScoped) if (!n.isRead) void markAsRead(n.id);
+    } else {
+      void markAllAsRead();
+    }
+  };
 
   const handleViewAll = () => {
     setOpen(false);
@@ -99,7 +116,7 @@ const NotificationBell: React.FC = () => {
             {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={markAllAsRead}
+                onClick={handleMarkAllRead}
                 className="text-xs font-medium hover:underline"
                 style={{ color: 'var(--fg-muted)' }}
               >

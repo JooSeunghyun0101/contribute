@@ -12,18 +12,22 @@ import {
   GROWTH_LEVEL_EXPECTATIONS_SETTING_TYPE,
   SCORE_EXPECTATIONS_SETTING_TYPE,
   SCORE_GAP_EXPECTATIONS_SETTING_TYPE,
+  MATRIX_GUIDE_SETTING_TYPE,
   cloneDefaultGrowthLevelExpectations,
   cloneDefaultScoreExpectations,
   cloneDefaultScoreGapExpectations,
+  cloneDefaultMatrixGuide,
   normalizeGrowthLevelExpectations,
   normalizeScoreExpectations,
   normalizeScoreGapExpectations,
+  normalizeMatrixGuide,
   type ContributionScoreLevel,
   type GrowthLevel,
   type GrowthLevelExpectation,
   type ScoreExpectation,
   type ScoreGapBucket,
   type ScoreGapExpectation,
+  type MatrixGuide,
 } from '@/lib/evaluationMatrix';
 
 type ScoreMap = Record<ContributionScoreLevel, ScoreExpectation>;
@@ -34,16 +38,19 @@ type ExpectationContextType = {
   scoreExpectations: ScoreMap;
   growthLevelExpectations: GrowthMap;
   scoreGapExpectations: GapMap;
+  matrixGuide: MatrixGuide;
   isLoading: boolean;
   refresh: () => Promise<void>;
   saveScoreExpectations: (next: ScoreMap) => Promise<void>;
   saveGrowthLevelExpectations: (next: GrowthMap) => Promise<void>;
   saveScoreGapExpectations: (next: GapMap) => Promise<void>;
+  saveMatrixGuide: (next: MatrixGuide) => Promise<void>;
 };
 
 const SCORE_CACHE_KEY = 'companyScoreExpectations';
 const LEVEL_CACHE_KEY = 'companyGrowthLevelExpectations';
 const GAP_CACHE_KEY = 'companyScoreGapExpectations';
+const GUIDE_CACHE_KEY = 'companyMatrixGuide';
 
 const ExpectationContext = createContext<ExpectationContextType | undefined>(undefined);
 
@@ -79,15 +86,20 @@ export const ExpectationProvider: React.FC<{ children: React.ReactNode }> = ({ c
       cloneDefaultScoreGapExpectations(),
     [],
   );
+  const initialGuide = useMemo(
+    () => readCache(GUIDE_CACHE_KEY, normalizeMatrixGuide) ?? cloneDefaultMatrixGuide(),
+    [],
+  );
   const [scoreMap, setScoreMap] = useState<ScoreMap>(initialScore);
   const [growthMap, setGrowthMap] = useState<GrowthMap>(initialGrowth);
   const [gapMap, setGapMap] = useState<GapMap>(initialGap);
+  const [guideMap, setGuideMap] = useState<MatrixGuide>(initialGuide);
   const [isLoading, setIsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [scoreSetting, levelSetting, gapSetting] = await Promise.all([
+      const [scoreSetting, levelSetting, gapSetting, guideSetting] = await Promise.all([
         settingService
           .getUserSetting(COMPANY_MATRIX_SETTING_USER_ID, SCORE_EXPECTATIONS_SETTING_TYPE)
           .catch(() => null),
@@ -96,6 +108,9 @@ export const ExpectationProvider: React.FC<{ children: React.ReactNode }> = ({ c
           .catch(() => null),
         settingService
           .getUserSetting(COMPANY_MATRIX_SETTING_USER_ID, SCORE_GAP_EXPECTATIONS_SETTING_TYPE)
+          .catch(() => null),
+        settingService
+          .getUserSetting(COMPANY_MATRIX_SETTING_USER_ID, MATRIX_GUIDE_SETTING_TYPE)
           .catch(() => null),
       ]);
       const nextScore =
@@ -106,12 +121,16 @@ export const ExpectationProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const nextGap =
         normalizeScoreGapExpectations(gapSetting?.setting_data) ??
         cloneDefaultScoreGapExpectations();
+      const nextGuide =
+        normalizeMatrixGuide(guideSetting?.setting_data) ?? cloneDefaultMatrixGuide();
       setScoreMap(nextScore);
       setGrowthMap(nextGrowth);
       setGapMap(nextGap);
+      setGuideMap(nextGuide);
       writeCache(SCORE_CACHE_KEY, nextScore);
       writeCache(LEVEL_CACHE_KEY, nextGrowth);
       writeCache(GAP_CACHE_KEY, nextGap);
+      writeCache(GUIDE_CACHE_KEY, nextGuide);
     } finally {
       setIsLoading(false);
     }
@@ -157,26 +176,42 @@ export const ExpectationProvider: React.FC<{ children: React.ReactNode }> = ({ c
     );
   }, []);
 
+  const saveMatrixGuide = useCallback(async (next: MatrixGuide) => {
+    const normalized = normalizeMatrixGuide(next);
+    if (!normalized) throw new Error('매트릭스 가이드 형식이 유효하지 않습니다.');
+    setGuideMap(normalized);
+    writeCache(GUIDE_CACHE_KEY, normalized);
+    await settingService.saveSetting(
+      COMPANY_MATRIX_SETTING_USER_ID,
+      MATRIX_GUIDE_SETTING_TYPE,
+      normalized,
+    );
+  }, []);
+
   const value = useMemo<ExpectationContextType>(
     () => ({
       scoreExpectations: scoreMap,
       growthLevelExpectations: growthMap,
       scoreGapExpectations: gapMap,
+      matrixGuide: guideMap,
       isLoading,
       refresh,
       saveScoreExpectations,
       saveGrowthLevelExpectations,
       saveScoreGapExpectations,
+      saveMatrixGuide,
     }),
     [
       scoreMap,
       growthMap,
       gapMap,
+      guideMap,
       isLoading,
       refresh,
       saveScoreExpectations,
       saveGrowthLevelExpectations,
       saveScoreGapExpectations,
+      saveMatrixGuide,
     ],
   );
 

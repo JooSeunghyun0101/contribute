@@ -1,6 +1,42 @@
 export const MATRIX_METHODS = ['총괄', '리딩', '실무', '지원'] as const;
 export const MATRIX_SCOPES = ['의존적', '독립적', '상호적', '전략적'] as const;
 
+// 기여 방식·범위 가이드 — 매트릭스 가이드 표시 및 점수표(MatrixGrid) 라벨 hover 툴팁에 사용.
+export const MATRIX_METHOD_GUIDE: Record<string, string> = {
+  총괄: '프로젝트나 업무를 전체적으로 주도하고 관리',
+  리딩: '팀이나 그룹을 이끌며 방향성 제시',
+  실무: '구체적인 업무 실행과 결과물 생성',
+  지원: '다른 업무나 팀을 보조하고 지원',
+};
+export const MATRIX_SCOPE_GUIDE: Record<string, string> = {
+  의존적: '다른 사람의 도움이나 지시가 필요한 수준',
+  독립적: '혼자서 업무를 완수할 수 있는 수준',
+  상호적: '타 부서나 팀과 협력하여 진행하는 수준',
+  전략적: '조직 전체에 영향을 미치는 전략적 수준',
+};
+
+// 편집 가능한 매트릭스 가이드(기여 방식·범위 설명).
+export const MATRIX_GUIDE_SETTING_TYPE = 'matrix_guide';
+export type MatrixGuide = { methods: Record<string, string>; scopes: Record<string, string> };
+export const cloneDefaultMatrixGuide = (): MatrixGuide => ({
+  methods: { ...MATRIX_METHOD_GUIDE },
+  scopes: { ...MATRIX_SCOPE_GUIDE },
+});
+export const normalizeMatrixGuide = (value: unknown): MatrixGuide | null => {
+  if (!value || typeof value !== 'object') return null;
+  const obj = value as { methods?: Record<string, unknown>; scopes?: Record<string, unknown> };
+  const base = cloneDefaultMatrixGuide();
+  for (const k of MATRIX_METHODS) {
+    const v = obj.methods?.[k];
+    if (typeof v === 'string') base.methods[k] = v;
+  }
+  for (const k of MATRIX_SCOPES) {
+    const v = obj.scopes?.[k];
+    if (typeof v === 'string') base.scopes[k] = v;
+  }
+  return base;
+};
+
 export type MatrixMethod = (typeof MATRIX_METHODS)[number];
 export type MatrixScope = (typeof MATRIX_SCOPES)[number];
 

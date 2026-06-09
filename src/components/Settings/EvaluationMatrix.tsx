@@ -6,8 +6,16 @@ import { Input } from '@/components/ui/input';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { useToast } from '@/hooks/use-toast';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
-import { cloneDefaultMatrix } from '@/lib/evaluationMatrix';
+import { useExpectations } from '@/contexts/ExpectationContext';
+import { cloneDefaultMatrix, MATRIX_METHODS, MATRIX_SCOPES } from '@/lib/evaluationMatrix';
 import { X, Save } from 'lucide-react';
+
+const GuideItem = ({ term, desc }: { term: string; desc: string }) => (
+  <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+    <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 800 }}>{term}</div>
+    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+  </div>
+);
 
 interface EvaluationMatrixProps {
   onClose?: () => void;
@@ -16,6 +24,7 @@ interface EvaluationMatrixProps {
 export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) => {
   const { toast } = useToast();
   const { matrix: activeMatrix, isLoading, previewMatrix, saveMatrix } = useEvaluationMatrix();
+  const { matrixGuide } = useExpectations();
   const [matrix, setMatrix] = useState<number[][]>(() => activeMatrix.map((row) => [...row]));
 
   useEffect(() => {
@@ -182,25 +191,30 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
       <Card>
         <CardHeader>
           <CardTitle>매트릭스 가이드</CardTitle>
+          <CardDescription>기여 방식(행)과 범위(열)의 정의입니다.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <h4 className="font-medium mb-2">기여 방식</h4>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li><strong>총괄:</strong> 프로젝트나 업무를 전체적으로 주도하고 관리</li>
-              <li><strong>리딩:</strong> 팀이나 그룹을 이끌며 방향성 제시</li>
-              <li><strong>실무:</strong> 구체적인 업무 실행과 결과물 생성</li>
-              <li><strong>지원:</strong> 다른 업무나 팀을 보조하고 지원</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-medium mb-2">기여 범위</h4>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li><strong>의존적:</strong> 다른 사람의 도움이나 지시가 필요한 수준</li>
-              <li><strong>독립적:</strong> 혼자서 업무를 완수할 수 있는 수준</li>
-              <li><strong>상호적:</strong> 타 부서나 팀과 협력하여 진행하는 수준</li>
-              <li><strong>전략적:</strong> 조직 전체에 영향을 미치는 전략적 수준</li>
-            </ul>
+        <CardContent>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+            <div>
+              <h4 className="font-medium mb-2" style={{ color: 'var(--ok-orange)' }}>
+                기여 방식
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {MATRIX_METHODS.map((m) => (
+                  <GuideItem key={m} term={m} desc={matrixGuide.methods[m] ?? ''} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="font-medium mb-2" style={{ color: 'var(--ok-orange)' }}>
+                기여 범위
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {MATRIX_SCOPES.map((s) => (
+                  <GuideItem key={s} term={s} desc={matrixGuide.scopes[s] ?? ''} />
+                ))}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
