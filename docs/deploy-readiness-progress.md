@@ -1,0 +1,162 @@
+# 전사 배포 준비 — 진행 트래커 (루프 상태판)
+
+> 이 파일은 `/loop` 자동 개발의 **상태 머신**이다. 매 주기마다 여기서 다음 1스텝을 읽고, 완료 시 체크하고, 결정 게이트에서 멈춘다.
+> 원본: 2026-06-10 전수 검수 보고서 + feat/hr-admin-enhancement 구체화 플랜 통합본. 이전 트래커: [hr-admin-enhancement-progress.md](./hr-admin-enhancement-progress.md)
+>
+> 상태 기호: `[ ]` 대기 · `[~]` 진행중 · `[x]` 완료 · `[!]` 차단(결정 필요)
+
+---
+
+## 목표 (이 트래커의 북극성)
+
+**회사 내부망에 이식해 전 직원이 쓰는 평가 시스템.** 따라서:
+1. **안전**: 인증·인가 없이는 배포 불가 — 평가데이터는 최고 민감 정보.
+2. **간편·친절**: 로딩·오류·빈 화면에서 사용자가 헤매지 않게. 메뉴는 단순하게, 안내는 친절하게.
+3. **묶어서 한 번에**: 같은 성격의 작업은 공용 컴포넌트/묶음 항목으로 합쳐 한 주기에 해결.
+
+## 사용자 결정 (2026-06-10, 고정)
+
+| 결정 | 내용 |
+|---|---|
+| 이메일 알림 | **나중에 구현** — dispatch.ts 이메일 어댑터 스텁 유지, UI에서 이메일 노출만 정리(A-2). SMTP/스케줄러는 보류 섹션 |
+| 모바일 | **계획 없음** — 반응형/모바일 레이아웃 작업 전면 제외. 데스크톱(노트북 포함) 기준만 |
+| 기능 통합 | 합칠 수 있는 건 묶음 항목으로 통합 구현 (각 Phase의 묶음 구성 참조) |
+| AI 연동 | GPT-OSS(내부망 `172.17.170.201`)는 **이식 후 사용할 코드** — 이식 전 임시로 **GitHub Models API**(OpenAI 호환, `https://models.github.ai/inference`, 모델 `openai/gpt-4.1-mini`) 연결. env 전환만으로 GPT-OSS 복귀 가능하게 설계(B-1) |
+| 인증 방식(G-1) | **자체 비밀번호** — employees `password_hash`(bcrypt) + 서버 로그인 + 최초 로그인 비밀번호 변경 강제 + **httpOnly 쿠키 세션** |
+| 브랜드 오렌지(G-2) | **역할 분리** — 브랜드 강조(로고·그래픽·대형 점수 숫자)=`#F55000`, 본문 텍스트·버튼 등 가독 요소=`#B45309`. 둘 다 토큰으로 정의(`--ok-orange-brand` / `--ok-orange`), 하드코딩만 치환 |
+| AI API 키(B-0) | **사용자가 직접 `.env`에 `AI_API_KEY` 입력** — 루프는 키 존재를 가정하고 B-1 완성, 키 미입력 상태에서도 'AI 미설정' 안내로 graceful 동작해야 함 |
+
+---
+
+## 루프 1회 계약 (매 주기 이걸 그대로 수행)
+
+1. 이 트래커에서 **가장 위의 `[ ]` 1개**를 고른다. (결정 게이트는 2026-06-10 전부 해소됨 — `[!]` 항목 없음)
+2. 그 항목을 `[~]`로 바꾸고 구현한다. **한 주기 = 한 항목.** 범위 넘기지 말 것. (묶음 항목은 묶음 전체가 1항목)
+3. 큰 항목을 처음 열면, 먼저 **하위 서브스텝으로 분해해 트래커에 추가**하고 그 첫 서브스텝부터 진행한다.
+4. 검증: `npx tsc --noEmit` 통과 → `npm run build` 통과. (이 레포는 `typecheck` 스크립트 없음 → F-3에서 추가 예정)
+5. 통과하면 커밋: `feat:` / `fix:` / `refactor:` 규칙. 실패하면 고치고 재검증, 못 고치면 `[~]`인 채로 멈추고 보고.
+6. 항목을 `[x]`로 바꾸고 **이 파일을 커밋에 포함**한다.
+7. 다음 주기로. 모든 항목이 `[x]`면 루프 종료.
+
+**불변 규칙**
+- 작업 브랜치에서만. `main` 직접 커밋 금지.
+- 임의 HEX 금지(`tailwind.config.ts` OK 팔레트·CSS 변수만). API는 `src/lib/services/` 경유.
+- 다중 평가 = 발령(정상). 중복으로 판정·삭제 금지.
+- DB 쓰기(마이그레이션·대량 변경)는 백업 선행 + 멱등 스크립트.
+- **무정지 루프(사용자 지시 2026-06-10)**: 게이트는 전부 해소됐고, 이후 작은 모호함을 만나면 **멈추지 말고** ① 위 '사용자 결정' 표와 목표(안전·간편·친절)에 맞는 보수적 기본값을 택해 진행 ② 작업 로그에 `결정 메모:` 한 줄로 남긴다. 단, 파괴적·되돌리기 어려운 작업(데이터 삭제, 스키마 변경)만은 예외로 멈춘다.
+- **삭제 전 확인**: 죽은 코드 스윕(F-2)은 importer 0건을 grep으로 재확인 후 삭제.
+
+---
+
+## Phase 0 — 준비
+
+- [x] **P0-1** 작업 브랜치 확인: `feat/hr-admin-enhancement`에서 계속 진행(이전 작업 미머지 상태이므로 같은 브랜치 사용). `git status` clean 확인.
+
+## Phase A — 즉효 수정 묶음 (S 규모, 결정 불필요 — 체감 완성도 즉시 상승)
+
+- [ ] **A-1** 버그 3종 일괄 수정 (묶음):
+  - ① 수정요청 취소 버그 — `src/pages/my/EvaluationAccordionCard.tsx:248` `window.prompt(...) ?? ''` 가 취소(null)를 ''로 바꿔 **취소해도 발송됨** → `?? ''` 제거, null이면 return.
+  - ② AI 검수 stale 선택 — `src/components/Feedback/AiReviewMonitoring.tsx:152,348,600` 필터 변경 시 selected Set 미정리 → `useEffect`로 visibleRows 기준 prune(또는 카운트를 `visibleRows ∩ selected`로).
+  - ③ 키보드 포커스 링 — `src/index.css` `.sd-btn:focus-visible { box-shadow: var(--sh-focus) }` + 사이드바 NavLink 동일 처리(`--sh-focus` 토큰 :98에 이미 존재).
+- [ ] **A-2** "UI가 약속만 하는 것" 정리 묶음 (이메일은 보류이므로 노출만 정돈):
+  - ① 설정의 이메일 토글·주간보고서·마감 사전알림·리마인더 주기(`NotificationSettings.tsx:149-157` 등, 소비자 0명) → 숨김 또는 "준비 중" 배지 1종으로 통일.
+  - ② RemindersPage·HrNoticesFaqPage 발송 채널 `['inApp','email']` 하드코딩 → inApp만. 토스트의 "건너뜀(이메일 미설정) n" 노출 제거.
+  - ③ HrSettingsPage placeholder 탭 2개(일반 "추후 추가됩니다":124 · 권한역할 "준비 중입니다":170) 제거 → 4탭→2탭(알림·고급). 권한역할 UI는 Phase S 인증 완료 후 부활.
+  - ④ 로그인 화면 "SSO · OK금융그룹 통합인증" 문구(`Login.tsx:215`) — G-1 결정이 자체 비밀번호이므로 **제거 확정**.
+- [ ] **A-3** 부팅·자산 정리 묶음:
+  - ① `src/main.tsx:7` 가짜 `testSupabaseConnection()` 호출 제거(브라우저에선 항상 MockPool 허위 성공 로그).
+  - ② Pretendard 폰트 jsdelivr CDN(`index.css:1`) → `public/fonts/` 자체 호스팅(내부망 차단 대비).
+
+## Phase B — AI 임시 API 전환 (사용자 결정 4 반영)
+
+- [ ] **B-1** AI 호출 서버 프록시화 + GitHub Models 임시 연결:
+  - server.js에 `POST /api/ai/chat` 프록시 신설. env 3종: `AI_BASE_URL`(기본 `https://models.github.ai/inference`), `AI_API_KEY`, `AI_MODEL`(기본 `openai/gpt-4.1-mini`). OpenAI 호환 chat/completions 형식 그대로 중계.
+  - `src/lib/gptOss.ts:229`의 IP 하드코딩(`http://172.17.170.201:8000`) 제거 → 모든 AI 호출(피드백 추천·검수·유사도·QnA·요약)을 `/api/ai/chat` 경유로 전환. 기존 함수 시그니처 유지(호출부 무변경 목표).
+  - **내부망 이식 시 `.env`에서 `AI_BASE_URL`만 GPT-OSS 주소로 바꾸면 복귀** — 이 전환 시나리오를 `.env.example` 주석으로 명시.
+  - 프록시에 사용자별 간단 레이트리밋(분당 N회) 포함 — 비용·서버 보호.
+  - ⚠ **주의 캡션 필수**: GitHub Models는 **외부 API** — 실제 평가의견이 외부로 전송됨. 임시 기간엔 테스트/샘플 데이터로만 AI 기능 사용 권장 문구를 AI 화면(AiReviewMonitoring 등)에 표시.
+- [x] **B-0(선행 입력)** ✅ **사용자 결정(2026-06-10)**: 키는 사용자가 직접 `.env`에 `AI_API_KEY` 입력. 루프는 키 존재를 가정하고 B-1을 완성하되, 키 미입력 상태에서도 "AI 미설정" 안내로 graceful 동작 필수(런타임에서 키 부재 감지 → 기능 비활성+안내, 에러 아님).
+
+## ✅ 결정 게이트 G-1 — 인증 방식 (해소)
+
+- [x] **G-1** **사용자 결정(2026-06-10): 자체 비밀번호.** employees에 `password_hash`(bcrypt) + `POST /api/auth/login` + 최초 로그인 시 비밀번호 변경 강제. 세션은 **httpOnly 쿠키 세션**(JWT 아님 — 구현 단순·토큰 탈취 면적 작음). SSO/AD는 보류 섹션(이식 시점 재검토).
+
+## Phase S — 보안 (배포 차단 해소)
+
+- [ ] **S-1** 인증 기반 구축(G-1=자체 비밀번호+쿠키 세션): employees `password_hash`(bcrypt) 마이그레이션(⚠ DB 스키마 변경 — 백업 선행) + `POST /api/auth/login`/`/logout`/`/me` + 최초 로그인 비밀번호 변경 강제 + 세션 만료(유휴 타임아웃). 공용 비밀번호 `'1234'`(`src/types/index.ts:310`, `AuthContext.tsx:63`) 제거. `AuthContext`는 서버 세션(`/me`) 확인으로 전환(localStorage 신뢰 제거).
+- [ ] **S-2** 인가 미들웨어: `requireAuth` + `requireRole('hr')`를 server.js 전 라우트에 적용. actor는 **세션에서만** 도출 — `getAssignmentActor(req.body)`(server.js:260) 자기신고 제거, `actorId==='admin'` 무조건 통과(:4902) 삭제. 파괴적 라우트(reset 2종 :4912·:4973, DELETE employee/evaluation/notifications/feedback/prompt) 우선 적용 + reset이 `admin_audit_logs`까지 TRUNCATE(:4936)하는 것 제외하고 reset 실행 자체를 로그에 남김.
+- [ ] **S-3** 행 단위 접근제어: 평가/과업/피드백/알림 read 라우트에 "본인 / 담당 평가자 / HR" 검사(IDOR 차단 — `GET /api/evaluation/:id`:6000, `/api/evaluations/employee/:id`:5960 등). 백도어 사번 `H1411166`(`AuthContext.tsx:21-23`) 제거 — DB `available_roles`만 신뢰.
+- [ ] **S-4** 서버 하드닝 묶음 (전부 S 규모, 한 주기 일괄):
+  - ① 수제 JSON 파서(server.js:2286-2306, 개행 치환+크기 무제한) → `express.json({ limit: '2mb' })` 교체.
+  - ② helmet + express-rate-limit(로그인·AI·삭제 라우트 강화) 도입.
+  - ③ CORS `origin: true` 전허용(:2285) → 화이트리스트.
+  - ④ 에러 응답 `err.message` 직노출 → 일반 메시지 + 서버 로그만.
+  - ⑤ DB 장애 시 무음 mock 폴백(server.js:67-76, mockEmployees 폴백 포함) → 운영 모드 fail-fast(503).
+
+## Phase C — 공통 기반 컴포넌트 (묶음의 핵심 — 이후 페이지 작업은 "조립")
+
+- [ ] **C-1** 공용 다이얼로그 2종 + 전 콜사이트 일괄 치환 (묶음):
+  - `ConfirmDialog`(AlertDialog 래퍼) + `ReasonDialog`(AlertDialog+Textarea, `AiReviewMonitoring.tsx:371-425` 패턴 추출).
+  - `window.confirm/prompt` 30콜사이트 치환: HrUsersPage 7건, HrSettingsPage 4건(RESET 타이핑 확인은 Dialog 내 input으로), HrPeriodsPage 3건, Evaluation.tsx 2건, EvaluationAccordionCard 3건, ChangeRequestsPage 3건, HrQualityPage:1937(재검토 사유), NotificationsPage, EvaluatorRequestPage, PromptManagement, useEvaluationDataDB:999 등.
+  - 효과: 재검토 요청 UX 통일(HrQuality ↔ AiReview 동일 패턴), 파괴적 액션 안전성.
+- [ ] **C-2** 공용 DataTable + 상태 컴포넌트 + 적용 (묶음, 서브스텝 분해 권장):
+  - ① `DataTable`: shadcn Table 기반, 정렬·페이지네이션(HrUsersPage pageSize 50 패턴 추출)·Skeleton 로딩.
+  - ② 공용 `ErrorState`(친절 문구+"다시 시도" 버튼)·`EmptyState`(안내+다음 행동 CTA) — **오류가 "데이터 없음"으로 위장되는 것 금지**(예: MyTasksPage.tsx:45-47 실패→빈배열→"등록된 평가가 없습니다").
+  - ③ raw `<table>` 8곳 치환: RemindersPage:349, ChangeRequestsPage:183, HrNoticesFaqPage:561, EvaluatorRequestPage:380, UploadPreviewModal:96, EvaluatorHistoryModal:737, FeedbackDuplicateDetector:677, AiReviewMonitoring:626.
+  - ④ 무제한 렌더 3곳에 페이지네이션 적용: HrIndividualFeedbackPage:377(전 직원 명단 — 검색+페이지), HrMatchingPage:643, RemindersPage.
+- [ ] **C-3** 손제작 div 모달 → shadcn Dialog 마이그레이션 (묶음): HrMatchingPage 재배정 모달(:805,:1062), hr/AddEmployeeModal, hr/EvaluatorHistoryModal, hr/UploadPreviewModal, HrDepartmentsPage:809, HrJobRoleBenchmarkPage:582, hr/Home:590, AiSummaryReportModal, NotificationBell 등 10곳 — focus trap·ESC·aria 확보. 네이티브 `<select>` 11곳 → shadcn Select 통일도 이 주기에 포함(만나는 파일이 겹침).
+- [ ] **C-4** ErrorBoundary: 루트 + 라우트 단위(재시도 버튼 포함) — 렌더 예외 1건 백화면 방지.
+
+## Phase D — 성능·데이터·알림 (1,000명 규모 대비)
+
+- [ ] **D-1** 서버 집계 API로 N+1 제거: `GET /api/dashboard/company?periodId=` 신설(evaluations LEFT JOIN tasks SQL 1회) → 현재 직원당 2+요청×동시성6(`src/lib/dashboardData.ts:199-202`)이 1,000명에서 수분 걸리는 병목 해소. 응답을 기존 `EmployeeEvaluationRecord[]`로 매핑(프런트 소비부 무변경 목표). 부분 실패는 무음 흡수(:106-123) 대신 응답에 실패 플래그 포함.
+- [ ] **D-2** React Query 실사용 전환: `useRecordsLoader`(useDashboardRecords.ts:22) 내부만 `useQuery(['companyRecords', periodId])`로 교체(인터페이스 유지) → HR 10개 페이지 캐시 공유, 페이지 이동마다 전사 재로딩 제거. D-1의 실패 플래그를 받아 페이지 상단 "일부 데이터 누락" 경고 배너 표시.
+- [ ] **D-3** 알림 도달 메커니즘(인앱 전용 — 이메일 보류): `NotificationContextDB.tsx:48-50` 로그인 1회 로드 → ① 경량 `GET /api/notifications/unread-count` 신설 ② 포커스/visibilitychange 재조회 + 60~120초 지터 폴링 ③ 컨텍스트에 `reload` 노출. **리마인드·재검토 요청·공지가 실제로 도달해야 F-C1/B2.2/C5 기능이 완성됨.**
+- [ ] **D-4** 번들·반응성 묶음: ① 라우트 lazy 3분할(`/my/*`·`/team/*`·`/hr/*`) — 피평가자가 HR 페이지+xlsx+recharts 안 받게 ② XLSX export(18곳, `hrDataExport.ts:299` 등) 실행 전 로딩 토스트+`setTimeout(0)` 분리(Web Worker는 보류).
+
+## Phase E — 기능 완결 (끊긴 마지막 고리 잇기)
+
+- [ ] **E-1** FAQ·공지 직원 노출 (현재 write-only): my/team 홈(또는 알림 페이지)에 FAQ 아코디언 섹션(`settingService.getUserSetting('system','faq_catalog')` 재사용) + 공지(`notification_type='notice'`) 구분 표시. **친절한 시스템의 핵심 — 사용법 안내가 사용자에게 보이게.**
+- [ ] **E-2** write-on-read 제거: `useEvaluationDataDB.ts:259` 조회 시 자동 `createEvaluation` → 명시적 액션(평가 시작)으로 분리. my/team 5곳+Evaluation.tsx 소비부 확인.
+- [ ] **E-3** 사이드바 IA·라벨 정리 묶음: ① '매칭 정합성 점검' 설정→품질 그룹 이동 ② 사이드바 라벨↔페이지 제목 불일치 7건 동기화 ③ `/hr/prompts` → `/hr/ai-review` 라우트 개명(기존 경로 리다이렉트 유지) ④ 중복 아이콘(IconMsg 4회 등) lucide로 변별. 메뉴는 줄이고 이름은 일치 — 간편함의 기본.
+
+## ✅ 결정 게이트 G-2 — 브랜드 오렌지 단일화 (해소)
+
+- [x] **G-2** **사용자 결정(2026-06-10): 역할 분리.** 브랜드 강조(로고·그래픽·대형 점수 숫자 등 large-text/비텍스트)=`#F55000`, 본문 텍스트·버튼 등 AA 필요 요소=`#B45309`. 두 값 모두 `src/index.css` 토큰으로 정의(`--ok-orange-brand: #F55000` 신설, `--ok-orange: #B45309` 유지)하고 **하드코딩만 치환**. 레퍼런스 `#D9623C`는 폐기(디자인 레퍼런스 재생성 시 반영).
+
+## Phase F — 디자인·품질 마감
+
+- [ ] **F-1** 색상 토큰 수렴 묶음(G-2=역할 분리 반영): ① `--ok-orange-brand: #F55000` 토큰 신설 후 하드코딩 `#F55000`(ScoreDisplay.tsx:35,54, Login.tsx:203, MySchedulePage:137, EvaluatorSchedulePage:352)을 용도별 토큰으로 치환 — 대형 점수 숫자·그래픽=brand, 텍스트·버튼=`--ok-orange` ② `#FFAA00`(HrDepartmentsPage 4곳, 대비 1.9:1) → `var(--warning)` ③ 팔레트 외 블루·그린 칩(HrUsersPage:44-54, HrPeriodsPage:42-43, team/Home:30-48 등) → `--info/--success/--danger` 시맨틱 토큰 ④ 모달 오버레이 rgba 10곳 → `--overlay` 토큰(C-3와 중복분은 그쪽에서 흡수).
+- [ ] **F-2** 죽은 코드 일괄 스윕(importer 0건 grep 재확인 후 삭제 1커밋): 구형 대시보드 5종(HRDashboard·Evaluatee/EvaluatorDashboard(+DB)), TaskManagement(+DB), NotificationContext(비DB), useEvaluationData/Unified, gemini.ts(+`VITE_GEMINI_API_KEY` 경로), DatabaseTest, GeminiTest, connectionTest, endToEndTest 쌍, 죽은 서비스 함수(getAllTasks·updateFeedback 등 존재하지 않는 라우트 호출 포함).
+- [ ] **F-3** 품질 게이트 묶음: ① `package.json`에 `"typecheck": "tsc --noEmit"` 추가 ② eslint `no-explicit-any`·`no-unused-vars` → `warn` 복원 ③ tsconfig `noImplicitAny: true` 1단계 도입(전체 strict는 보류 섹션) ④ context value 미메모이즈(NotificationContextDB:138-148, AuthContext:126) `useMemo` 래핑.
+- [ ] **F-4** 문서·마감 묶음: ① BACKEND_FRONTEND_OVERVIEW.md 포트(4000→5000)·API 목록 갱신 ② README의 Supabase 잔재 설명 정정 ③ `.env.example`에 AI/보안 신규 env 정리 ④ 날짜 포맷 공용 포매터(`src/lib/format.ts` 표시용/입력용 2종) + 집계 수치 `toLocaleString` 적용.
+
+---
+
+## 보류 (사용자 결정 — 루프 활성 경로 밖)
+
+- **이메일 알림(SMTP+스케줄러)** — 사용자 결정(2026-06-10): 나중에 구현. dispatch.ts 어댑터 확장점 유지. 재개 시: nodemailer + node-cron, `notification_config` 소비 구현.
+- **모바일/반응형** — 사용자 결정(2026-06-10): **계획 없음.** 트래커에서 제외.
+- **GPT-OSS 복귀** — 내부망 이식 시 `.env`의 `AI_BASE_URL`만 교체(B-1 설계). 이식 시점에 외부 API 주의 캡션 제거.
+- **F-D3b 개인 리포트 PDF** — 기존 보류 유지. 재개 시 `@media print`+`window.print()`(의존성 0) 권장.
+- **SSO/AD 연동** — G-1 결정은 자체 비밀번호. 내부망 이식 시점에 필요해지면 재개.
+- **전체 strict 모드** — F-3의 noImplicitAny 이후 단계적.
+- **거대 파일 분할 리팩터링** — HrQualityPage(2,114줄)·HrMatchingPage(1,245줄) 등 4분해. 기능 무변경 리팩터링이므로 여유 시.
+- **가상 스크롤(react-virtual)** — C-2 페이지네이션으로 충분하면 불필요. 실사용 데이터에서 판단.
+- **신규 11개 화면 디자인 레퍼런스 박제** — Claude Design 재생성 작업(코드 아님). 별도 세션.
+- **품질점검 임계값 캘리브레이션** — 실데이터 축적 후.
+- **F-B1.2 드래그형 배정 보드** — 기존 보류 유지.
+
+## 참고 — 검수 근거 요약 (루프가 맥락 확인용으로만 사용)
+
+- 보안: 공용 비밀번호 '1234'(types/index.ts:310)·무인증 API 80개(server.js:2285)·IDOR(evaluation/:id)·reset 자기신고 가드(server.js:260,4902)·백도어 H1411166(AuthContext:21) — **Phase S 전이 배포 차단 사유**.
+- 성능: 회사 단위 N+1(dashboardData.ts:199), React Query 미사용(useQuery 0건), lazy 0건(26페이지 eager).
+- UX: 오류→빈상태 위장, window.confirm/prompt 30곳, raw table 8곳, 손제작 모달 10곳, 포커스 링 부재.
+- 기능 고리: 알림 1회 로드(NotificationContextDB:48), FAQ write-only, 이메일 스텁(dispatch.ts:93).
+- 상세 원문: `.omc/audit-reports/` 4개 보고서(기능/보안/UIUX/아키텍처).
+
+## 작업 로그 (루프가 매 주기 한 줄 추가)
+
+- 2026-06-10 트래커 생성 — 전수 검수 보고서 + 브랜치 구체화 플랜 통합, 사용자 결정 4건(이메일 보류·모바일 제외·기능 묶음·AI 임시 GitHub Models) 반영.
+- 2026-06-10 게이트 일괄 해소(사용자 답변): **G-1=자체 비밀번호+httpOnly 쿠키 세션 / G-2=오렌지 역할 분리(#F55000 강조·#B45309 텍스트) / B-0=키는 사용자가 .env에 직접 입력(루프는 graceful 처리로 무대기 진행)**. 루프 계약을 무정지 모드로 전환 — 잔여 모호함은 보수적 기본값+`결정 메모:` 로그로 진행, 파괴적 작업만 예외 정지.
+- 2026-06-10 P0-1: 브랜치 `feat/hr-admin-enhancement` 확인, 작업트리 clean(신규 파일=본 트래커뿐), 기준선 `npx tsc --noEmit` EXIT 0. 루프 시작.
