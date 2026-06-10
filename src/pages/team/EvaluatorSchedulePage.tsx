@@ -349,7 +349,7 @@ const EvaluatorSchedulePage = () => {
                                   bottom: 0,
                                   left: `${todayFrac * 100}%`,
                                   width: 2,
-                                  background: '#F55000',
+                                  background: 'var(--ok-orange-brand)',
                                   zIndex: 2,
                                 }}
                               />

@@ -32,7 +32,7 @@ const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
                 <div className="text-center flex flex-col justify-center h-20 cursor-help">
                   <div className="text-xs sm:text-sm text-muted-foreground font-medium mb-2">기여방식</div>
                   <div className="flex items-center justify-center gap-2">
-                    <span className="text-2xl sm:text-3xl font-extrabold" style={{ color: '#F55000' }}>{contributionMethod}</span>
+                    <span className="text-2xl sm:text-3xl font-extrabold" style={{ color: 'var(--ok-orange-brand)' }}>{contributionMethod}</span>
                   </div>
                 </div>
               </TooltipTrigger>

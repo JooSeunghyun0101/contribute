@@ -61,6 +61,9 @@
 
   /* Legacy aliases used by current Solar Dusk components */
   --ok-orange: var(--primary);
+  /* 브랜드 강조 오렌지(로고·그래픽·대형 점수 숫자 등 large-text/비텍스트 전용).
+     본문 텍스트·버튼 등 AA 대비가 필요한 곳은 --ok-orange(#B45309)를 쓴다. (G-2 역할 분리) */
+  --ok-orange-brand: #F55000;
   --ok-orange-600: var(--sidebar-accent);
   --ok-orange-700: #92400E;
   --ok-orange-50: #FBF0DE;
@@ -192,6 +195,7 @@
   --sidebar-primary-foreground: #FFFFFF;
 
   --ok-orange: var(--primary);
+  --ok-orange-brand: #F55000;
   --ok-orange-600: #EA580C;
   --ok-orange-700: #C2410C;
   --ok-orange-50: #33261E;

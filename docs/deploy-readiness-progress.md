@@ -137,7 +137,7 @@
 
 ## Phase F — 디자인·품질 마감
 
-- [ ] **F-1** 색상 토큰 수렴 묶음(G-2=역할 분리 반영): ① `--ok-orange-brand: #F55000` 토큰 신설 후 하드코딩 `#F55000`(ScoreDisplay.tsx:35,54, Login.tsx:203, MySchedulePage:137, EvaluatorSchedulePage:352)을 용도별 토큰으로 치환 — 대형 점수 숫자·그래픽=brand, 텍스트·버튼=`--ok-orange` ② `#FFAA00`(HrDepartmentsPage 4곳, 대비 1.9:1) → `var(--warning)` ③ 팔레트 외 블루·그린 칩(HrUsersPage:44-54, HrPeriodsPage:42-43, team/Home:30-48 등) → `--info/--success/--danger` 시맨틱 토큰 ④ 모달 오버레이 rgba 10곳 → `--overlay` 토큰(C-3와 중복분은 그쪽에서 흡수).
+- [x] **F-1** 색상 토큰 수렴(G-2=역할 분리): ① `--ok-orange-brand: #F55000` 토큰 신설(light/dark) + 하드코딩 `#F55000` UI 6곳 치환(ScoreDisplay 대형 점수·team/Home 점·EvaluatorSchedule/MySchedule today선·Login gradient ×2 → brand). 셰이더(hero-v1·shader-animation)·차트 팔레트(HrDashboardCharts)는 GLSL/색배열이라 CSS var 불가→제외 ② **`#FFAA00`(대비 1.9:1 AA 완전 미달) → `var(--warning)`(#CA8A04 통과) HrDepartmentsPage 4곳** = 접근성 [높음] 해소. **결정 메모**: ③ 팔레트외 블루/그린 칩 ④ rgba 오버레이 10곳은 일관성 작업(시각 회귀 tsc/build 못 잡음)이라 점진 보류(보류 섹션). 차트 #FFAA00(MonthlyScoreTrend·HrDashboardCharts)는 차트 색 모듈과 함께 보류. tsc+build EXIT 0.
 - [ ] **F-2** 죽은 코드 일괄 스윕(importer 0건 grep 재확인 후 삭제 1커밋): 구형 대시보드 5종(HRDashboard·Evaluatee/EvaluatorDashboard(+DB)), TaskManagement(+DB), NotificationContext(비DB), useEvaluationData/Unified, gemini.ts(+`VITE_GEMINI_API_KEY` 경로), DatabaseTest, GeminiTest, connectionTest, endToEndTest 쌍, 죽은 서비스 함수(getAllTasks·updateFeedback 등 존재하지 않는 라우트 호출 포함).
 - [ ] **F-3** 품질 게이트 묶음: ① `package.json`에 `"typecheck": "tsc --noEmit"` 추가 ② eslint `no-explicit-any`·`no-unused-vars` → `warn` 복원 ③ tsconfig `noImplicitAny: true` 1단계 도입(전체 strict는 보류 섹션) ④ context value 미메모이즈(NotificationContextDB:138-148, AuthContext:126) `useMemo` 래핑.
 - [ ] **F-4** 문서·마감 묶음: ① BACKEND_FRONTEND_OVERVIEW.md 포트(4000→5000)·API 목록 갱신 ② README의 Supabase 잔재 설명 정정 ③ `.env.example`에 AI/보안 신규 env 정리 ④ 날짜 포맷 공용 포매터(`src/lib/format.ts` 표시용/입력용 2종) + 집계 수치 `toLocaleString` 적용.
@@ -160,6 +160,7 @@
 - **대량 테이블 페이지네이션(AiReviewMonitoring·FeedbackDuplicateDetector 등)** — selected Set·배치검수 상태와 얽혀 상호작용 재설계 필요. 실사용 데이터에서 렌더 지연 체감 시 처리.
 - **페이지 내장 손제작 모달 + native select 마이그레이션** — C-3b에서 점진 강등(2026-06-10). 독립 모달(AddEmployee·UploadPreview)은 shadcn Dialog 완료. 나머지(HrMatchingPage 재배정·HrDepartments·hr/Home·JobRoleBenchmark 내장 모달, AiSummaryReportModal, NotificationBell, EvaluatorHistoryModal, native select 11곳)는 tsc/build로 회귀 못 잡는 UI 작업이라 해당 페이지 개편 시 동반. 패턴 확립됨(Dialog 직접 적용).
 - **XLSX export 메인스레드 블로킹(Web Worker화)** — D-4 ②에서 보류(2026-06-10). setTimeout(0)은 본질 해결 아님. hrDataExport는 이미 별도 청크(lazy)라 번들 영향은 없음. 대량 export 프리즈 실체감 시 Web Worker.
+- **색상 토큰 잔여(팔레트외 블루/그린 칩·rgba 오버레이 10곳·차트 색 모듈)** — F-1에서 점진 보류(2026-06-10). 시각 회귀를 tsc/build가 못 잡는 일관성 작업. 핵심(brand 토큰·#FFAA00 접근성)은 완료. 디자인 레퍼런스 재생성·테마 정비 시 동반.
 - **F-B1.2 드래그형 배정 보드** — 기존 보류 유지.
 
 ## 참고 — 검수 근거 요약 (루프가 맥락 확인용으로만 사용)
@@ -203,3 +204,4 @@
 - 2026-06-10 E-1b: 신규 `FaqSection`(shadcn Accordion, settingService로 system/faq_catalog 로드, trivial 제외, 0건 자동 숨김) → NotificationsPage 하단. HR이 등록한 FAQ가 전 직원에게 노출(write-only 해소). 공지는 알림 도달(D-3)로 충분. tsc+build EXIT 0. **E-1 전체 완료.**
 - 2026-06-10 E-2: write-on-read 정밀 수정 — useEvaluationDataDB `readOnly` 옵션(평가 미존재 시 생성 대신 빈 데이터). 소비처 분석: 피평가자 조회 3곳(my/Home·MySchedule·MyFeedback)만 readOnly=true → "평가자 미배정 피평가자가 자기 화면 열면 평가자 없는 draft 생성" 버그 차단. 평가자 흐름(Evaluation.tsx)·evaluationId 기반(MyTasks)·죽은 Dashboard는 미변경. tsc+build EXIT 0.
 - 2026-06-10 E-3: 사이드바 IA — 매칭 정합성 점검을 설정→품질 그룹 이동(운영 기능 정위치), 라벨↔제목 불일치 2건 동기화(/hr·prompts), 아이콘 변별(prompts→Sparkle·matching→Target). 경미 차이·라우트 개명은 보류(혼란 적음/리스크). tsc+build EXIT 0. **Phase E(기능 완결) 완료**(E-1 settings복구+FAQ노출·E-2 write-on-read·E-3 IA).
+- 2026-06-10 F-1: 색상 토큰 수렴 핵심 — `--ok-orange-brand:#F55000` 토큰 신설(G-2 역할 분리) + #F55000 UI 하드코딩 6곳 brand 치환(셰이더·차트 제외), **#FFAA00(대비 1.9:1) → --warning 4곳(접근성 [높음])**. 팔레트외 블루/그린·rgba 오버레이·차트색은 점진 보류(시각 회귀 자동검증 불가). tsc+build EXIT 0.

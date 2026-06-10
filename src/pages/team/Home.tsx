@@ -33,7 +33,7 @@ const COLUMN_DEFS: Record<
   submitted: {
     label: '검토 대기',
     description: '평가자가 평가를 시작할 수 있음',
-    dot: '#F55000',
+    dot: 'var(--ok-orange-brand)',
     icon: AlertCircle,
   },
   evaluating: {

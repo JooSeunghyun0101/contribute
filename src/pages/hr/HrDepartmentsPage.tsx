@@ -609,7 +609,7 @@ const HrDepartmentsPage = () => {
                     {
                       key: 'missed',
                       ratio: missedRatio,
-                      color: '#FFAA00',
+                      color: 'var(--warning)',
                       label: '미달성',
                       count: missedMembers,
                     },
@@ -765,7 +765,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
     .filter((x) => x.n > 0);
   const achSegments = [
     { key: 'a', label: '달성', n: achieved, color: 'var(--ok-orange)' },
-    { key: 'm', label: '미달성', n: missed, color: '#FFAA00' },
+    { key: 'm', label: '미달성', n: missed, color: 'var(--warning)' },
     { key: 'p', label: '미평가', n: pending, color: 'var(--border)' },
   ];
 
@@ -875,7 +875,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
             }}
           >
             <ModalStat label="완료율" value={`${completionRate}%`} sub={`${finalized}/${total}`} bar={completionRate} barColor="var(--ok-orange)" />
-            <ModalStat label="목표 달성" value={`${achievementRate}%`} sub={`${achieved}명`} bar={achievementRate} barColor="#FFAA00" />
+            <ModalStat label="목표 달성" value={`${achievementRate}%`} sub={`${achieved}명`} bar={achievementRate} barColor="var(--warning)" />
             <ModalStat label="평균 점수" value={averageScore} sub="완료자 기준" />
             <div style={{ flex: '1 1 240px', minWidth: 200 }}>
               <div className="sd-label-mini" style={{ marginBottom: 6 }}>달성 현황</div>
@@ -982,7 +982,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                               style={{
                                 height: '100%',
                                 width: `${record.progress}%`,
-                                background: record.progress >= 100 ? 'var(--ok-orange)' : '#FFAA00',
+                                background: record.progress >= 100 ? 'var(--ok-orange)' : 'var(--warning)',
                                 borderRadius: 3,
                               }}
                             />
