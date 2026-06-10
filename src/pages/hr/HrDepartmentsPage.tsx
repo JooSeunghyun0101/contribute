@@ -112,11 +112,12 @@ const HrDepartmentsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRecords, groupLevel]);
 
-  // 대시보드 등에서 ?dept=<부서명> 으로 들어오면 해당 부서 모달을 자동으로 연다(1회).
+  // 대시보드 등에서 ?dept=<부서명> 으로 들어오면 모달 대신 해당 부서로 검색 필터를 걸어
+  // 그 부서 카드만 보이게 한다(1회). 검색창에 부서명이 채워져 사용자가 직접 해제할 수 있다.
   useEffect(() => {
     if (!deptParam || consumedDeptParam.current) return;
     if (recordsByDepartment.has(deptParam)) {
-      setOpenDepartment(deptParam);
+      setSearchQuery(deptParam);
       consumedDeptParam.current = true;
       const next = new URLSearchParams(searchParams);
       next.delete('dept');
