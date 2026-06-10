@@ -2305,6 +2305,102 @@ app.use((req, res, next) => {
   }
 });
 
+/* ==================== AI Proxy Routes ==================== */
+// 브라우저가 LLM 서버를 직접 호출하지 않도록 서버가 중계한다. (모델·키는 서버가 강제)
+// - 이식 전(임시): GitHub Models(외부 API) 기본값 — AI_API_KEY 필수
+// - 내부망 이식 후: .env 의 AI_BASE_URL 만 GPT-OSS 주소로 바꾸면 복귀 (키 불필요)
+const AI_BASE_URL_DEFAULT = 'https://models.github.ai/inference';
+const AI_MODEL_DEFAULT = 'openai/gpt-4.1-mini';
+const aiBaseUrl = (process.env.AI_BASE_URL || AI_BASE_URL_DEFAULT).replace(/\/+$/, '');
+const aiApiKey = (process.env.AI_API_KEY || '').trim();
+const aiModel = process.env.AI_MODEL || AI_MODEL_DEFAULT;
+// 명시적 AI_BASE_URL(내부 GPT-OSS 등)은 키 없이 동작, 외부 기본값은 키가 있어야 동작.
+const aiConfigured = Boolean(process.env.AI_BASE_URL) || aiApiKey.length > 0;
+const aiIsExternal = !process.env.AI_BASE_URL || aiBaseUrl.startsWith('https://models.github.ai');
+
+// 인증 도입(Phase S) 전 임시 레이트리밋: IP별 분당 호출 수 제한. 인증 후 세션 주체 기준으로 교체.
+const AI_RATE_LIMIT_PER_MINUTE = 20;
+const aiRateBuckets = new Map();
+const aiRateLimited = (key) => {
+  const now = Date.now();
+  const bucket = aiRateBuckets.get(key);
+  if (!bucket || now - bucket.windowStart >= 60_000) {
+    aiRateBuckets.set(key, { windowStart: now, count: 1 });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > AI_RATE_LIMIT_PER_MINUTE;
+};
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of aiRateBuckets) {
+    if (now - bucket.windowStart >= 60_000) aiRateBuckets.delete(key);
+  }
+}, 5 * 60_000).unref();
+
+// 클라이언트가 설정 상태를 조회해 "AI 미설정" 안내·외부 API 주의 캡션을 띄운다. (키 값은 노출 금지)
+app.get('/api/ai/status', (req, res) => {
+  res.json({ configured: aiConfigured, external: aiIsExternal, model: aiModel });
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+  if (!aiConfigured) {
+    return res.status(503).json({
+      configured: false,
+      error: 'AI not configured',
+      message: 'AI_API_KEY(임시 GitHub Models) 또는 AI_BASE_URL(내부 GPT-OSS)을 .env에 설정해 주세요.',
+    });
+  }
+
+  const fwd = req.headers['x-forwarded-for'];
+  const clientKey =
+    (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.socket?.remoteAddress || 'unknown';
+  if (aiRateLimited(clientKey)) {
+    return res.status(429).json({
+      error: 'Too many requests',
+      message: `AI 호출이 분당 ${AI_RATE_LIMIT_PER_MINUTE}회를 초과했습니다. 잠시 후 다시 시도해 주세요.`,
+    });
+  }
+
+  const { messages, temperature, max_tokens: maxTokens } = req.body ?? {};
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages 배열이 필요합니다.' });
+  }
+  const safeMessages = messages
+    .filter((m) => m && typeof m.content === 'string' && ['system', 'user', 'assistant'].includes(m.role))
+    .map((m) => ({ role: m.role, content: m.content }));
+  if (safeMessages.length === 0) {
+    return res.status(400).json({ error: 'messages 형식이 올바르지 않습니다.' });
+  }
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (aiApiKey) headers.Authorization = `Bearer ${aiApiKey}`;
+    const payload = { model: aiModel, messages: safeMessages };
+    if (typeof temperature === 'number') payload.temperature = temperature;
+    if (typeof maxTokens === 'number') payload.max_tokens = maxTokens;
+
+    const upstream = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      // 업스트림 에러 본문은 서버 로그에만 남긴다(키·내부 정보 노출 방지).
+      console.error('AI upstream error:', upstream.status, text.slice(0, 500));
+      return res.status(502).json({ error: 'AI upstream error', status: upstream.status });
+    }
+    res.type('application/json').send(text);
+  } catch (err) {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    console.error('AI proxy error:', err?.message ?? err);
+    res.status(timedOut ? 504 : 500).json({ error: timedOut ? 'AI timeout' : 'AI proxy error' });
+  }
+});
+
 /* ==================== Employee Routes ==================== */
 
 // Get single employee by ID
