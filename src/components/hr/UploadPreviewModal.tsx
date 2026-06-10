@@ -1,5 +1,11 @@
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type { DiffItem, DiffResult, DiffStatus } from '@/lib/uploadDiff';
 
 interface Props {
@@ -49,36 +55,22 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, on
   const applicable = summary.new + summary.changed;
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        padding: 24,
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !isApplying) onClose();
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="sd-card sd-card-lg"
-        style={{ width: 'min(820px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
+      <DialogContent
+        className="sm:max-w-[820px]"
+        style={{ maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div>
-            <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{title} · 변경 미리보기</h2>
-            <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 4 }}>
-              {fileName} · 예상 변경입니다. 실제 반영은 적용 후 확정됩니다.
-            </p>
-          </div>
-          <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose} disabled={isApplying}>
-            <X size={16} />
-            닫기
-          </button>
-        </div>
+        <DialogHeader>
+          <DialogTitle>{title} · 변경 미리보기</DialogTitle>
+          <DialogDescription>
+            {fileName} · 예상 변경입니다. 실제 반영은 적용 후 확정됩니다.
+          </DialogDescription>
+        </DialogHeader>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <Chip label="신규" value={summary.new} tone={STATUS_META.new.color} />
@@ -164,8 +156,8 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, on
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

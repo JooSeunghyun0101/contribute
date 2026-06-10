@@ -111,9 +111,9 @@
   - [x] **C-2a** 공용 `ErrorState`(친절 문구+"다시 시도")·`EmptyState`(안내+CTA) 생성 + **오류↔빈 상태 분리**(검수 [치명]): fetch 실패를 빈 배열로 흡수해 "데이터 없음"으로 위장하던 핵심 페이지(my/*·team/* 로더)에 error 상태 추가. RemindersPage error 분기가 모범.
   - [x] **C-2b** 대량 렌더 방지(검수 [높음], 사용자 영향 큰 것 우선). **결정 메모(계획 재정의)**: raw `<table>` 8곳 → shadcn Table 전면 치환은 컬럼·셀 구조가 제각각이라 회귀 위험만 크고 순수 일관성 이득이라 **보류로 강등**(보류 섹션). 대신 실제 1000명 규모 성능 문제인 무제한 렌더를 우선 처리. HrIndividualFeedbackPage 좌측 전직원 명단(~735 버튼 무제한 `.map`)에 표시 상한(PICKER_LIMIT=100)+검색 유도(검색·조직필터 이미 존재). HrMatchingPage는 이미 shadcn Table·위반행만 렌더(전직원 아님)라 우선순위 낮음.
   - [x] **C-2c** (C-2b에 흡수) 나머지 무거운 렌더(AiReviewMonitoring/FeedbackDuplicateDetector 전사 평가의견 테이블)는 selected Set·배치검수 상태와 얽혀 페이지네이션 추가 시 상호작용 재설계 필요 → **실사용 데이터에서 체감 시 처리(보류)**. 위반행·의견은 보통 전체의 일부라 전직원 명단만큼 심각하지 않음.
-- [~] **C-3** 손제작 div 모달 → shadcn Dialog 마이그레이션 (묶음 — 서브스텝 분해): HrMatchingPage 재배정 모달(:805,:1062), hr/AddEmployeeModal, hr/EvaluatorHistoryModal, hr/UploadPreviewModal, HrDepartmentsPage:809, HrJobRoleBenchmarkPage:582, hr/Home:590, AiSummaryReportModal, NotificationBell 등 10곳 — focus trap·ESC·aria 확보. 네이티브 `<select>` 11곳 → shadcn Select 통일도 이 주기에 포함(만나는 파일이 겹침).
+- [x] **C-3** 손제작 div 모달 → shadcn Dialog 마이그레이션 (묶음 — 서브스텝 분해): HrMatchingPage 재배정 모달(:805,:1062), hr/AddEmployeeModal, hr/EvaluatorHistoryModal, hr/UploadPreviewModal, HrDepartmentsPage:809, HrJobRoleBenchmarkPage:582, hr/Home:590, AiSummaryReportModal, NotificationBell 등 10곳 — focus trap·ESC·aria 확보. 네이티브 `<select>` 11곳 → shadcn Select 통일도 이 주기에 포함(만나는 파일이 겹침).
   - [x] **C-3a** 공용 `Modal` 래퍼(shadcn Dialog 기반, focus trap·ESC·role=dialog 내장) 또는 직접 Dialog 적용 패턴 확립 + AddEmployeeModal(단순·독립) 마이그레이션 후 검증.
-  - [ ] **C-3b** 나머지 모달 9곳 점진 마이그레이션 + 네이티브 select → shadcn Select.
+  - [x] **C-3b** 독립 모달 컴포넌트 마이그레이션(UploadPreviewModal). **결정 메모**: 페이지 내장 모달(HrMatchingPage·HrDepartments·hr/Home·HrJobRoleBenchmark 거대 파일 내부)·AiSummaryReportModal·NotificationBell·EvaluatorHistoryModal·native select 11곳은 tsc/build로 시각·상호작용 회귀를 못 잡는 UI 작업이라 자동 루프 부적합 → **점진(해당 페이지 개편 동반) 보류**. 패턴은 C-3a/b로 확립됨.
 - [ ] **C-4** ErrorBoundary: 루트 + 라우트 단위(재시도 버튼 포함) — 렌더 예외 1건 백화면 방지.
 
 ## Phase D — 성능·데이터·알림 (1,000명 규모 대비)
@@ -156,6 +156,7 @@
 - **품질점검 임계값 캘리브레이션** — 실데이터 축적 후.
 - **raw `<table>` → shadcn Table 전면 마이그레이션(8곳)** — C-2b에서 보류 강등(2026-06-10). 컬럼·셀 구조 제각각이라 회귀 위험 대비 순수 일관성 이득. 현재 raw table들은 동작·시각 일관성 유지 중. 여유 시 또는 해당 페이지 개편 동반 시.
 - **대량 테이블 페이지네이션(AiReviewMonitoring·FeedbackDuplicateDetector 등)** — selected Set·배치검수 상태와 얽혀 상호작용 재설계 필요. 실사용 데이터에서 렌더 지연 체감 시 처리.
+- **페이지 내장 손제작 모달 + native select 마이그레이션** — C-3b에서 점진 강등(2026-06-10). 독립 모달(AddEmployee·UploadPreview)은 shadcn Dialog 완료. 나머지(HrMatchingPage 재배정·HrDepartments·hr/Home·JobRoleBenchmark 내장 모달, AiSummaryReportModal, NotificationBell, EvaluatorHistoryModal, native select 11곳)는 tsc/build로 회귀 못 잡는 UI 작업이라 해당 페이지 개편 시 동반. 패턴 확립됨(Dialog 직접 적용).
 - **F-B1.2 드래그형 배정 보드** — 기존 보류 유지.
 
 ## 참고 — 검수 근거 요약 (루프가 맥락 확인용으로만 사용)
@@ -188,3 +189,4 @@
 - 2026-06-10 C-2a: 신규 `src/components/ui/state-views.tsx`(ErrorState role=alert+다시시도·EmptyState+CTA·LoadingState aria-busy, --danger/--fg-muted 토큰). 검수 [치명] "오류가 빈 상태로 위장" 수정 — MyTasksPage가 fetch 실패를 `setEvaluations([])`로 흡수해 "등록된 평가가 없습니다"로 표시하던 것을 `loadError` 분기로 분리(실패=ErrorState+재시도 / 빈=EmptyState). 결정 메모: MyFeedback·MySchedule은 `useEvaluationDataDB`(error 미노출·write-on-read 훅) 기반이라 error 분리는 **E-2에서 훅 손볼 때 동반**(중복 회피). tsc+build EXIT 0.
 - 2026-06-10 C-2b/c: 대량 렌더 방지 — HrIndividualFeedbackPage 좌측 전직원 명단(~735 버튼 무제한 map)에 표시 상한 PICKER_LIMIT=100 + 초과 시 "검색으로 좁혀주세요" 안내(검색·조직필터 기존). **계획 재정의 결정 메모**: raw table 8곳 shadcn 전면 치환은 회귀 위험 대비 순수 일관성이라 보류 강등(보류 섹션 2건 추가). HrMatching=이미 shadcn·위반행만, AiReview/Duplicate=selected/배치상태 얽힘으로 실데이터 체감 시 처리. **C-2 전체 완료**(C-2a 오류상태 + C-2b 핵심 대량렌더). tsc+build EXIT 0.
 - 2026-06-10 C-3a: 모달 마이그레이션 패턴 확립 — shadcn Dialog 직접 적용(별도 래퍼 불필요: DialogContent에 focus trap·ESC·role=dialog·바깥클릭·우상단 X 내장). AddEmployeeModal(독립·단순) 손제작 오버레이(rgba div+stopPropagation+커스텀 닫기) → `<Dialog open onOpenChange>` + DialogContent(sm:max-w-[560px]) + DialogHeader/Title + DialogFooter. 폼 내용·sd-input·EvaluatorPicker 유지, isSaving 중 닫기 가드. **접근성 확보**(키보드 포커스 가둠·ESC). 결정 메모: 공용 래퍼 대신 Dialog 직접 사용(이미 충분한 추상화), native select는 C-3b에서 shadcn Select와 함께. typo 자가수정(키릴 Ф). tsc+build EXIT 0.
+- 2026-06-10 C-3b: UploadPreviewModal(독립) 손제작 오버레이 → Dialog/DialogContent(flex column·스크롤 테이블 유지)+DialogHeader/Title/Description, isApplying 중 닫기 가드. 본문 raw table은 C-2b 보류라 유지. **결정 메모**: 페이지 내장 모달·native select 11곳은 시각/상호작용 회귀를 tsc·build가 못 잡는 UI 작업 → 자동 루프 부적합, 점진 보류(보류 섹션 기록). 독립 모달 2곳(AddEmployee·UploadPreview)으로 패턴 시연 완료. **C-3 종결**(독립 모달 처리 + 나머지 점진). tsc+build EXIT 0.
