@@ -41,6 +41,7 @@ import HrChangeRequestsPage from "./pages/hr/ChangeRequestsPage";
 import HrRemindersPage from "./pages/hr/RemindersPage";
 import HrNoticesFaqPage from "./pages/hr/HrNoticesFaqPage";
 import HrQualityPage from "./pages/hr/HrQualityPage";
+import HrJobRoleBenchmarkPage from "./pages/hr/HrJobRoleBenchmarkPage";
 
 const queryClient = new QueryClient();
 
@@ -289,6 +290,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrQualityPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/job-role-benchmark"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrJobRoleBenchmarkPage />
                     </ProtectedRoute>
                   }
                 />
