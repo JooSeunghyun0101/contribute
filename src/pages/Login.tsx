@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { IconArrowRight } from '@/components/brand';
+import { Spinner } from '@/components/ui/spinner';
 
 // WebGL hero is used only on the login screen, so keep it out of the main bundle.
 const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
@@ -246,7 +247,7 @@ const Login = () => {
                 opacity: isLoading ? 0.7 : 1,
               }}
             >
-              {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
+              {isLoading ? '로그인 중…' : '로그인'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
             </button>
           </form>
         ) : (
@@ -308,7 +309,7 @@ const Login = () => {
                 opacity: isLoading ? 0.7 : 1,
               }}
             >
-              {isLoading ? '변경 중…' : '비밀번호 변경 후 시작'} <IconArrowRight size={16} />
+              {isLoading ? '변경 중…' : '비밀번호 변경 후 시작'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
             </button>
           </form>
         )}
