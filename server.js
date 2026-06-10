@@ -2618,24 +2618,174 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// HR 전용 가드 — 역할은 DB available_roles 만 신뢰(세션 신원 기반). admin 계정은 항상 HR.
+// 요청자 HR 여부 — 역할은 DB available_roles 만 신뢰(세션 신원 기반). admin 계정은 항상 HR.
+// 요청당 1회만 조회(req 캐시).
+const requesterIsHr = async (req) => {
+  if (req._isHr !== undefined) return req._isHr;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM employees
+      WHERE employee_id::text = $1
+        AND (employee_id = 'admin' OR 'hr' = ANY(available_roles))
+      LIMIT 1`,
+    [req.session.employeeId],
+  );
+  req._isHr = rows.length > 0;
+  return req._isHr;
+};
+
 const requireHr = async (req, res, next) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   try {
-    const { rows } = await pool.query(
-      `SELECT 1 FROM employees
-        WHERE employee_id::text = $1
-          AND (employee_id = 'admin' OR 'hr' = ANY(available_roles))
-        LIMIT 1`,
-      [req.session.employeeId],
-    );
-    if (rows.length === 0) {
+    if (!(await requesterIsHr(req))) {
       return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
     }
     next();
   } catch (err) {
     console.error('HR 권한 확인 실패:', err.message);
     res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+/* ── 행 단위 접근제어 (S-3): 평가 데이터는 "본인 / 그 평가의 평가자 / HR"만 ── */
+
+// 직원 응답에서 인증 컬럼 제거 — SELECT * 라우트가 password_hash 를 흘리지 않도록 응답 직전에 벗긴다.
+const stripAuthFields = (data) => {
+  if (Array.isArray(data)) return data.map(stripAuthFields);
+  if (data && typeof data === 'object' && ('password_hash' in data || 'must_change_password' in data)) {
+    const { password_hash: _ph, must_change_password: _mc, ...safe } = data;
+    return safe;
+  }
+  return data;
+};
+
+// evaluations 에는 평가자 컬럼이 없다 — 평가자는 assignment_history_id(그 평가의 배정) 또는
+// employees.evaluator_id(현 담당 마스터)로 파생된다. 가드 쿼리가 두 값을 함께 조회해 넘긴다.
+const canAccessEvaluation = async (req, evaluationRow) => {
+  if (!evaluationRow) return false;
+  const me = req.session.employeeId;
+  if (String(evaluationRow.evaluatee_id ?? '') === me) return true;
+  if (String(evaluationRow.assigned_evaluator_id ?? '') === me) return true;
+  if (String(evaluationRow.current_evaluator_id ?? '') === me) return true;
+  return requesterIsHr(req);
+};
+
+// 사번 단위 평가 열람: 본인 / HR / 현 담당 평가자 / 과거 그 직원을 평가했던 평가자(발령 이력 열람).
+const canAccessEmployeeEvaluations = async (req, employeeId) => {
+  const target = String(employeeId ?? '');
+  if (!target) return false;
+  const me = req.session.employeeId;
+  if (target === me) return true;
+  if (await requesterIsHr(req)) return true;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM employees WHERE employee_id::text = $1 AND evaluator_id::text = $2
+     UNION ALL
+     SELECT 1
+       FROM evaluations ev
+       JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+      WHERE ev.evaluatee_id::text = $1 AND h.new_evaluator_id::text = $2
+     LIMIT 1`,
+    [target, me],
+  );
+  return rows.length > 0;
+};
+
+// 가드 미들웨어들 — 대상 행을 미리 조회해 권한만 검사하고, 404 등 본 처리(및 mock 모드)는 핸들러에 맡긴다.
+const guardEvaluationParam = (paramName) => async (req, res, next) => {
+  if (!isDbAvailable) return next();
+  try {
+    const { rows } = await pool.query(
+      `SELECT ev.evaluatee_id,
+              h.new_evaluator_id AS assigned_evaluator_id,
+              e.evaluator_id AS current_evaluator_id
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.id::text = $1`,
+      [String(req.params?.[paramName] ?? '')],
+    );
+    if (rows.length === 0) return next();
+    if (await canAccessEvaluation(req, rows[0])) return next();
+    return res.status(403).json({ error: '해당 평가에 접근할 권한이 없습니다.' });
+  } catch (err) {
+    console.error('평가 접근 검사 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+const guardEmployeeEvaluationsParam = (paramName) => async (req, res, next) => {
+  if (!isDbAvailable) return next();
+  try {
+    if (await canAccessEmployeeEvaluations(req, req.params?.[paramName])) return next();
+    return res.status(403).json({ error: '해당 직원의 평가에 접근할 권한이 없습니다.' });
+  } catch (err) {
+    console.error('직원 평가 접근 검사 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+const guardTaskParam = (paramName, source = 'params') => async (req, res, next) => {
+  if (!isDbAvailable) return next();
+  try {
+    const taskId = String(
+      (source === 'body' ? req.body?.[paramName] ?? req.body?.taskId : req.params?.[paramName]) ?? '',
+    );
+    if (!taskId) return next();
+    const { rows } = await pool.query(
+      `SELECT ev.evaluatee_id,
+              h.new_evaluator_id AS assigned_evaluator_id,
+              e.evaluator_id AS current_evaluator_id
+         FROM tasks t
+         JOIN evaluations ev ON ev.id = t.evaluation_id
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE t.id::text = $1`,
+      [taskId],
+    );
+    if (rows.length === 0) return next();
+    if (await canAccessEvaluation(req, rows[0])) return next();
+    return res.status(403).json({ error: '해당 과업에 접근할 권한이 없습니다.' });
+  } catch (err) {
+    console.error('과업 접근 검사 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+const guardFeedbackParam = (paramName) => async (req, res, next) => {
+  if (!isDbAvailable) return next();
+  try {
+    const { rows } = await pool.query(
+      `SELECT ev.evaluatee_id,
+              h.new_evaluator_id AS assigned_evaluator_id,
+              e.evaluator_id AS current_evaluator_id
+         FROM feedback_history fh
+         JOIN evaluations ev ON ev.id = fh.evaluation_id
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE fh.id::text = $1`,
+      [String(req.params?.[paramName] ?? '')],
+    );
+    if (rows.length === 0) return next();
+    if (await canAccessEvaluation(req, rows[0])) return next();
+    return res.status(403).json({ error: '해당 피드백에 접근할 권한이 없습니다.' });
+  } catch (err) {
+    console.error('피드백 접근 검사 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+const guardNotificationParam = (paramName) => async (req, res, next) => {
+  if (!isDbAvailable) return next();
+  try {
+    const { rows } = await pool.query('SELECT recipient_id FROM notifications WHERE id::text = $1', [
+      String(req.params?.[paramName] ?? ''),
+    ]);
+    if (rows.length === 0) return next();
+    if (String(rows[0].recipient_id ?? '') === req.session.employeeId) return next();
+    if (await requesterIsHr(req)) return next();
+    return res.status(403).json({ error: '해당 알림에 접근할 권한이 없습니다.' });
+  } catch (err) {
+    console.error('알림 접근 검사 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
   }
 };
 
@@ -2659,7 +2809,7 @@ app.get('/api/employee/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Employee not found' });
     }
-    res.json(rows[0]);
+    res.json(stripAuthFields(rows[0]));
   } catch (err) {
     console.error('Error fetching employee:', err);
     const employee = getMockEmployeeById(req.params.id);
@@ -2690,7 +2840,7 @@ app.get('/api/employees', async (req, res) => {
         ORDER BY e.name
       `
     );
-    res.json(rows);
+    res.json(stripAuthFields(rows));
   } catch (err) {
     console.error('Error fetching employees:', err);
     res.json([...mockEmployees].sort((a, b) => a.name.localeCompare(b.name)));
@@ -2949,7 +3099,7 @@ app.get('/api/employees/evaluator/:evaluatorId', async (req, res) => {
       'SELECT * FROM employees WHERE evaluator_id = $1 ORDER BY name',
       [req.params.evaluatorId]
     );
-    res.json(rows);
+    res.json(stripAuthFields(rows));
   } catch (err) {
     console.error('Error fetching employees by evaluator:', err);
     res.json(getMockEmployeesByEvaluator(req.params.evaluatorId));
@@ -2995,7 +3145,7 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
       `,
       [req.params.evaluatorId]
     );
-    res.json(rows);
+    res.json(stripAuthFields(rows));
   } catch (err) {
     if (MISSING_PERIOD_SCHEMA_CODES.has(err.code)) {
       return res.json([]);
@@ -3016,14 +3166,14 @@ app.get('/api/employees/department/:dept', async (req, res) => {
       'SELECT * FROM employees WHERE department = $1 ORDER BY name',
       [req.params.dept]
     );
-    res.json(rows);
+    res.json(stripAuthFields(rows));
   } catch (err) {
     console.error('Error fetching employees by department:', err);
     res.json(getMockEmployeesByDepartment(req.params.dept));
   }
 });
 
-app.get('/api/matching-imports', async (req, res) => {
+app.get('/api/matching-imports', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -3047,7 +3197,7 @@ app.get('/api/matching-imports', async (req, res) => {
   }
 });
 
-app.get('/api/matching-imports/latest-rows', async (req, res) => {
+app.get('/api/matching-imports/latest-rows', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -3112,7 +3262,7 @@ app.get('/api/matching-imports/latest-rows', async (req, res) => {
   }
 });
 
-app.get('/api/employee-profile-imports', async (req, res) => {
+app.get('/api/employee-profile-imports', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -3136,7 +3286,7 @@ app.get('/api/employee-profile-imports', async (req, res) => {
   }
 });
 
-app.get('/api/employee-profile-imports/latest-rows', async (req, res) => {
+app.get('/api/employee-profile-imports/latest-rows', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -5357,7 +5507,7 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
 });
 
 // Get evaluation by employee ID (latest)
-app.get('/api/evaluations/by-employee/:employeeId', async (req, res) => {
+app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsParam('employeeId'), async (req, res) => {
   if (!isDbAvailable) {
     return res.json(null);
   }
@@ -6258,7 +6408,7 @@ app.delete('/api/evaluation-periods/:id', async (req, res) => {
   }
 });
 
-app.get('/api/evaluations', async (req, res) => {
+app.get('/api/evaluations', requireHr, async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query);
     const { rows } = await pool.query(
@@ -6285,7 +6435,7 @@ app.get('/api/evaluations', async (req, res) => {
   }
 });
 // Get evaluations for a specific employee
-app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
+app.get('/api/evaluations/employee/:employeeId', guardEmployeeEvaluationsParam('employeeId'), async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
@@ -6325,7 +6475,7 @@ app.get('/api/evaluations/employee/:employeeId', async (req, res) => {
   }
 });
 
-app.get('/api/evaluation/:id', async (req, res) => {
+app.get('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -6428,7 +6578,7 @@ app.post('/api/evaluation', async (req, res) => {
   }
 });
 
-app.put('/api/evaluation/:id', async (req, res) => {
+app.put('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -6529,7 +6679,7 @@ app.delete('/api/evaluation/:id', requireHr, async (req, res) => {
   }
 });
 // 피평가자가 평가자에게 평가 반려를 요청 (알림만, status 변경 없음)
-app.post('/api/evaluation/:id/return-request', async (req, res) => {
+app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
   const requestedBy = normalizeOptionalText(req.body?.requestedBy ?? req.body?.requested_by);
@@ -6597,7 +6747,7 @@ app.post('/api/evaluation/:id/return-request', async (req, res) => {
 
 // 평가자가 완료 평가를 피평가자에게 돌려보냄 → in-progress 로 전환해 피평가자 측 잠금 해제
 // 피평가자 재제출 시 자동으로 submitted → evaluating 흐름으로 복귀
-app.post('/api/evaluation/:id/reopen', async (req, res) => {
+app.post('/api/evaluation/:id/reopen', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
   const actorId = normalizeOptionalText(req.body?.actorId ?? req.body?.actor_id);
@@ -6662,7 +6812,7 @@ app.post('/api/evaluation/:id/reopen', async (req, res) => {
 
 // 평가자가 자기 완료 평가를 다시 열어 점수/피드백을 수정할 수 있는 단계(evaluating)로 되돌림
 // 피평가자에게 알림 발송 없음 (평가자 자신만의 액션)
-app.post('/api/evaluation/:id/reopen-for-evaluator', async (req, res) => {
+app.post('/api/evaluation/:id/reopen-for-evaluator', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
   const client = await pool.connect();
@@ -6708,7 +6858,7 @@ app.post('/api/evaluation/:id/reopen-for-evaluator', async (req, res) => {
 });
 
 // Get evaluations by status ('in-progress' or 'completed')
-app.get('/api/evaluations/status/:status', async (req, res) => {
+app.get('/api/evaluations/status/:status', requireHr, async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
@@ -6749,7 +6899,7 @@ app.get('/api/evaluations/status/:status', async (req, res) => {
   }
 });
 // Get tasks by evaluation ID
-app.get('/api/tasks/evaluation/:evaluationId', async (req, res) => {
+app.get('/api/tasks/evaluation/:evaluationId', guardEvaluationParam('evaluationId'), async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -6838,7 +6988,7 @@ app.get('/api/tasks/evaluation/:evaluationId', async (req, res) => {
 });
 
 // Get tasks for the active evaluation period, with year fallback for legacy data.
-app.get('/api/tasks/current-year', async (req, res) => {
+app.get('/api/tasks/current-year', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -7209,7 +7359,7 @@ app.delete('/api/task/:id', async (req, res) => {
 
 /* ==================== Feedback Routes ==================== */
 
-app.get('/api/feedbacks', async (req, res) => {
+app.get('/api/feedbacks', requireHr, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -7239,7 +7389,7 @@ app.get('/api/feedbacks', async (req, res) => {
   }
 });
 
-app.get('/api/feedback/:id', async (req, res) => {
+app.get('/api/feedback/:id', guardFeedbackParam('id'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -7271,7 +7421,7 @@ app.get('/api/feedback/:id', async (req, res) => {
   }
 });
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', guardTaskParam('task_id', 'body'), async (req, res) => {
   try {
     const payload = normalizeFeedbackPayload(req.body);
     if (!payload.task_id || !payload.content) {
@@ -7327,7 +7477,7 @@ app.delete('/api/feedback/:id', requireHr, async (req, res) => {
   }
 });
 // Get feedback history by task ID
-app.get('/api/feedbacks/task/:taskId', async (req, res) => {
+app.get('/api/feedbacks/task/:taskId', guardTaskParam('taskId'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -7363,7 +7513,9 @@ app.get('/api/feedbacks/task/:taskId', async (req, res) => {
 
 app.get('/api/notifications', async (req, res) => {
   try {
-    const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.query?.recipient_id);
+    const requested = normalizeOptionalText(req.query?.recipientId ?? req.query?.recipient_id);
+    // 비HR은 본인 알림만 — 쿼리의 recipient 를 무시하고 세션 사번으로 강제한다.
+    const recipientId = (await requesterIsHr(req)) ? requested : req.session.employeeId;
     const limitParam = Number.parseInt(req.query?.limit, 10);
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
 
@@ -7387,7 +7539,9 @@ app.get('/api/notifications', async (req, res) => {
 });
 
 app.put('/api/notifications/read-all', async (req, res) => {
-  const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+  const requested = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+  // 비HR은 본인 것만 일괄 읽음 처리.
+  const recipientId = (await requesterIsHr(req).catch(() => false)) ? requested : req.session.employeeId;
   if (!recipientId) {
     return res.status(400).json({ error: 'recipientId is required' });
   }
@@ -7403,8 +7557,10 @@ app.put('/api/notifications/read-all', async (req, res) => {
   }
 });
 
-app.delete('/api/notifications', requireHr, async (req, res) => {
-  const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+app.delete('/api/notifications', async (req, res) => {
+  const requested = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
+  // 본인 알림 비우기 흐름이므로 HR 전용이 아님 — 비HR은 본인 것만 삭제 가능.
+  const recipientId = (await requesterIsHr(req).catch(() => false)) ? requested : req.session.employeeId;
   if (!recipientId) {
     return res.status(400).json({ error: 'recipientId is required' });
   }
@@ -7420,7 +7576,7 @@ app.delete('/api/notifications', requireHr, async (req, res) => {
   }
 });
 
-app.get('/api/notification/:id', async (req, res) => {
+app.get('/api/notification/:id', guardNotificationParam('id'), async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM notifications WHERE id = $1', [req.params.id]);
     res.json(rows[0] ?? null);
@@ -7537,7 +7693,7 @@ app.post('/api/notification', async (req, res) => {
   }
 });
 
-app.put('/api/notification/:id/read', async (req, res) => {
+app.put('/api/notification/:id/read', guardNotificationParam('id'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       'UPDATE notifications SET is_read = true WHERE id = $1 RETURNING *',
@@ -7550,7 +7706,7 @@ app.put('/api/notification/:id/read', async (req, res) => {
   }
 });
 
-app.delete('/api/notification/:id', async (req, res) => {
+app.delete('/api/notification/:id', guardNotificationParam('id'), async (req, res) => {
   try {
     const { rowCount } = await pool.query('DELETE FROM notifications WHERE id = $1', [req.params.id]);
     if (rowCount === 0) {
@@ -7739,7 +7895,7 @@ app.post('/api/evaluator-qna-logs', async (req, res) => {
 });
 
 // 문의 이력 전체 조회 (HR 엑셀 다운로드용). 최신순.
-app.get('/api/evaluator-qna-logs', async (req, res) => {
+app.get('/api/evaluator-qna-logs', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }

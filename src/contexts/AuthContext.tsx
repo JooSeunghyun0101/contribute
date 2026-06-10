@@ -24,13 +24,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // 역할 선호는 UX 설정일 뿐 신원이 아니다 — 신원·세션은 서버 쿠키만 신뢰한다.
 const PREFERRED_ROLE_KEY = 'preferredRole';
 
-// Helper function to convert database employee to available roles
+// 역할은 서버가 준 employee.available_roles 만 신뢰한다(임시 백도어 제거 — S-3).
+// 서버 측 권한도 동일 기준(requireHr)이라 클라이언트 조작만으로는 HR 기능을 쓸 수 없다.
 const getAvailableRolesFromEmployee = (employee: Employee): UserRole[] => {
-  // Temporary HR access for H1411166 (주승현) — S-3에서 제거 예정(DB available_roles만 신뢰)
-  if (employee.employee_id === 'H1411166') {
-    return ['evaluatee', 'hr'];
-  }
-  return employee.available_roles as UserRole[];
+  const roles = employee.available_roles as UserRole[];
+  return Array.isArray(roles) && roles.length > 0 ? roles : ['evaluatee'];
 };
 
 const buildUser = (employee: Employee, preferredRole?: UserRole): User => {
