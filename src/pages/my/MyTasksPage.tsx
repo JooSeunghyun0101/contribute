@@ -6,6 +6,7 @@ import { employeeService, evaluationService } from '@/lib/services';
 import { formatEvaluatorPeriod } from '@/lib/evaluatorHistory';
 import { buildEvaluatorPeriods } from '@/lib/evaluatorHistory';
 import EvaluationAccordionCard from './EvaluationAccordionCard';
+import { ErrorState, EmptyState, LoadingState } from '@/components/ui/state-views';
 import type { Evaluation, Employee, EvaluatorAssignmentHistory } from '@/types';
 
 const MyTasksPage = () => {
@@ -17,6 +18,7 @@ const MyTasksPage = () => {
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [history, setHistory] = useState<EvaluatorAssignmentHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -24,6 +26,7 @@ const MyTasksPage = () => {
     let cancelled = false;
     (async () => {
       setIsLoading(true);
+      setLoadError(false);
       try {
         const [emp, evals, history] = await Promise.all([
           employeeService.getEmployeeById(employeeId),
@@ -43,8 +46,12 @@ const MyTasksPage = () => {
         setHistory(history);
         setEvaluations(evals);
       } catch (error) {
+        // 오류를 빈 배열로 흡수하지 않는다 — "평가 없음"이 아니라 "불러오기 실패"로 구분 표시.
         console.warn('평가 목록 로드 실패:', error);
-        if (!cancelled) setEvaluations([]);
+        if (!cancelled) {
+          setEvaluations([]);
+          setLoadError(true);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -97,19 +104,20 @@ const MyTasksPage = () => {
           gap: 14,
         }}
       >
-        {isLoading && (
-          <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)', padding: '20px 6px' }}>
-            평가 목록을 불러오는 중입니다.
-          </div>
+        {isLoading && <LoadingState message="평가 목록을 불러오는 중입니다…" />}
+
+        {!isLoading && loadError && (
+          <ErrorState
+            message="평가 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
         )}
 
-        {!isLoading && visibleEvaluations.length === 0 && (
-          <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-            아직 등록된 평가가 없습니다.
-          </div>
+        {!isLoading && !loadError && visibleEvaluations.length === 0 && (
+          <EmptyState message="아직 등록된 평가가 없습니다." />
         )}
 
-        {!isLoading &&
+        {!isLoading && !loadError &&
           visibleEvaluations.map((ev, index) => {
             const isCurrent = Boolean(
               ev.evaluator_id && employeeEvaluatorId && ev.evaluator_id === employeeEvaluatorId,
