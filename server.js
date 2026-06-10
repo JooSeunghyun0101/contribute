@@ -6,6 +6,8 @@ import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 // Load environment variables from .env (manual parsing)
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +20,9 @@ if (fs.existsSync(envPath)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return;
     const [key, ...rest] = trimmed.split('=');
+    const name = key.trim();
+    // dotenv 표준: 이미 설정된 환경변수(셸·docker-compose 주입)가 .env 보다 우선한다.
+    if (process.env[name] !== undefined) return;
     let value = rest.join('=').trim();
     // .env 값의 둘러싼 따옴표 허용(dotenv 호환) — 수제 파서라 직접 벗긴다.
     if (
@@ -26,7 +31,7 @@ if (fs.existsSync(envPath)) {
     ) {
       value = value.slice(1, -1);
     }
-    process.env[key.trim()] = value;
+    process.env[name] = value;
   });
 }
 
@@ -35,6 +40,18 @@ const mockEmployees = fs.existsSync(mockEmployeesPath)
   : [];
 
 let isDbAvailable = false;
+
+// DB를 못 쓰는 상황의 단일 정책: 운영은 fail-fast(빈 데이터로 장애를 은폐하지 않음),
+// 개발에서 mock으로 띄우려면 ALLOW_MOCK_FALLBACK=true.
+const exitOrMock = (reason) => {
+  if (process.env.ALLOW_MOCK_FALLBACK === 'true') {
+    console.warn(`${reason} — ALLOW_MOCK_FALLBACK=true, mock DB로 기동(개발 전용).`);
+    pool = { query: async () => ({ rows: [], rowCount: 0 }) };
+    return;
+  }
+  console.error(`${reason} — 프로세스를 종료합니다. (개발 mock: ALLOW_MOCK_FALLBACK=true)`);
+  process.exit(1);
+};
 
 const getMockEmployeeById = (employeeId) =>
   mockEmployees.find((employee) => employee.employee_id === employeeId) ?? null;
@@ -70,18 +87,14 @@ if (connectionString) {
     .query('SELECT 1')
     .then(() => {
       isDbAvailable = true;
-      console.log('??PostgreSQL ?곌껐 ?깃났 (API ?쒕쾭)');
-
+      console.log('PostgreSQL 연결 성공 (API 서버)');
     })
     .catch(err => {
-      console.error('??PostgreSQL ?곌껐 ?湲곗떆媛?珥덇낵 ?먮뒗 ?ㅽ뙣 (API ?쒕쾭)', err.message);
-      console.log('?좑툘 API ?쒕쾭?먯꽌 mock DB濡??꾪솚?⑸땲??');
-      // Fallback to mock DB to avoid crashes
-      pool = { query: async () => ({ rows: [], rowCount: 0 }) };
+      console.error('PostgreSQL 연결 실패 (API 서버):', err.message);
+      exitOrMock('DB unavailable');
     });
 } else {
-  console.warn('?좑툘 DATABASE_URL???ㅼ젙?섏? ?딆쓬 ??API ?쒕쾭?먯꽌 mock DB ?ъ슜');
-  pool = { query: async () => ({ rows: [], rowCount: 0 }) };
+  exitOrMock('DATABASE_URL not set');
 }
 
 const getCurrentEvaluationYear = () => new Date().getFullYear();
@@ -2291,28 +2304,40 @@ const assertFeedbackWritableById = async (feedbackId) => {
 
 // Create Express app
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
-app.use((req, res, next) => {
-  if (req.headers['content-type']?.includes('application/json')) {
-    let rawData = '';
-    req.on('data', chunk => {
-      rawData += chunk;
-    });
-    req.on('end', () => {
-      // Replace any CR/LF characters that would break JSON parsing
-      const sanitized = rawData.replace(/[\r\n]+/g, ' ');
-      try {
-        req.body = JSON.parse(sanitized);
-        next();
-      } catch (err) {
-        console.error('??JSON parse error (sanitized):', err);
-        res.status(400).json({ error: 'Invalid JSON payload' });
-      }
-    });
-  } else {
-    next();
-  }
-});
+
+// 보안 헤더 — API 서버 기준. SPA는 별도 서빙이라 CSP는 끔(켜면 정적 인라인 자산이 깨질 수 있음).
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS 화이트리스트 — 기본은 로컬 dev 오리진(vite 5173/preview 4173). 운영은 CORS_ORIGINS(콤마 구분).
+// Origin 헤더 없는 same-origin/프록시 요청은 항상 허용(운영 기본형: vite proxy·동일 호스트 서빙).
+const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:4173')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: (origin, callback) => callback(null, !origin || corsOrigins.includes(origin)),
+    credentials: true,
+  }),
+);
+
+// 표준 JSON 파서 + 크기 제한 — 수제 파서(본문 개행을 공백 치환·크기 무제한)는 폐기.
+// 한도는 매칭/프로필 임포트(수천 행 JSON)를 감안해 5mb.
+app.use(express.json({ limit: '5mb' }));
+
+// 전역 레이트리밋(IP당 분당 3000) — DoS 방어 수준의 느슨한 한도.
+// HR 화면이 아직 직원당 N+1 요청이라(D-1 전) 타이트하면 정상 사용이 429가 된다 — D-1 후 하향 조정.
+// 로그인(분당 10)·AI(분당 20)는 자체 리밋이 별도로 더 엄격하다.
+app.use(
+  '/api',
+  rateLimit({
+    windowMs: 60_000,
+    limit: 3000,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' },
+  }),
+);
 
 /* ==================== AI Proxy Routes ==================== */
 // 브라우저가 LLM 서버를 직접 호출하지 않도록 서버가 중계한다. (모델·키는 서버가 강제)
@@ -4437,7 +4462,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error importing matching file:', err.message, err.code, err.where ?? '');
-    res.status(500).json({ error: 'Database error', detail: err.message });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -5438,7 +5463,7 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error in reset/employees:', err);
-    res.status(500).json({ error: err.message ?? 'Database error' });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -5500,7 +5525,7 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error in reset/matching:', err);
-    res.status(500).json({ error: err.message ?? 'Database error' });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -6293,7 +6318,7 @@ app.post('/api/evaluation-periods', async (req, res) => {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Evaluation period code already exists' });
     }
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();
   }
@@ -6317,7 +6342,7 @@ app.put('/api/evaluation-periods/:id', async (req, res) => {
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Evaluation period code already exists' });
     }
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();
   }
@@ -6402,7 +6427,7 @@ app.delete('/api/evaluation-periods/:id', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error deleting evaluation period:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();
   }
@@ -6574,7 +6599,7 @@ app.post('/api/evaluation', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('Error creating evaluation:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -6655,7 +6680,7 @@ app.put('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating evaluation:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();
   }
@@ -6675,7 +6700,7 @@ app.delete('/api/evaluation/:id', requireHr, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting evaluation:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 // 피평가자가 평가자에게 평가 반려를 요청 (알림만, status 변경 없음)
@@ -6739,7 +6764,7 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error sending return request:', err);
-    res.status(500).json({ error: err.message ?? 'Database error' });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -6804,7 +6829,7 @@ app.post('/api/evaluation/:id/reopen', guardEvaluationParam('id'), async (req, r
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error reopening evaluation:', err);
-    res.status(500).json({ error: err.message ?? 'Database error' });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -6851,7 +6876,7 @@ app.post('/api/evaluation/:id/reopen-for-evaluator', guardEvaluationParam('id'),
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error reopening evaluation for evaluator:', err);
-    res.status(500).json({ error: err.message ?? 'Database error' });
+    res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
   }
@@ -7200,7 +7225,7 @@ app.put('/api/task-evaluation-entry', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error upserting task evaluation entry:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();
   }
@@ -7233,7 +7258,7 @@ app.post('/api/task', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('Error creating task:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -7292,7 +7317,7 @@ app.put('/api/task/:id', async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error('Error updating task:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -7313,7 +7338,7 @@ app.patch('/api/task/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error soft deleting task:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -7353,7 +7378,7 @@ app.delete('/api/task/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting task:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -7459,7 +7484,7 @@ app.post('/api/feedback', guardTaskParam('task_id', 'body'), async (req, res) =>
     res.json(rows[0]);
   } catch (err) {
     console.error('Error creating feedback:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 
@@ -7473,7 +7498,7 @@ app.delete('/api/feedback/:id', requireHr, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting feedback:', err);
-    res.status(err.statusCode ?? 500).json({ error: err.message ?? 'Database error' });
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   }
 });
 // Get feedback history by task ID
