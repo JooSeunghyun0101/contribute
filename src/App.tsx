@@ -43,6 +43,7 @@ import HrNoticesFaqPage from "./pages/hr/HrNoticesFaqPage";
 import HrQualityPage from "./pages/hr/HrQualityPage";
 import HrJobRoleBenchmarkPage from "./pages/hr/HrJobRoleBenchmarkPage";
 import HrDepartmentResultsPage from "./pages/hr/HrDepartmentResultsPage";
+import HrIndividualFeedbackPage from "./pages/hr/HrIndividualFeedbackPage";
 
 const queryClient = new QueryClient();
 
@@ -307,6 +308,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrDepartmentResultsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/individual-feedback-report"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrIndividualFeedbackPage />
                     </ProtectedRoute>
                   }
                 />

@@ -51,6 +51,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
     { to: '/hr/job-role-benchmark', label: '직종 벤치마크', icon: IconChart, group: '현황·분석' },
     { to: '/hr/results', label: '부서·본부 결과', icon: IconTarget, group: '결과' },
+    { to: '/hr/individual-feedback-report', label: '개인 피드백 리포트', icon: IconMsg, group: '결과' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
     { to: '/hr/reminders', label: '독려·리마인드', icon: IconBell, group: '운영' },
     { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },

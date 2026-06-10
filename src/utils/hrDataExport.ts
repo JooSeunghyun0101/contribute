@@ -1375,6 +1375,138 @@ export const downloadOrgResultWorkbook = (
   return { fileName, rowCount: rows.length };
 };
 
+// ── 개인 피드백 리포트 (F-D3a) ───────────────────────────────────────────────
+// HR 가 1명을 선택해 본 '읽기 전용' 결과 리포트를 엑셀로 내려받는다. 화면(HrIndividualFeedbackPage)이
+// 이미 메모리에 가진 EmployeeEvaluationRecord 를 그대로 직렬화한다 — 다운로드 시 추가 DB 조회 0건.
+// downloadOrgResultWorkbook(F-D2) 와 동일 전략. PDF 의존성·생성 없음(D-3). 갭은 정수 내림 점수
+// (flooredScore) 기준 절대평가다. 점수는 가중점수(weightedScore)에 소수 절사를 적용해 표시한다.
+
+const INDIVIDUAL_SUMMARY_HEADERS = ['항목', '값'];
+
+const INDIVIDUAL_TASK_HEADERS = [
+  '과업명',
+  '가중치(%)',
+  '기여방식',
+  '기여범위',
+  '점수',
+  '갭(점수−성장레벨)',
+  '갭 판정',
+  '최신 평가의견',
+  '평가자',
+  '피드백일시',
+  '의견 이력 수',
+];
+
+const INDIVIDUAL_GUIDE_ROWS: unknown[][] = [
+  ['항목', '설명'],
+  ['갭', '갭 = 정수 내림 점수(flooredScore) − 성장레벨(절대평가). 원점수 자체로 줄세우지 않습니다.'],
+  ['갭 판정', '탁월 기여(갭≥1) · 기준 충족(갭=0) · 보완 필요(갭=−1) · 미달성(갭≤−2). 판정이 아닌 검토 정황입니다.'],
+  ['표시점수', '가중점수에 소수 절사(둘째 자리 내림)를 적용한 값입니다.'],
+  ['종합 달성', '정수 내림 가중점수(flooredScore)가 성장레벨 이상이면 달성으로 표기합니다.'],
+  ['미평가', '점수가 입력되지 않은 과업은 갭을 산출하지 않습니다(―).'],
+  ['발령 다중평가자', '발령(전보)으로 평가자가 여럿인 경우 현재 평가자 기준 1건을 표시합니다. 정상 케이스입니다.'],
+];
+
+// 갭 버킷 → 한글 라벨(엑셀 직렬화용). 화면과 동일하게 절대평가 기준.
+const GAP_BUCKET_LABEL: Record<'exceed' | 'meet' | 'near' | 'below', string> = {
+  exceed: '탁월 기여',
+  meet: '기준 충족',
+  near: '보완 필요',
+  below: '미달성',
+};
+
+// 개인 리포트 엑셀에 필요한 최소 형태. EmployeeEvaluationRecord 를 그대로 받지 않고
+// 화면이 산출한 표시값까지 포함한 직렬화 친화 타입으로 받아 추가 계산을 막는다.
+export type IndividualReportTaskRow = {
+  title: string;
+  weight: number;
+  contributionMethod: string | null;
+  contributionScope: string | null;
+  score: number | null;
+  gap: number | null; // Math.round(score) - Math.round(growthLevel), 미평가는 null
+  gapBucket: 'exceed' | 'meet' | 'near' | 'below' | null;
+  latestFeedback: string | null;
+  latestEvaluatorName: string | null;
+  latestFeedbackDate: string | null;
+  feedbackCount: number;
+};
+
+export type IndividualReportData = {
+  employeeId: string;
+  name: string;
+  position: string;
+  department: string;
+  orgPath: string; // 조직 계층 경로('' 가능)
+  growthLevel: number | null;
+  growthLevelTitle: string;
+  currentEvaluatorName: string | null;
+  evaluationStatusLabel: string;
+  displayScore: string; // formatScore(weightedScore)
+  flooredScore: number;
+  achieved: boolean;
+  totalWeight: number;
+  totalTasks: number;
+  ratedTasks: number;
+  tasks: IndividualReportTaskRow[];
+};
+
+const formatGapCell = (gap: number | null): string => {
+  if (gap == null) return '';
+  return gap > 0 ? `+${gap}` : String(gap);
+};
+
+const buildIndividualSummaryRows = (data: IndividualReportData) => [
+  INDIVIDUAL_SUMMARY_HEADERS,
+  ['성명', data.name],
+  ['사번', data.employeeId],
+  ['직급', data.position],
+  ['부서', data.department],
+  ['조직 경로', data.orgPath],
+  ['성장레벨', data.growthLevel == null ? '' : `Lv.${data.growthLevel} · ${data.growthLevelTitle}`],
+  ['현재 평가자', data.currentEvaluatorName ?? ''],
+  ['평가 상태', data.evaluationStatusLabel],
+  ['표시 점수(가중)', data.displayScore],
+  ['정수 내림 점수', String(data.flooredScore)],
+  ['종합 달성', data.achieved ? '달성' : '미달성'],
+  ['총 가중치(%)', String(data.totalWeight)],
+  ['과업 수(평가/전체)', `${data.ratedTasks}/${data.totalTasks}`],
+];
+
+const buildIndividualTaskRows = (data: IndividualReportData) =>
+  data.tasks.map((task) => ({
+    과업명: task.title,
+    '가중치(%)': task.weight,
+    기여방식: task.contributionMethod ?? '',
+    기여범위: task.contributionScope ?? '',
+    점수: task.score ?? '',
+    '갭(점수−성장레벨)': formatGapCell(task.gap),
+    '갭 판정': task.gapBucket ? GAP_BUCKET_LABEL[task.gapBucket] : '',
+    '최신 평가의견': task.latestFeedback ?? '',
+    평가자: task.latestEvaluatorName ?? '',
+    피드백일시: dateText(task.latestFeedbackDate),
+    '의견 이력 수': task.feedbackCount,
+  }));
+
+// 개인 피드백 리포트 엑셀 다운로드. data 는 화면이 직렬화한 결과를 그대로 받는다(추가 조회 없음).
+export const downloadIndividualReportWorkbook = (
+  data: IndividualReportData,
+  meta: { periodLabel?: string } = {},
+): { fileName: string; taskCount: number } => {
+  const wb = XLSX.utils.book_new();
+
+  const summaryRows = buildIndividualSummaryRows(data);
+  if (meta.periodLabel) {
+    summaryRows.push(['평가기간', meta.periodLabel]);
+  }
+  appendAoaSheet(wb, '리포트요약', summaryRows);
+  appendObjectSheet(wb, '과업상세', INDIVIDUAL_TASK_HEADERS, buildIndividualTaskRows(data));
+  appendAoaSheet(wb, '지표안내', INDIVIDUAL_GUIDE_ROWS);
+
+  const safeName = `${data.name}_${data.employeeId}`.replace(/[\\/:*?"<>|]/g, '_');
+  const fileName = writeWorkbook(wb, `개인피드백리포트_${safeName}_${todayText()}.xlsx`);
+  return { fileName, taskCount: data.tasks.length };
+};
+
 const QNA_LOG_HEADERS = [
   '일시',
   '사번',
