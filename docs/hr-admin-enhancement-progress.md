@@ -69,7 +69,7 @@
 - [x] **F-D1** 직종 벤치마크 (#8). **직종(job_role) 단위만**(직군 필드 없음). 같은 직종 내 분포 비교(갭/달성/점수), 품질 진단(F-C2a) baseline 공유. 현황·분석 그룹. read-only. 신규 `HrJobRoleBenchmarkPage`(/hr/job-role-benchmark). 비평이 달성률 정의 정정(record.achieved 대신 samples gap≥0/n). 리뷰 pass.
 - [x] **F-D2** 부서/본부 결과 리포트 (#7). 임원 보고용 요약. **화면 + 엑셀 export 활용(PDF 없음)**. 기존 `hrDataExport` 재사용. 신규 `HrDepartmentResultsPage`(/hr/results, 결과 그룹) + `downloadOrgResultWorkbook`. 조직 계층 집계·갭/달성/완료율·소표본 회색·read-only. 리뷰 pass.
 - [x] **F-D3a** 개인 피드백 리포트 — **화면 요약(read-only, PDF 없음)**. 신규 `HrIndividualFeedbackPage`(/hr/individual-feedback-report, 결과 그룹). 좌측 피평가자 선택 + 우측 1장(정보·과업별 점수/갭/의견·종합). `loadEmployeeEvaluationRecord` 읽기전용(미평가자 INSERT 회피), 갭 재사용, 엑셀 export(hrDataExport `downloadIndividualReportWorkbook`). PDF 의존성 0(D-3). fix: 평가 미존재 시 종합 판정 패널 숨김. 리뷰 pass.
-- [보류] **F-D3b** 개인 리포트 **PDF 생성**. 사용자 결정(D-3): PDF 보류 — jsPDF 등 의존성 추가 결정 시 재개. 화면 버전(F-D3a) 위에 얹음.
+- [보류] **F-D3b** 개인 리포트 **PDF 생성**. **사용자 재확인(2026-06-10): 보류 유지** — 화면+엑셀(F-D3a)로 충분. 재개 시 옵션: 브라우저 print-to-PDF(의존성 0·추천) / jsPDF / 서버. 화면 버전 위에 얹음.
 
 ---
 
@@ -99,6 +99,7 @@
 - 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
 - 2026-06-10 F-D2: 신규 `HrDepartmentResultsPage`(/hr/results, 결과 그룹) + `hrDataExport.downloadOrgResultWorkbook`. 조직 계층(법인-본부-부-팀) 단위 인원·완료율·달성률·갭 분포·평균갭 요약 + 엑셀 export(2시트), **PDF 없음(D-3)**. useCompanyDashboardRecords 1훅·갭 재사용·소표본 회색·read-only. impl이 TDZ 버그 자가수정. 리뷰 pass.
+- 2026-06-10 **★프로젝트 완료**: F-D3b(PDF) 사용자 재확인 보류. 계획서의 구현 가능한 모든 항목 완료. 미구현은 F-D3b(PDF, 의존성 결정 시 재개)뿐. 루프 종료.
 - 2026-06-10 F-D3a(보류 재개·PDF 제외): 신규 `HrIndividualFeedbackPage`(/hr/individual-feedback-report, 결과 그룹) — 피평가자 1장 리포트(성장레벨·과업별 점수/갭/의견·종합 달성). read-only(`loadEmployeeEvaluationRecord`, 미평가자 INSERT 회피), 갭 재사용, 엑셀 export(`downloadIndividualReportWorkbook`). **PDF 의존성 0(D-3 준수)**. fix: 평가 미존재 시 '미달성' 판정 패널 숨김. 리뷰 pass. ⇒ **남은 보류는 F-D3b(PDF 생성)뿐 → 루프 재종료.**
 - 2026-06-10 F-B1.2(보류 재개): `HrMatchingPage` 드릴다운에 '평가자 변경' 액션 + ReassignModal. 기존 `PUT /api/employee`(`updateEmployee`) 재사용 — 마스터 무조건 동기화 + AH 새 행(발령·이전 보존) + 새 평가자 draft 평가. 백엔드(server.js 4135-4180) 독립 검증으로 불변식(마스터=최신=새 평가자) 확인. HR 명시+확인·self/동일/비활성 가드. 리뷰 pass. ⇒ **남은 보류는 F-D3(개인 PDF, 사용자 보류)뿐 → 루프 재종료.**
 - 2026-06-10 **★루프 종료**: 활성 [ ] 항목 전부 소진. 보류 2건(F-B1.2 드래그 배정·F-D3 개인 PDF)은 사용자 결정으로 후속. 계획서 §1~§3 + §2 센터피스 + 데이터 재구성 + 정합성 버그 3건까지 완료.
