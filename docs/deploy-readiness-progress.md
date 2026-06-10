@@ -125,7 +125,9 @@
 
 ## Phase E — 기능 완결 (끊긴 마지막 고리 잇기)
 
-- [ ] **E-1** FAQ·공지 직원 노출 (현재 write-only): my/team 홈(또는 알림 페이지)에 FAQ 아코디언 섹션(`settingService.getUserSetting('system','faq_catalog')` 재사용) + 공지(`notification_type='notice'`) 구분 표시. **친절한 시스템의 핵심 — 사용법 안내가 사용자에게 보이게.**
+- [~] **E-1** FAQ·공지 직원 노출 (사용자 결정=전면 복구+가드 — 서브스텝 분해):
+  - [x] **E-1a** settingService 영속 복구 + settings 권한 가드. `settingService`를 pool(MockPool) → apiFetch로 재작성(인터페이스 유지=호출부 무변경). server.js settings 4엔드포인트에 가드: 읽기=`requireSettingsRead`(system 공유는 누구나·개인은 본인/HR), 쓰기/삭제=`requireSettingsWrite`(본인 또는 HR). **검증: HR FAQ 저장→DB 행 생성→재조회 OK / 피평가자 system 쓰기 403·읽기 200·본인 쓰기 200 / 테스트데이터 정리(0행 복귀)**. ⚠ **follow-up**: 매트릭스가 `user.employeeId`(개인별)로 저장/로드됨(`EvaluationMatrixContext`) — 전사 공통이어야 한다면 user_id='system'으로 바꿔야. 복구로 이제 실제 저장되니 매트릭스 페이지 동작 검증 권장(소급 변경은 없음).
+  - [ ] **E-1b** FAQ·공지 직원 노출 컴포넌트: `settingService.getUserSetting('system','faq_catalog')`(이제 동작) 재사용한 FaqSection 아코디언 + my/team 홈 또는 NotificationsPage 표시. 공지(notification_type='notice') 구분 표시.
 - [ ] **E-2** write-on-read 제거: `useEvaluationDataDB.ts:259` 조회 시 자동 `createEvaluation` → 명시적 액션(평가 시작)으로 분리. my/team 5곳+Evaluation.tsx 소비부 확인.
 - [ ] **E-3** 사이드바 IA·라벨 정리 묶음: ① '매칭 정합성 점검' 설정→품질 그룹 이동 ② 사이드바 라벨↔페이지 제목 불일치 7건 동기화 ③ `/hr/prompts` → `/hr/ai-review` 라우트 개명(기존 경로 리다이렉트 유지) ④ 중복 아이콘(IconMsg 4회 등) lucide로 변별. 메뉴는 줄이고 이름은 일치 — 간편함의 기본.
 
@@ -196,3 +198,5 @@
 - 2026-06-10 D-1/D-2 보류 결정: task 조회의 `task_evaluation_entries` 최신값 덮어쓰기·assignment_history 연계 복잡 쿼리를 평가기간 일괄로 재작성 시 점수·피드백 **정합성 전수검증 필요**, 틀리면 조용히 잘못된 평가 수치 전사 노출 → 무정지 루프 단독 부적합, 사용자 검증 동반 필요로 보류 강등. **결정 메모**: 성능은 실병목이라 가치 크나, 정합성 리스크가 자동화 부적합. D-3(알림 폴링, 안전·격리·기능실효성)로 진행.
 - 2026-06-10 D-3: NotificationContextDB에 알림 도달 메커니즘 추가 — 로그인 1회 로드 외에 ① 탭 보이는 동안 90~150초 지터 폴링(1,000명 동시 폴링 몰림 방지) ② visibilitychange·focus 시 즉시 재조회. 백그라운드 탭 폴링 안 함(서버 부하·배터리 절약). **클라이언트만 변경**(server.js 무변경=사용자 테스트·nodemon 영향 0). 기존 `loadNotifications`(useCallback) 재사용, cleanup 완비. 결정 메모: 경량 unread-count 엔드포인트 분리는 visible-only 폴링으로 부하 감당되므로 실문제 시로 보류(server.js 무변경 우선). 이로써 HR 리마인드(F-C1)·재검토 요청(F-B2.2)·공지(F-C5)가 새로고침 없이 수신자에 도달 — 기능 실효성 복원. tsc+build EXIT 0.
 - 2026-06-10 D-4: 라우트 lazy 분할 — App.tsx 23페이지 `lazy(() => import())` + AppShell Outlet `Suspense`(레이아웃 유지·본문만 LoadingState), Login·NotFound는 eager(첫 진입·작음). **빌드 청크 확인: index 2,263KB→420KB(gzip 613→135), 페이지별 독립 청크, hrDataExport 450KB·scoreTrend 435KB·date-picker 63KB 분리 → 피평가자가 HR/xlsx/recharts 미수신**. ② XLSX setTimeout 보류 강등(본질=Web Worker, 가치 낮음). tsc+build EXIT 0. **Phase D 핵심 완료**(D-3 알림·D-4 번들; D-1/D-2는 정합성 위험으로 사용자 검증 동반 보류).
+- 2026-06-10 **E-1 중대 발견 + 사용자 결정(전면 복구+가드)**: settings 테이블 직접 조회=0행 → `settingService`가 브라우저 MockPool이라 FAQ·평가매트릭스·기대수준 저장이 **한 번도 실동작한 적 없음**(검수 "write-only"보다 심각=전체 no-op). settings API 무가드도 발견(피평가자가 시스템 설정 조작 가능, S-2 누락). 사용자 결정=전면 복구.
+- 2026-06-10 E-1a: settingService→apiFetch 복구 + settings 4엔드포인트 권한 가드(requireSettingsRead/Write, requesterIsHr 재사용). 스모크 6케이스 통과(HR 저장·재조회·피평가자 403/200·본인 200·정리). settingService 쓰는 매트릭스·기대수준·FAQ가 이제 실제 영속. follow-up: 매트릭스 user_id=employeeId(개인별) — 전사 공통 의도면 별도 수정. tsc+build EXIT 0.

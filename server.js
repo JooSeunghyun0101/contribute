@@ -7746,7 +7746,33 @@ app.delete('/api/notification/:id', guardNotificationParam('id'), async (req, re
 
 /* ==================== Setting Routes ==================== */
 
-app.get('/api/settings/:userId/:type', async (req, res) => {
+// settings 읽기: 'system'(공유: FAQ·매트릭스 등)은 로그인 사용자 누구나, 개인 설정은 본인·HR.
+const requireSettingsRead = async (req, res, next) => {
+  const target = String(req.params?.userId ?? '');
+  if (target === 'system' || target === req.session.employeeId) return next();
+  try {
+    if (await requesterIsHr(req)) return next();
+  } catch (err) {
+    console.error('설정 읽기 권한 확인 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+  return res.status(403).json({ error: '해당 설정에 접근할 권한이 없습니다.' });
+};
+
+// settings 쓰기/삭제: 본인 설정이거나 HR(system·타인 포함). 피평가자의 시스템 설정 조작 차단.
+const requireSettingsWrite = async (req, res, next) => {
+  const target = String(req.body?.user_id ?? req.params?.userId ?? '');
+  if (target && target === req.session.employeeId) return next();
+  try {
+    if (await requesterIsHr(req)) return next();
+  } catch (err) {
+    console.error('설정 쓰기 권한 확인 실패:', err.message);
+    return res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+  return res.status(403).json({ error: '해당 설정을 변경할 권한이 없습니다.' });
+};
+
+app.get('/api/settings/:userId/:type', requireSettingsRead, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT * FROM settings WHERE user_id = $1 AND setting_type = $2 LIMIT 1',
@@ -7759,7 +7785,7 @@ app.get('/api/settings/:userId/:type', async (req, res) => {
   }
 });
 
-app.get('/api/settings/:userId', async (req, res) => {
+app.get('/api/settings/:userId', requireSettingsRead, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM settings WHERE user_id = $1', [req.params.userId]);
     res.json(rows);
@@ -7769,7 +7795,7 @@ app.get('/api/settings/:userId', async (req, res) => {
   }
 });
 
-app.post('/api/setting', async (req, res) => {
+app.post('/api/setting', requireSettingsWrite, async (req, res) => {
   try {
     const cols = ['user_id', 'setting_type', 'setting_data', 'updated_at'];
     const vals = [
@@ -7794,7 +7820,7 @@ app.post('/api/setting', async (req, res) => {
   }
 });
 
-app.delete('/api/setting/:userId/:type', async (req, res) => {
+app.delete('/api/setting/:userId/:type', requireSettingsWrite, async (req, res) => {
   try {
     const { rowCount } = await pool.query(
       'DELETE FROM settings WHERE user_id = $1 AND setting_type = $2',
