@@ -374,7 +374,7 @@ const EmployeePicker = ({
           조건에 맞는 피평가자가 없습니다.
         </div>
       ) : (
-        employees.map((employee) => {
+        employees.slice(0, PICKER_LIMIT).map((employee) => {
           const active = employee.employee_id === selectedId;
           return (
             <button
@@ -428,9 +428,18 @@ const EmployeePicker = ({
           );
         })
       )}
+      {!isLoading && employees.length > PICKER_LIMIT && (
+        <div style={{ padding: '12px 16px', fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+          {employees.length.toLocaleString('ko-KR')}명 중 {PICKER_LIMIT}명만 표시합니다. 위 검색으로 좁혀
+          주세요.
+        </div>
+      )}
     </div>
   </section>
 );
+
+// 좌측 명단은 사이드 패널이라 페이지네이션 대신 표시 상한 + 검색 유도(전사 수천 명 DOM 폭주 방지).
+const PICKER_LIMIT = 100;
 
 // ── 리포트 패널(우측 1장) ─────────────────────────────────────────────────────
 

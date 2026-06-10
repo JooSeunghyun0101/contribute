@@ -107,10 +107,10 @@
   - `ConfirmDialog`(AlertDialog 래퍼) + `ReasonDialog`(AlertDialog+Textarea, `AiReviewMonitoring.tsx:371-425` 패턴 추출).
   - `window.confirm/prompt` 30콜사이트 치환: HrUsersPage 7건, HrSettingsPage 4건(RESET 타이핑 확인은 Dialog 내 input으로), HrPeriodsPage 3건, Evaluation.tsx 2건, EvaluationAccordionCard 3건, ChangeRequestsPage 3건, HrQualityPage:1937(재검토 사유), NotificationsPage, EvaluatorRequestPage, PromptManagement, useEvaluationDataDB:999 등.
   - 효과: 재검토 요청 UX 통일(HrQuality ↔ AiReview 동일 패턴), 파괴적 액션 안전성.
-- [~] **C-2** 공용 DataTable + 상태 컴포넌트 + 적용 (묶음, 서브스텝 분해):
+- [x] **C-2** 공용 DataTable + 상태 컴포넌트 + 적용 (묶음, 서브스텝 분해):
   - [x] **C-2a** 공용 `ErrorState`(친절 문구+"다시 시도")·`EmptyState`(안내+CTA) 생성 + **오류↔빈 상태 분리**(검수 [치명]): fetch 실패를 빈 배열로 흡수해 "데이터 없음"으로 위장하던 핵심 페이지(my/*·team/* 로더)에 error 상태 추가. RemindersPage error 분기가 모범.
-  - [ ] **C-2b** `DataTable`(shadcn Table + 정렬·페이지네이션 pageSize 50 + Skeleton) + raw `<table>` 8곳 치환: RemindersPage·ChangeRequestsPage·HrNoticesFaqPage·EvaluatorRequestPage·UploadPreviewModal·EvaluatorHistoryModal·FeedbackDuplicateDetector·AiReviewMonitoring.
-  - [ ] **C-2c** 무제한 렌더 3곳 페이지네이션: HrIndividualFeedbackPage(전 직원 명단 검색+페이지)·HrMatchingPage·RemindersPage.
+  - [x] **C-2b** 대량 렌더 방지(검수 [높음], 사용자 영향 큰 것 우선). **결정 메모(계획 재정의)**: raw `<table>` 8곳 → shadcn Table 전면 치환은 컬럼·셀 구조가 제각각이라 회귀 위험만 크고 순수 일관성 이득이라 **보류로 강등**(보류 섹션). 대신 실제 1000명 규모 성능 문제인 무제한 렌더를 우선 처리. HrIndividualFeedbackPage 좌측 전직원 명단(~735 버튼 무제한 `.map`)에 표시 상한(PICKER_LIMIT=100)+검색 유도(검색·조직필터 이미 존재). HrMatchingPage는 이미 shadcn Table·위반행만 렌더(전직원 아님)라 우선순위 낮음.
+  - [x] **C-2c** (C-2b에 흡수) 나머지 무거운 렌더(AiReviewMonitoring/FeedbackDuplicateDetector 전사 평가의견 테이블)는 selected Set·배치검수 상태와 얽혀 페이지네이션 추가 시 상호작용 재설계 필요 → **실사용 데이터에서 체감 시 처리(보류)**. 위반행·의견은 보통 전체의 일부라 전직원 명단만큼 심각하지 않음.
 - [ ] **C-3** 손제작 div 모달 → shadcn Dialog 마이그레이션 (묶음): HrMatchingPage 재배정 모달(:805,:1062), hr/AddEmployeeModal, hr/EvaluatorHistoryModal, hr/UploadPreviewModal, HrDepartmentsPage:809, HrJobRoleBenchmarkPage:582, hr/Home:590, AiSummaryReportModal, NotificationBell 등 10곳 — focus trap·ESC·aria 확보. 네이티브 `<select>` 11곳 → shadcn Select 통일도 이 주기에 포함(만나는 파일이 겹침).
 - [ ] **C-4** ErrorBoundary: 루트 + 라우트 단위(재시도 버튼 포함) — 렌더 예외 1건 백화면 방지.
 
@@ -152,6 +152,8 @@
 - **가상 스크롤(react-virtual)** — C-2 페이지네이션으로 충분하면 불필요. 실사용 데이터에서 판단.
 - **신규 11개 화면 디자인 레퍼런스 박제** — Claude Design 재생성 작업(코드 아님). 별도 세션.
 - **품질점검 임계값 캘리브레이션** — 실데이터 축적 후.
+- **raw `<table>` → shadcn Table 전면 마이그레이션(8곳)** — C-2b에서 보류 강등(2026-06-10). 컬럼·셀 구조 제각각이라 회귀 위험 대비 순수 일관성 이득. 현재 raw table들은 동작·시각 일관성 유지 중. 여유 시 또는 해당 페이지 개편 동반 시.
+- **대량 테이블 페이지네이션(AiReviewMonitoring·FeedbackDuplicateDetector 등)** — selected Set·배치검수 상태와 얽혀 상호작용 재설계 필요. 실사용 데이터에서 렌더 지연 체감 시 처리.
 - **F-B1.2 드래그형 배정 보드** — 기존 보류 유지.
 
 ## 참고 — 검수 근거 요약 (루프가 맥락 확인용으로만 사용)
@@ -182,3 +184,4 @@
 - 2026-06-10 C-1a: 신규 `src/components/ui/confirm-dialog.tsx` — imperative `ConfirmDialogProvider`+`useConfirm`/`useReason`(Promise 반환, ESC·바깥클릭=취소→false/null). shadcn AlertDialog 기반, variant danger(--danger 토큰)·requireTypedConfirmation(RESET 타이핑 게이트)·required 사유. App에 Provider 마운트(Auth 바깥=어디서나 호출). 파괴적 7곳 치환: HrSettingsPage RESET 2종(window.confirm+prompt 4콜→타이핑 확인 다이얼로그), HrPeriodsPage 삭제·잠금·잠금해제 3곳. 결정 메모: 한 주기 과부하 방지 위해 C-1b(나머지 18곳)는 다음 주기 분리. 죽은 훅 2곳(useEvaluationData/Unified)은 C-1b 제외(F-2 일괄삭제). tsc+build EXIT 0.
 - 2026-06-10 C-1b: 나머지 18곳 치환 완료 — HrUsersPage 7(평가자 취소/변경/정정/단계변경/삭제/일괄삭제/일괄변경), Evaluation 2(최종저장 confirm·돌려보내기 reason), EvaluationAccordionCard 3(수정요청 reason·최종제출 confirm·과업삭제 danger), ChangeRequestsPage 3(승인/반려 reason/되돌리기), HrQualityPage 1(재검토 reason), NotificationsPage 1(전체삭제 danger·핸들러 async화), EvaluatorRequestPage 1(변경요청 취소), PromptManagement 1(프롬프트 삭제 danger), useEvaluationDataDB 1(저장 경고 confirm — 커스텀 훅 본문서 useConfirm 호출, Provider 하위 보장). 파괴적 액션은 variant danger 적용. **라이브 window.confirm/prompt 0건**(잔존 2곳=죽은 훅 F-2 대상, 1곳=주석). tsc+build EXIT 0. **C-1 전체 완료.**
 - 2026-06-10 C-2a: 신규 `src/components/ui/state-views.tsx`(ErrorState role=alert+다시시도·EmptyState+CTA·LoadingState aria-busy, --danger/--fg-muted 토큰). 검수 [치명] "오류가 빈 상태로 위장" 수정 — MyTasksPage가 fetch 실패를 `setEvaluations([])`로 흡수해 "등록된 평가가 없습니다"로 표시하던 것을 `loadError` 분기로 분리(실패=ErrorState+재시도 / 빈=EmptyState). 결정 메모: MyFeedback·MySchedule은 `useEvaluationDataDB`(error 미노출·write-on-read 훅) 기반이라 error 분리는 **E-2에서 훅 손볼 때 동반**(중복 회피). tsc+build EXIT 0.
+- 2026-06-10 C-2b/c: 대량 렌더 방지 — HrIndividualFeedbackPage 좌측 전직원 명단(~735 버튼 무제한 map)에 표시 상한 PICKER_LIMIT=100 + 초과 시 "검색으로 좁혀주세요" 안내(검색·조직필터 기존). **계획 재정의 결정 메모**: raw table 8곳 shadcn 전면 치환은 회귀 위험 대비 순수 일관성이라 보류 강등(보류 섹션 2건 추가). HrMatching=이미 shadcn·위반행만, AiReview/Duplicate=selected/배치상태 얽힘으로 실데이터 체감 시 처리. **C-2 전체 완료**(C-2a 오류상태 + C-2b 핵심 대량렌더). tsc+build EXIT 0.
