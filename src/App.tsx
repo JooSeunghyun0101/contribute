@@ -1,7 +1,9 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
+import { LoadingState } from "@/components/ui/state-views";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -13,39 +15,42 @@ import { EvaluationPeriodProvider } from "@/contexts/EvaluationPeriodContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/Layout/AppLayout";
 
+// 첫 진입 화면(로그인)·404는 작고 즉시 필요하므로 eager. 나머지 페이지는 역할군별 청크로 lazy 분할 —
+// 피평가자가 HR 페이지(+xlsx·recharts)까지 한 번에 받지 않도록.
 import Login from "./pages/Login";
-import Evaluation from "./pages/Evaluation";
 import NotFound from "./pages/NotFound";
-import NotificationsPage from "./pages/NotificationsPage";
 
-import MyHome from "./pages/my/Home";
-import MyTasksPage from "./pages/my/MyTasksPage";
-import MySchedulePage from "./pages/my/MySchedulePage";
-import MyFeedbackPage from "./pages/my/MyFeedbackPage";
-import EvaluatorRequestPage from "./pages/EvaluatorRequestPage";
+const Evaluation = lazy(() => import("./pages/Evaluation"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 
-import TeamHome from "./pages/team/Home";
-import TeamMembersPage from "./pages/team/TeamMembersPage";
-import ScoreTablePage from "./pages/team/ScoreTablePage";
-import EvaluatorSchedulePage from "./pages/team/EvaluatorSchedulePage";
-import EvaluatorFeedbackPage from "./pages/team/EvaluatorFeedbackPage";
-import EvaluatorQnaPage from "./pages/team/EvaluatorQnaPage";
+const MyHome = lazy(() => import("./pages/my/Home"));
+const MyTasksPage = lazy(() => import("./pages/my/MyTasksPage"));
+const MySchedulePage = lazy(() => import("./pages/my/MySchedulePage"));
+const MyFeedbackPage = lazy(() => import("./pages/my/MyFeedbackPage"));
+const EvaluatorRequestPage = lazy(() => import("./pages/EvaluatorRequestPage"));
 
-import HrHome from "./pages/hr/Home";
-import HrPeriodsPage from "./pages/hr/HrPeriodsPage";
-import HrDepartmentsPage from "./pages/hr/HrDepartmentsPage";
-import HrMatrixPage from "./pages/hr/HrMatrixPage";
-import HrUsersPage from "./pages/hr/HrUsersPage";
-import HrMatchingPage from "./pages/hr/HrMatchingPage";
-import HrSettingsPage from "./pages/hr/HrSettingsPage";
-import HrPromptsPage from "./pages/hr/HrPromptsPage";
-import HrChangeRequestsPage from "./pages/hr/ChangeRequestsPage";
-import HrRemindersPage from "./pages/hr/RemindersPage";
-import HrNoticesFaqPage from "./pages/hr/HrNoticesFaqPage";
-import HrQualityPage from "./pages/hr/HrQualityPage";
-import HrJobRoleBenchmarkPage from "./pages/hr/HrJobRoleBenchmarkPage";
-import HrDepartmentResultsPage from "./pages/hr/HrDepartmentResultsPage";
-import HrIndividualFeedbackPage from "./pages/hr/HrIndividualFeedbackPage";
+const TeamHome = lazy(() => import("./pages/team/Home"));
+const TeamMembersPage = lazy(() => import("./pages/team/TeamMembersPage"));
+const ScoreTablePage = lazy(() => import("./pages/team/ScoreTablePage"));
+const EvaluatorSchedulePage = lazy(() => import("./pages/team/EvaluatorSchedulePage"));
+const EvaluatorFeedbackPage = lazy(() => import("./pages/team/EvaluatorFeedbackPage"));
+const EvaluatorQnaPage = lazy(() => import("./pages/team/EvaluatorQnaPage"));
+
+const HrHome = lazy(() => import("./pages/hr/Home"));
+const HrPeriodsPage = lazy(() => import("./pages/hr/HrPeriodsPage"));
+const HrDepartmentsPage = lazy(() => import("./pages/hr/HrDepartmentsPage"));
+const HrMatrixPage = lazy(() => import("./pages/hr/HrMatrixPage"));
+const HrUsersPage = lazy(() => import("./pages/hr/HrUsersPage"));
+const HrMatchingPage = lazy(() => import("./pages/hr/HrMatchingPage"));
+const HrSettingsPage = lazy(() => import("./pages/hr/HrSettingsPage"));
+const HrPromptsPage = lazy(() => import("./pages/hr/HrPromptsPage"));
+const HrChangeRequestsPage = lazy(() => import("./pages/hr/ChangeRequestsPage"));
+const HrRemindersPage = lazy(() => import("./pages/hr/RemindersPage"));
+const HrNoticesFaqPage = lazy(() => import("./pages/hr/HrNoticesFaqPage"));
+const HrQualityPage = lazy(() => import("./pages/hr/HrQualityPage"));
+const HrJobRoleBenchmarkPage = lazy(() => import("./pages/hr/HrJobRoleBenchmarkPage"));
+const HrDepartmentResultsPage = lazy(() => import("./pages/hr/HrDepartmentResultsPage"));
+const HrIndividualFeedbackPage = lazy(() => import("./pages/hr/HrIndividualFeedbackPage"));
 
 const queryClient = new QueryClient();
 
@@ -66,7 +71,9 @@ const AppShell = () => {
       <EvaluationPeriodProvider>
         <AppLayout>
           <ErrorBoundary resetKey={location.pathname}>
-            <Outlet />
+            <Suspense fallback={<div style={{ padding: 24 }}><LoadingState message="화면을 불러오는 중입니다…" /></div>}>
+              <Outlet />
+            </Suspense>
           </ErrorBoundary>
         </AppLayout>
       </EvaluationPeriodProvider>
