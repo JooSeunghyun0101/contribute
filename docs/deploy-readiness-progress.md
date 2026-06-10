@@ -86,7 +86,10 @@
 
 ## Phase S — 보안 (배포 차단 해소)
 
-- [ ] **S-1** 인증 기반 구축(G-1=자체 비밀번호+쿠키 세션): employees `password_hash`(bcrypt) 마이그레이션(⚠ DB 스키마 변경 — 백업 선행) + `POST /api/auth/login`/`/logout`/`/me` + 최초 로그인 비밀번호 변경 강제 + 세션 만료(유휴 타임아웃). 공용 비밀번호 `'1234'`(`src/types/index.ts:310`, `AuthContext.tsx:63`) 제거. `AuthContext`는 서버 세션(`/me`) 확인으로 전환(localStorage 신뢰 제거).
+- [~] **S-1** 인증 기반 구축(G-1=자체 비밀번호+쿠키 세션) — 서브스텝 분해:
+  - [x] **S-1a** 백업(pg_dump) 선행 → additive 마이그레이션: employees에 `password_hash TEXT NULL` + `must_change_password BOOLEAN NOT NULL DEFAULT TRUE` (IF NOT EXISTS 멱등) + `bcryptjs` 의존성 추가.
+  - [ ] **S-1b** server.js 인증 라우트: `POST /api/auth/login`(hash NULL이면 초기 비밀번호=사번 허용→변경 강제), `POST /api/auth/change-password`, `POST /api/auth/logout`, `GET /api/auth/me`. 세션=httpOnly 쿠키 + 인메모리 저장(절대 8h·유휴 2h 만료, 재시작=재로그인).
+  - [ ] **S-1c** 프런트 전환: AuthContext를 `/api/auth/*` 기반으로(localStorage 신뢰 제거), Login에 비밀번호 검증·최초 변경 강제 화면, `CONSTANTS.DEFAULT_PASSWORD('1234')` 제거.
 - [ ] **S-2** 인가 미들웨어: `requireAuth` + `requireRole('hr')`를 server.js 전 라우트에 적용. actor는 **세션에서만** 도출 — `getAssignmentActor(req.body)`(server.js:260) 자기신고 제거, `actorId==='admin'` 무조건 통과(:4902) 삭제. 파괴적 라우트(reset 2종 :4912·:4973, DELETE employee/evaluation/notifications/feedback/prompt) 우선 적용 + reset이 `admin_audit_logs`까지 TRUNCATE(:4936)하는 것 제외하고 reset 실행 자체를 로그에 남김.
 - [ ] **S-3** 행 단위 접근제어: 평가/과업/피드백/알림 read 라우트에 "본인 / 담당 평가자 / HR" 검사(IDOR 차단 — `GET /api/evaluation/:id`:6000, `/api/evaluations/employee/:id`:5960 등). 백도어 사번 `H1411166`(`AuthContext.tsx:21-23`) 제거 — DB `available_roles`만 신뢰.
 - [ ] **S-4** 서버 하드닝 묶음 (전부 S 규모, 한 주기 일괄):
@@ -169,3 +172,4 @@
 - 2026-06-10 B-1a: server.js에 AI 프록시 구획 신설 — `GET /api/ai/status`(configured/external/model, 키 비노출) + `POST /api/ai/chat`(메시지 검증·모델 서버 강제·temperature/max_tokens만 통과·60s 타임아웃·업스트림 에러 본문 로그만). env: AI_BASE_URL(기본 GitHub Models)/AI_API_KEY/AI_MODEL(기본 openai/gpt-4.1-mini), 명시적 AI_BASE_URL=키 불필요(GPT-OSS 복귀 경로). IP별 분당 20회 레이트리밋(+5분 주기 버킷 청소, 인증 후 세션 주체로 교체 예정). **스모크: status configured=true(사용자가 키 기입력 확인) → chat 엔드투엔드 `1+1=2` 응답 OK(gpt-4.1-mini-2025-04-14)**. node --check·tsc·build EXIT 0.
 - 2026-06-10 B-1b: gptOss.ts `callGptOss`를 `/api/ai/chat` 경유로 전환 — 직접 호출 지점은 1곳뿐(grep 확인), 내부 IP·모델명 상수 제거(클라이언트에 주소·키·모델 0), 503→"AI 미설정" / 429→"잠시 제한" 한국어 에러 매핑(검수 래퍼들은 catch→skipped 기존 경로). 함수 시그니처·응답 파싱(OpenAI 호환 choices) 무변경, src 전체 `172.17.` 잔존 0. tsc+build EXIT 0.
 - 2026-06-10 B-1c(+긴급 수습): ① **사용자 편집으로 `.env.example`(추적 파일)에 실키 유입 발견 → 커밋 전 placeholder로 원복**(키는 git 이력 미유입 확인, `.env`에는 보존). ⚠ 키가 평문 파일·세션에 노출됐으므로 **PAT 회전(재발급) 권장** ② `.env` 값이 따옴표로 감싸져 수제 파서가 그대로 읽던 문제 → server.js 파서에 따옴표 벗기기(dotenv 호환) 추가 ③ 사용자가 지정한 `openai/gpt-5-nano`는 업스트림 `unavailable_model` 거부 → **결정 메모: 동작 우선으로 `.env`만 `openai/gpt-4.1-mini` 복원**(재시도는 .env 한 줄), 재스모크 CHAT_OK ④ B-1c 본작업: gptOss `fetchAiStatus`(세션 캐시) + HrPromptsPage 상단 상태 배너 — external=주의(원문 외부 전송·이식 후 자동 소멸), 미설정=안내(휴리스틱은 AI 없이 동작). tsc+build EXIT 0. **B-1 전체 완료.**
+- 2026-06-10 S-1a: 백업 `hr-db-backup-20260610_preS1a.dump`(1.6MB, 컨테이너 pg_dump -Fc, 호스트 pg_dump 부재라 docker exec 경유) + `.gitignore`에 `*.dump` 추가(덤프 커밋 방지). `db_mig/add_auth_columns.sql` 적용·검증: must_change_password boolean NOT NULL default true / password_hash text NULL. bcryptjs 설치(해시 왕복 OK). 결정 메모: 초기 비밀번호=사번(hash NULL 상태) + 변경 강제, 세션=인메모리(재시작=재로그인 수용) — S-1b에서 구현. tsc+build EXIT 0.

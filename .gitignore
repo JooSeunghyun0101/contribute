@@ -36,3 +36,6 @@ scripts/
 
 # oh-my-claudecode local runtime state (sessions, checkpoints, mission state)
 .omc/
+
+# DB backup dumps (local only)
+*.dump
