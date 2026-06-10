@@ -176,7 +176,9 @@ const buildEmptyEvaluationData = (employee: Employee): EvaluationData => ({
 
 export const useEvaluationDataDB = (
   employeeId: string,
-  options?: { evaluationId?: string | null },
+  // readOnly: 평가가 없을 때 자동 생성하지 않는다(빈 데이터 표시). 조회 전용 피평가자 화면용 —
+  // 평가자 미배정 피평가자가 자기 화면을 여는 것만으로 평가자 없는 draft 평가가 생기던 버그(write-on-read) 차단.
+  options?: { evaluationId?: string | null; readOnly?: boolean },
 ) => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
@@ -187,6 +189,7 @@ export const useEvaluationDataDB = (
     selectedPeriodEditMessage,
   } = useEvaluationPeriod();
   const overrideEvaluationId = options?.evaluationId ?? null;
+  const readOnly = options?.readOnly ?? false;
   const selectedPeriodStatus = selectedPeriod?.status;
   const selectedPeriodYear = selectedPeriod?.evaluation_year;
   const { toast } = useToast();
@@ -250,7 +253,8 @@ export const useEvaluationDataDB = (
       if (!evaluation) {
           const employee = await employeeService.getEmployeeById(employeeId);
           if (employee) {
-            if (selectedPeriodStatus === 'closed' || selectedPeriodStatus === 'locked') {
+            // 조회 전용(readOnly)이거나 마감/잠금 기간이면 생성하지 않고 빈 데이터로 표시한다.
+            if (readOnly || selectedPeriodStatus === 'closed' || selectedPeriodStatus === 'locked') {
               setEvaluationData(buildEmptyEvaluationData(employee));
               setTaskDrafts({});
               writeStoredDrafts(draftStorageKey, {});

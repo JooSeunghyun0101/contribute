@@ -52,7 +52,7 @@ const MyHome = () => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { evaluationData, isLoading, calculateTotalScore, isAchieved } =
-    useEvaluationDataDB(user?.employeeId || '');
+    useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
 
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const { exactScore } = calculateTotalScore();

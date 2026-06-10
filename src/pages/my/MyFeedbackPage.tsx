@@ -13,7 +13,7 @@ type PastTaskCard = TaskFeedbackCardProps & { taskId: string };
 
 const MyFeedbackPage = () => {
   const { user } = useAuth();
-  const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '');
+  const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
 
   const tasks = evaluationData?.tasks ?? [];
 

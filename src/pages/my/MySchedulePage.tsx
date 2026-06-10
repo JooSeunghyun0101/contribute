@@ -22,7 +22,7 @@ const toMonthFraction = (value?: string) => {
 
 const MySchedulePage = () => {
   const { user } = useAuth();
-  const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '');
+  const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
   const tasks = evaluationData?.tasks ?? [];
 
   const today = new Date();
