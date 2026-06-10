@@ -7,6 +7,7 @@ import type { EvaluationPeriod, EvaluationPeriodStatus } from '@/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 type PeriodForm = {
   code: string;
@@ -106,6 +107,7 @@ const SummaryBox = ({ label, value }: { label: string; value: string | number })
 
 const HrPeriodsPage = () => {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { reloadPeriods, setSelectedPeriodId } = useEvaluationPeriod();
   const [periods, setPeriods] = useState<EvaluationPeriod[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -307,13 +309,13 @@ const HrPeriodsPage = () => {
   };
 
   const deletePeriod = async (period: EvaluationPeriod) => {
-    if (
-      !window.confirm(
-        `"${period.name}" 평가기간을 삭제할까요?\n평가 데이터가 연결되지 않은 평가기간만 삭제됩니다.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: `"${period.name}" 평가기간을 삭제할까요?`,
+      description: '평가 데이터가 연결되지 않은 평가기간만 삭제됩니다.',
+      variant: 'danger',
+      confirmText: '삭제',
+    });
+    if (!ok) return;
     try {
       setDeletePendingId(period.id);
       await evaluationPeriodService.deletePeriod(period.id);
@@ -333,16 +335,15 @@ const HrPeriodsPage = () => {
 
   const updateStatus = async (period: EvaluationPeriod, status: EvaluationPeriodStatus) => {
     if (status === 'locked' && period.status !== 'locked') {
-      if (!window.confirm(`${period.name} 기간을 잠그시겠습니까?`)) return;
+      if (!(await confirm({ title: `${period.name} 기간을 잠그시겠습니까?`, confirmText: '잠금' }))) return;
     }
     if (period.status === 'locked' && status !== 'locked') {
-      if (
-        !window.confirm(
-          `${period.name} 기간의 잠금을 해제하시겠습니까?\n\n해제 후 ${STATUS_LABEL[status]} 상태로 돌아갑니다.`,
-        )
-      ) {
-        return;
-      }
+      const ok = await confirm({
+        title: `${period.name} 기간의 잠금을 해제하시겠습니까?`,
+        description: `해제 후 ${STATUS_LABEL[status]} 상태로 돌아갑니다.`,
+        confirmText: '잠금 해제',
+      });
+      if (!ok) return;
     }
 
     try {

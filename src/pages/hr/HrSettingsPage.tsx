@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NotificationSettings } from '@/components/Settings/NotificationSettings';
@@ -16,6 +17,7 @@ const HrSettingsPage = () => {
   const { reload } = useAllEmployees();
   const { user } = useAuth();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const actorId = user?.employeeId ?? user?.id ?? null;
   const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching'>(null);
   const [downloadingQna, setDownloadingQna] = useState(false);
@@ -41,15 +43,15 @@ const HrSettingsPage = () => {
   };
 
   const handleResetEmployees = async () => {
-    const ok = window.confirm(
-      '⚠ 대상자 일괄삭제\n\nadmin을 제외한 모든 직원과 그들의 평가·과업·피드백·이력·임포트 데이터를 영구 삭제합니다.\n되돌릴 수 없습니다.\n\n진행할까요?',
-    );
+    const ok = await confirm({
+      title: '대상자 일괄삭제',
+      description:
+        'admin을 제외한 모든 직원과 그들의 평가·과업·피드백·이력·임포트 데이터를 영구 삭제합니다. 되돌릴 수 없습니다. 계속하려면 "RESET"을 입력하세요.',
+      variant: 'danger',
+      requireTypedConfirmation: 'RESET',
+      confirmText: '대상자 일괄삭제',
+    });
     if (!ok) return;
-    const confirmText = window.prompt('정말 삭제하려면 "RESET" 을 입력해 주세요.');
-    if (confirmText !== 'RESET') {
-      toast({ title: '취소되었습니다.', description: 'RESET 이 입력되지 않았습니다.' });
-      return;
-    }
     setResettingKind('employees');
     try {
       const result = await employeeService.resetEmployees({ actor_id: actorId });
@@ -71,15 +73,15 @@ const HrSettingsPage = () => {
   };
 
   const handleResetMatching = async () => {
-    const ok = window.confirm(
-      '⚠ 매칭정보 일괄삭제\n\n대상자 프로필은 유지하되 평가자 배정·평가건·과업·피드백·이력·매칭 임포트 데이터를 영구 삭제합니다.\n되돌릴 수 없습니다.\n\n진행할까요?',
-    );
+    const ok = await confirm({
+      title: '매칭정보 일괄삭제',
+      description:
+        '대상자 프로필은 유지하되 평가자 배정·평가건·과업·피드백·이력·매칭 임포트 데이터를 영구 삭제합니다. 되돌릴 수 없습니다. 계속하려면 "RESET"을 입력하세요.',
+      variant: 'danger',
+      requireTypedConfirmation: 'RESET',
+      confirmText: '매칭정보 일괄삭제',
+    });
     if (!ok) return;
-    const confirmText = window.prompt('정말 삭제하려면 "RESET" 을 입력해 주세요.');
-    if (confirmText !== 'RESET') {
-      toast({ title: '취소되었습니다.', description: 'RESET 이 입력되지 않았습니다.' });
-      return;
-    }
     setResettingKind('matching');
     try {
       const result = await employeeService.resetMatching({ actor_id: actorId });
