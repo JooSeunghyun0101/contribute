@@ -140,7 +140,7 @@
 - [x] **F-1** 색상 토큰 수렴(G-2=역할 분리): ① `--ok-orange-brand: #F55000` 토큰 신설(light/dark) + 하드코딩 `#F55000` UI 6곳 치환(ScoreDisplay 대형 점수·team/Home 점·EvaluatorSchedule/MySchedule today선·Login gradient ×2 → brand). 셰이더(hero-v1·shader-animation)·차트 팔레트(HrDashboardCharts)는 GLSL/색배열이라 CSS var 불가→제외 ② **`#FFAA00`(대비 1.9:1 AA 완전 미달) → `var(--warning)`(#CA8A04 통과) HrDepartmentsPage 4곳** = 접근성 [높음] 해소. **결정 메모**: ③ 팔레트외 블루/그린 칩 ④ rgba 오버레이 10곳은 일관성 작업(시각 회귀 tsc/build 못 잡음)이라 점진 보류(보류 섹션). 차트 #FFAA00(MonthlyScoreTrend·HrDashboardCharts)는 차트 색 모듈과 함께 보류. tsc+build EXIT 0.
 - [x] **F-2** 죽은 코드 일괄 스윕: **importer 0 grep 재확인 후 20개 파일 삭제 + tsc·build 통과(회귀 0)**. 구형 대시보드 5종(HRDashboard·Evaluatee/Evaluator Dashboard(+DB))·TaskManagement(+DB)·GeminiTest·DatabaseTest + HRDashboard 전용 고아(EvaluatorManagement·DataExport·useEvaluatorMappings)·useEvaluationData/Unified·gemini.ts(VITE_GEMINI_API_KEY 경로 제거)·NotificationContext(비DB)·connectionTest·endToEndTest(.ts/.js)·gptOssCommunicationTest. **결정 메모**: 죽은 서비스 함수(getAllTasks·updateFeedback 등)는 F-3에서 eslint no-unused-vars 복원 시 드러나므로 그때 정리(보류). database.ts·supabase.ts·dbConnectTest.js는 re-export·db-test 스크립트 참조라 존치.
 - [x] **F-3** 품질 게이트: ① `package.json` `"typecheck": "tsc --noEmit"` 추가(CLAUDE.md 규칙 충족, 메모리 stale 해소) ② eslint `no-explicit-any`·`no-unused-vars` → `warn`(에러 아닌 경고라 빌드·CI 무영향, 신규 코드 정리 기반) ③ **tsconfig `noImplicitAny: true` 도입 — 에러 0건 확인**(코드베이스가 이미 암묵 any 없이 타입 명시). typecheck·build EXIT 0. **결정 메모**: ④ context value 메모이즈는 함수(login 등)를 useCallback까지 해야 효과라 미세 최적화→보류. 전체 strict(strictNullChecks)는 에러 다수 예상→보류 섹션.
-- [ ] **F-4** 문서·마감 묶음: ① BACKEND_FRONTEND_OVERVIEW.md 포트(4000→5000)·API 목록 갱신 ② README의 Supabase 잔재 설명 정정 ③ `.env.example`에 AI/보안 신규 env 정리 ④ 날짜 포맷 공용 포매터(`src/lib/format.ts` 표시용/입력용 2종) + 집계 수치 `toLocaleString` 적용.
+- [x] **F-4** 문서·마감 묶음: ① **BACKEND_FRONTEND_OVERVIEW.md 포트 4000→5000 정정**(실행 안내·콘솔 메시지 2곳) ② **README의 Supabase 잔재 정정** — 기술스택 `Database: Supabase`→`PostgreSQL(pg 풀, API 경유)` + Backend(Express) 행 신설 + AI를 OpenAI 호환 프록시로 명시, 환경변수 `VITE_SUPABASE_URL/ANON_KEY`(존재 안 함)→`DATABASE_URL`+`AI_API_KEY`로 교체하고 `.env.example`/`AI_SETUP.md`/`BACKEND_FRONTEND_OVERVIEW.md` 참조 링크, 가이드라인 "strict 모드 사용"(거짓)→`noImplicitAny` 사실로 정정. grep으로 잔여 `VITE_SUPABASE` 0건 확인 ③ `.env.example` AI/보안 env는 B-1·S-4에서 이미 정리됨(재확인). typecheck·build EXIT 0. **결정 메모**: ④ 날짜/숫자 공용 포매터는 표시 사이트 다수를 건드리는 cross-cutting 변경이고 locale/timezone·천단위 표기 변화가 tsc/build로 안 잡히는 시각 회귀를 낳을 수 있어 **보류 섹션으로 분리**(문서 마감 범위 밖).
 
 ---
 
@@ -151,6 +151,7 @@
 - **GPT-OSS 복귀** — 내부망 이식 시 `.env`의 `AI_BASE_URL`만 교체(B-1 설계). 이식 시점에 외부 API 주의 캡션 제거.
 - **F-D3b 개인 리포트 PDF** — 기존 보류 유지. 재개 시 `@media print`+`window.print()`(의존성 0) 권장.
 - **SSO/AD 연동** — G-1 결정은 자체 비밀번호. 내부망 이식 시점에 필요해지면 재개.
+- **날짜/숫자 공용 포매터(F-4 ④)** — `src/lib/format.ts`(표시용/입력용 날짜 2종) + 집계 수치 `toLocaleString`. cross-cutting 표시 변경이라 시각 회귀(locale/timezone·천단위) 위험 → 사용자 동반 시각 확인 후 적용 권장. tsc/build로 검증 불가.
 - **전체 strict 모드** — F-3의 noImplicitAny 이후 단계적.
 - **거대 파일 분할 리팩터링** — HrQualityPage(2,114줄)·HrMatchingPage(1,245줄) 등 4분해. 기능 무변경 리팩터링이므로 여유 시.
 - **가상 스크롤(react-virtual)** — C-2 페이지네이션으로 충분하면 불필요. 실사용 데이터에서 판단.
@@ -207,3 +208,4 @@
 - 2026-06-10 F-1: 색상 토큰 수렴 핵심 — `--ok-orange-brand:#F55000` 토큰 신설(G-2 역할 분리) + #F55000 UI 하드코딩 6곳 brand 치환(셰이더·차트 제외), **#FFAA00(대비 1.9:1) → --warning 4곳(접근성 [높음])**. 팔레트외 블루/그린·rgba 오버레이·차트색은 점진 보류(시각 회귀 자동검증 불가). tsc+build EXIT 0.
 - 2026-06-10 F-2: 죽은 코드 스윕 — importer 0 grep 재확인(살아있는 코드 import 0, 죽은 모듈끼리만 참조) 후 **20개 파일 git rm**(구형 대시보드·TaskManagement·Gemini/DatabaseTest·HRDashboard 고아 의존·useEvaluationData/Unified·gemini·NotificationContext비DB·테스트 4종). tsc·build EXIT 0(회귀 0). 죽은 서비스 함수는 F-3 eslint 후 정리. database/supabase/dbConnectTest는 참조 있어 존치.
 - 2026-06-10 F-3: 품질 게이트 — package.json `typecheck` 스크립트 추가, eslint no-explicit-any·no-unused-vars warn 복원, **tsconfig noImplicitAny:true 도입(tsc 에러 0 확인)**. typecheck·build EXIT 0. context 메모이즈·전체 strict는 보류. **Phase F 거의 완료**(F-1 색상·F-2 죽은코드·F-3 게이트; 남은 F-4 문서).
+- 2026-06-10 F-4: 문서 마감 — ① BACKEND_FRONTEND_OVERVIEW.md 포트 4000→5000(2곳) ② README Supabase 잔재 정정(기술스택 Database→PostgreSQL/pg+Backend행 신설+AI 프록시 명시, env VITE_SUPABASE_*→DATABASE_URL+AI_API_KEY, "strict 모드"거짓→noImplicitAny 사실, 참조링크 보강, 잔여 VITE_SUPABASE grep 0건) ③ .env.example은 B-1·S-4서 기정리(재확인). ④ 날짜/숫자 포매터는 시각 회귀 위험으로 보류 분리. typecheck·build EXIT 0. **Phase F 완료 → 활성 `[ ]` 항목 0건(루프 종료 조건 도달).**

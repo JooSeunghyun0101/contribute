@@ -13,8 +13,9 @@ Elevate Growth System은 직원의 성장과 평가를 체계적으로 관리하
 ## 기술 스택
 - **Frontend**: React 18, TypeScript, Vite
 - **UI Framework**: Tailwind CSS, shadcn/ui
-- **Database**: Supabase (PostgreSQL)
-- **AI Integration**: OpenAI API
+- **Backend**: Express (`server.js`) REST API
+- **Database**: PostgreSQL (`pg` 커넥션 풀, 백엔드 API 경유 — 프런트는 DB 직접 접근 안 함)
+- **AI Integration**: OpenAI 호환 API (서버 프록시 `/api/ai/chat` — 임시 GitHub Models, 내부망 이식 후 GPT-OSS)
 - **State Management**: React Context API, React Query
 - **Routing**: React Router DOM
 
@@ -51,12 +52,17 @@ npm install
 ```
 
 3. 환경 변수 설정
+`.env.example` 를 `.env` 로 복사한 뒤 로컬 값을 채운다. 핵심 변수:
 ```bash
-# .env 파일 생성
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-VITE_OPENAI_API_KEY=your_openai_api_key
+cp .env.example .env
+
+# 필수: PostgreSQL 접속 (백엔드)
+DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<db>
+
+# AI 피드백(서버 프록시 /api/ai/chat 전용) — 임시 GitHub Models 사용 시 키만 입력
+AI_API_KEY=<github-models-token>
 ```
+> 전체 변수 설명은 `.env.example`, AI 연동 상세는 `AI_SETUP.md`, 백엔드·프런트 흐름은 `BACKEND_FRONTEND_OVERVIEW.md` 참조.
 
 4. 개발 서버 실행
 ```bash
@@ -97,7 +103,7 @@ AI 피드백 기능을 사용하려면 OpenAI API 키가 필요합니다.
 ## 개발 가이드라인
 
 ### 코드 스타일
-- TypeScript strict 모드 사용
+- TypeScript `noImplicitAny` 적용(신규 코드 `any` 지양). 전체 `strict`는 `strictNullChecks` 부채로 점진 도입 중
 - 함수형 컴포넌트 및 훅 사용
 - 일관된 네이밍 컨벤션 적용
 

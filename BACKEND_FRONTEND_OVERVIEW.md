@@ -11,8 +11,8 @@ The frontend no longer accesses the database directly. All data operations are p
 1. Ensure the `.env` file contains a valid `DATABASE_URL` pointing to your PostgreSQL instance.
 2. Install dependencies (if not already done): `npm install`.
 3. Start the API server: `npm run dev:server` (or `node server.js`).
-   - The server listens on **http://localhost:4000** by default.
-4. You should see a console message `🟢 API server listening on http://localhost:4000`.
+   - The server listens on **http://localhost:5000** by default (override with the `PORT` env var).
+4. You should see a console message `API server listening on http://localhost:5000`.
 
 ## Running the Frontend
 1. Install dependencies: `npm install`.
