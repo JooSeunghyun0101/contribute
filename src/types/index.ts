@@ -305,10 +305,7 @@ export const CONSTANTS = {
   TOTAL_WEIGHT: 100,
   MIN_FEEDBACK_LENGTH: 30,
   MIN_FEEDBACK_SENTENCES: 2,
-  
-  // 기본 비밀번호 (개발용)
-  DEFAULT_PASSWORD: '1234',
-  
+
   // 페이지 제목
   PAGE_TITLES: {
     LOGIN: '로그인',

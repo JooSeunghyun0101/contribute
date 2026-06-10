@@ -10,6 +10,8 @@ export { evaluationPeriodService } from './evaluationPeriodService';
 export { taskEvaluationEntryService } from './taskEvaluationEntryService';
 export { changeRequestService } from './changeRequestService';
 export { evaluatorQnaLogService } from './evaluatorQnaLogService';
+export { authService } from './authService';
+export type { AuthSession } from './authService';
 export type { EvaluationPeriodInput, EvaluationPeriodUpdate } from './evaluationPeriodService';
 export type { TaskEvaluationEntryInput } from './taskEvaluationEntryService';
 export type { ChangeRequestInput, ChangeRequestQuery } from './changeRequestService';

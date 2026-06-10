@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, mustChangePassword } = useAuth();
 
   if (isLoading) {
     return (
@@ -23,6 +23,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   }
 
   if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // 최초(또는 리셋) 로그인은 비밀번호를 바꾸기 전까지 앱 진입 차단 — 로그인 화면이 변경 폼을 띄운다.
+  if (mustChangePassword) {
     return <Navigate to="/login" replace />;
   }
 

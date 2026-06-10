@@ -7,15 +7,20 @@ import { IconArrowRight } from '@/components/brand';
 const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
 
 const Login = () => {
-  const { user, login, getAvailableRoles } = useAuth();
+  const { user, login, mustChangePassword, changePassword } = useAuth();
   const navigate = useNavigate();
 
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  if (user) return <Navigate to="/" replace />;
+  // 로그인됐지만 비밀번호 변경이 강제된 상태(새로고침 포함)면 변경 폼을 보여준다.
+  const showChangeForm = Boolean(user) && mustChangePassword;
+
+  if (user && !mustChangePassword) return <Navigate to="/" replace />;
 
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,21 +29,45 @@ const Login = () => {
       setError('사번과 비밀번호를 모두 입력해주세요.');
       return;
     }
-    try {
-      const roles = await getAvailableRoles(employeeId);
-      if (roles.length === 0) {
-        setError('사번 또는 비밀번호가 올바르지 않습니다.');
-        return;
-      }
-      // 다중 역할은 로그인 후 상단바에서 전환. 여기서는 첫 번째 역할로 바로 로그인.
-      setIsLoading(true);
-      const ok = await login(employeeId, password, roles[0]);
-      setIsLoading(false);
-      if (!ok) setError('사번 또는 비밀번호가 올바르지 않습니다.');
-      else navigate('/');
-    } catch {
-      setError('사번 또는 비밀번호가 올바르지 않습니다.');
+    // 다중 역할은 로그인 후 상단바에서 전환. 역할 사전조회 없이 서버 인증 한 번으로 끝낸다.
+    setIsLoading(true);
+    const result = await login(employeeId, password);
+    setIsLoading(false);
+    if (!result.ok) {
+      setError(result.message ?? '사번 또는 비밀번호가 올바르지 않습니다.');
+      return;
     }
+    // 변경 강제면 user+플래그가 세팅되어 showChangeForm 이 변경 폼으로 전환한다.
+    if (!result.mustChangePassword) navigate('/');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!password) {
+      setError('현재 비밀번호를 입력해주세요. (최초 로그인은 사번)');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('새 비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+    if (user && newPassword === user.employeeId) {
+      setError('새 비밀번호로 사번을 사용할 수 없습니다.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('새 비밀번호가 서로 일치하지 않습니다.');
+      return;
+    }
+    setIsLoading(true);
+    const result = await changePassword(password, newPassword);
+    setIsLoading(false);
+    if (!result.ok) {
+      setError(result.message ?? '비밀번호 변경에 실패했습니다.');
+      return;
+    }
+    navigate('/');
   };
 
   // OK 브랜드 다크 톤 — 셰이더의 검정 배경과 자연스럽게 이어지는 웜 브라운 계열
@@ -143,9 +172,16 @@ const Login = () => {
             color: 'var(--ok-yellow-300)',
           }}
         >
-          LOGIN
+          {showChangeForm ? 'PASSWORD' : 'LOGIN'}
         </div>
-        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>Welcome back.</h2>
+        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>
+          {showChangeForm ? '비밀번호 변경' : 'Welcome back.'}
+        </h2>
+        {showChangeForm && (
+          <p style={{ marginTop: 10, color: textSoft, fontSize: 'var(--fs-body)', lineHeight: 1.6 }}>
+            최초 로그인(또는 비밀번호 초기화) 상태입니다. 보안을 위해 새 비밀번호를 설정해 주세요.
+          </p>
+        )}
 
         {error && (
           <div
@@ -163,55 +199,119 @@ const Login = () => {
           </div>
         )}
 
-        <form
-          onSubmit={handleCredentials}
-          style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
-        >
-          <div className="sd-field">
-            <label style={{ color: textSoft }}>사번</label>
-            <input
-              className="sd-input"
-              style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              placeholder="예: H1911042"
-              autoComplete="username"
-              spellCheck={false}
-            />
-          </div>
-          <div className="sd-field">
-            <label style={{ color: textSoft }}>비밀번호</label>
-            <input
-              className="sd-input"
-              type="password"
-              style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="비밀번호"
-              autoComplete="current-password"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            style={{
-              height: 46,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
-              color: '#fff',
-              fontWeight: 700,
-              borderRadius: 10,
-              border: 'none',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.7 : 1,
-            }}
+        {!showChangeForm ? (
+          <form
+            onSubmit={handleCredentials}
+            style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
           >
-            {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
-          </button>
-        </form>
+            <div className="sd-field">
+              <label style={{ color: textSoft }}>사번</label>
+              <input
+                className="sd-input"
+                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                placeholder="예: H1911042"
+                autoComplete="username"
+                spellCheck={false}
+              />
+            </div>
+            <div className="sd-field">
+              <label style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
+              <input
+                className="sd-input"
+                type="password"
+                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="비밀번호"
+                autoComplete="current-password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                height: 46,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
+                color: '#fff',
+                fontWeight: 700,
+                borderRadius: 10,
+                border: 'none',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                opacity: isLoading ? 0.7 : 1,
+              }}
+            >
+              {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
+            </button>
+          </form>
+        ) : (
+          <form
+            onSubmit={handleChangePassword}
+            style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
+          >
+            <div className="sd-field">
+              <label style={{ color: textSoft }}>현재 비밀번호 (최초 로그인은 사번)</label>
+              <input
+                className="sd-input"
+                type="password"
+                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="현재 비밀번호"
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="sd-field">
+              <label style={{ color: textSoft }}>새 비밀번호 (8자 이상, 사번 사용 불가)</label>
+              <input
+                className="sd-input"
+                type="password"
+                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="새 비밀번호"
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="sd-field">
+              <label style={{ color: textSoft }}>새 비밀번호 확인</label>
+              <input
+                className="sd-input"
+                type="password"
+                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="다시 입력"
+                autoComplete="new-password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                height: 46,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: 'linear-gradient(135deg, #F55000 0%, #D94400 100%)',
+                color: '#fff',
+                fontWeight: 700,
+                borderRadius: 10,
+                border: 'none',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                opacity: isLoading ? 0.7 : 1,
+              }}
+            >
+              {isLoading ? '변경 중…' : '비밀번호 변경 후 시작'} <IconArrowRight size={16} />
+            </button>
+          </form>
+        )}
 
         <div
           style={{
