@@ -2353,6 +2353,11 @@ app.get('/api/ai/status', (req, res) => {
 });
 
 app.post('/api/ai/chat', async (req, res) => {
+  // 인가 게이트보다 위에 정의되어 자체적으로 세션을 검사한다(로그인 사용자만, 사용자별 레이트리밋).
+  const session = getSession(req);
+  if (!session) {
+    return res.status(401).json({ error: '로그인이 필요합니다.' });
+  }
   if (!aiConfigured) {
     return res.status(503).json({
       configured: false,
@@ -2361,10 +2366,7 @@ app.post('/api/ai/chat', async (req, res) => {
     });
   }
 
-  const fwd = req.headers['x-forwarded-for'];
-  const clientKey =
-    (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.socket?.remoteAddress || 'unknown';
-  if (aiRateLimited(clientKey)) {
+  if (aiRateLimited(session.employeeId)) {
     return res.status(429).json({
       error: 'Too many requests',
       message: `AI 호출이 분당 ${AI_RATE_LIMIT_PER_MINUTE}회를 초과했습니다. 잠시 후 다시 시도해 주세요.`,
@@ -2603,6 +2605,40 @@ app.post('/api/auth/change-password', async (req, res) => {
   }
 });
 
+/* ==================== Authorization Gate ==================== */
+// 이 지점 이후 등록되는 모든 /api 라우트는 로그인 세션 필수(req.session 주입).
+// 예외(위쪽 등록): /api/auth/*(로그인 자체), /api/ai/status(무해한 설정 조회), /health.
+// /api/ai/chat 은 게이트보다 위에 있어 핸들러 안에서 자체 세션 검사를 한다.
+app.use('/api', (req, res, next) => {
+  const session = getSession(req);
+  if (!session) {
+    return res.status(401).json({ error: '로그인이 필요합니다.' });
+  }
+  req.session = session;
+  next();
+});
+
+// HR 전용 가드 — 역할은 DB available_roles 만 신뢰(세션 신원 기반). admin 계정은 항상 HR.
+const requireHr = async (req, res, next) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM employees
+        WHERE employee_id::text = $1
+          AND (employee_id = 'admin' OR 'hr' = ANY(available_roles))
+        LIMIT 1`,
+      [req.session.employeeId],
+    );
+    if (rows.length === 0) {
+      return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
+    }
+    next();
+  } catch (err) {
+    console.error('HR 권한 확인 실패:', err.message);
+    res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
 /* ==================== Employee Routes ==================== */
 
 // Get single employee by ID
@@ -2662,7 +2698,7 @@ app.get('/api/employees', async (req, res) => {
 });
 
 // 단건 사용자 추가
-app.post('/api/employees', async (req, res) => {
+app.post('/api/employees', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -2833,7 +2869,7 @@ app.post('/api/employees', async (req, res) => {
 });
 
 // 단건 사용자 삭제 (admin 제외, 관련 데이터 cascade 정리)
-app.delete('/api/employee/:id', async (req, res) => {
+app.delete('/api/employee/:id', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -3144,7 +3180,7 @@ app.get('/api/employee-profile-imports/latest-rows', async (req, res) => {
   }
 });
 
-app.post('/api/employee-profile-imports', async (req, res) => {
+app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -3153,7 +3189,7 @@ app.post('/api/employee-profile-imports', async (req, res) => {
   const evaluationPeriodId = normalizeOptionalText(
     req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId,
   );
-  const requestedImportedBy = getAssignmentActor(req.body);
+  const requestedImportedBy = req.session.employeeId;
   const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
   if (!sourceFileName) {
@@ -3849,7 +3885,7 @@ const reconcileEmployeeMatchingStages = async (
   return result;
 };
 
-app.post('/api/matching-imports', async (req, res) => {
+app.post('/api/matching-imports', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -3859,7 +3895,7 @@ app.post('/api/matching-imports', async (req, res) => {
   const evaluationPeriodId = normalizeOptionalText(
     req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId,
   );
-  const requestedImportedBy = getAssignmentActor(req.body);
+  const requestedImportedBy = req.session.employeeId;
   const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
   if (!sourceFileName) {
@@ -4258,7 +4294,7 @@ app.post('/api/matching-imports', async (req, res) => {
 });
 
 // 매칭 업로드 변경 미리보기(dry-run): reconcile 규칙으로 분류만 하고 DB 는 건드리지 않는다.
-app.post('/api/matching-imports/preview', async (req, res) => {
+app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
   const emptySummary = { new: 0, changed: 0, unchanged: 0, ignored: 0, error: 0, total: 0 };
   if (!isDbAvailable) return res.json({ items: [], summary: emptySummary });
   try {
@@ -4392,7 +4428,7 @@ app.post('/api/matching-imports/preview', async (req, res) => {
 });
 
 // Update employee (partial)
-app.put('/api/employee/:id', async (req, res) => {
+app.put('/api/employee/:id', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -4489,13 +4525,13 @@ app.put('/api/employee/:id', async (req, res) => {
   }
 });
 
-app.post('/api/employee/:id/evaluator-edit', async (req, res) => {
+app.post('/api/employee/:id/evaluator-edit', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
 
   const evaluatorId = normalizeOptionalText(req.body?.evaluator_id ?? req.body?.evaluatorId);
-  const actorId = getAssignmentActor(req.body);
+  const actorId = req.session.employeeId;
   const reason = getAssignmentReason(req.body) || 'HR evaluator edit';
 
   if (evaluatorId === req.params.id) {
@@ -4904,7 +4940,7 @@ const cancelEvaluatorAssignmentHistoryRow = async (client, { historyId, actorId,
     };
 };
 
-app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
+app.post('/api/evaluator-assignment-history/:id/cancel', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -4913,7 +4949,7 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
     await client.query('BEGIN');
     const result = await cancelEvaluatorAssignmentHistoryRow(client, {
       historyId: req.params.id,
-      actorId: getAssignmentActor(req.body),
+      actorId: req.session.employeeId,
       reason: getAssignmentCancellationReason(req.body),
     });
     await client.query('COMMIT');
@@ -4934,7 +4970,7 @@ app.post('/api/evaluator-assignment-history/:id/cancel', async (req, res) => {
 // supersedes_history_id 로 원본을 가리키는 새 change 행을 삽입한다.
 // 대상이 현재 반영된 배정(employees.evaluator_id 와 일치 + 최신 applied)일 때만
 // employees.evaluator_id 와 하위 평가 데이터를 함께 정합화한다.
-app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
+app.post('/api/evaluator-assignment-history/:id/correct', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -4942,7 +4978,7 @@ app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
   const newEvaluatorId = normalizeOptionalText(
     req.body?.new_evaluator_id ?? req.body?.newEvaluatorId
   );
-  const actorId = getAssignmentActor(req.body);
+  const actorId = req.session.employeeId;
   const reason = getAssignmentReason(req.body) || 'HR assignment correction';
   const assignmentChangedAt = getAssignmentEffectiveDate(req.body);
   const assignmentPeriodId = getAssignmentPeriodId(req.body);
@@ -5194,29 +5230,23 @@ app.post('/api/evaluator-assignment-history/:id/correct', async (req, res) => {
 // ============================================================
 // Admin: bulk reset endpoints (대상자 / 매칭정보 일괄삭제)
 // ============================================================
-// 안전장치: 호출자가 actor_id 로 hr 권한 직원이거나 admin 이어야 한다.
-const assertHrActor = async (client, actorId) => {
-  if (!actorId) return false;
-  if (actorId === 'admin') return true;
-  const { rows } = await client.query(
-    `SELECT 1 FROM employees WHERE employee_id = $1 AND 'hr' = ANY(available_roles) LIMIT 1`,
-    [actorId]
-  );
-  return rows.length > 0;
-};
+// (구 assertHrActor 제거 — 권한은 requireHr 미들웨어가 세션 신원으로만 검사한다.
+//  body의 actor_id 자기신고와 'admin' 문자열 무조건 통과 우회는 폐기됨.)
 
 // 대상자 일괄삭제: admin 외 모든 employees + 그들에 딸린 모든 평가·과업·이력·임포트 데이터 제거.
 // 평가기간(evaluation_periods)·시스템 설정(settings, prompt_templates)은 유지.
-app.post('/api/admin/reset/employees', async (req, res) => {
+app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
-  const actorId = getAssignmentActor(req.body);
+  const actorId = req.session.employeeId;
   const client = await pool.connect();
   try {
-    if (!(await assertHrActor(client, actorId))) {
-      client.release();
-      return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
-    }
     await client.query('BEGIN');
+    // 감사 추적: 삭제 전에 같은 트랜잭션으로 기록. actor FK는 직원 삭제 시 SET NULL 되므로
+    // reason 텍스트에 actor 를 함께 남긴다. (admin_audit_logs 는 더 이상 TRUNCATE 대상이 아님)
+    await client.query(
+      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_employees', $1, $2)`,
+      [actorId, `대상자 일괄삭제 실행 (actor: ${actorId})`]
+    );
     // employees 가 import_batches 를 FK 참조하므로, batches 를 TRUNCATE CASCADE 하면
     // employees(admin 포함)까지 cascade 삭제된다. 이를 막기 위해 먼저 참조를 끊는다.
     await client.query(
@@ -5231,7 +5261,6 @@ app.post('/api/admin/reset/employees', async (req, res) => {
         evaluator_assignment_history,
         notifications,
         final_assessment,
-        admin_audit_logs,
         employee_profile_import_rows,
         matching_import_rows,
         evaluations
@@ -5268,16 +5297,17 @@ app.post('/api/admin/reset/employees', async (req, res) => {
 // 매칭정보 일괄삭제: employees 는 유지하되, 매칭 임포트로 들어온 정보(평가자 배정·
 // 평가건·과업·평가 entries·피드백·이력·매칭 임포트 배치·관련 알림)를 모두 비운다.
 // 평가대상자 프로필 정보(name, position, department, growth_level, available_roles 등)는 보존.
-app.post('/api/admin/reset/matching', async (req, res) => {
+app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
-  const actorId = getAssignmentActor(req.body);
+  const actorId = req.session.employeeId;
   const client = await pool.connect();
   try {
-    if (!(await assertHrActor(client, actorId))) {
-      client.release();
-      return res.status(403).json({ error: 'HR 권한이 필요합니다.' });
-    }
     await client.query('BEGIN');
+    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록.
+    await client.query(
+      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_matching', $1, $2)`,
+      [actorId, `매칭정보 일괄삭제 실행 (actor: ${actorId})`]
+    );
     // employees 가 matching_import_batches 를 FK 참조하므로, 먼저 참조를 끊어
     // batches TRUNCATE CASCADE 가 employees 로 전파되지 않도록 한다.
     await client.query(`UPDATE employees SET last_matching_batch_id = NULL`);
@@ -6481,7 +6511,7 @@ app.put('/api/evaluation/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/evaluation/:id', async (req, res) => {
+app.delete('/api/evaluation/:id', requireHr, async (req, res) => {
   if (!isDbAvailable) {
     return sendDbUnavailable(res);
   }
@@ -7283,7 +7313,7 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-app.delete('/api/feedback/:id', async (req, res) => {
+app.delete('/api/feedback/:id', requireHr, async (req, res) => {
   try {
     await assertFeedbackWritableById(req.params.id);
     const { rowCount } = await pool.query('DELETE FROM feedback_history WHERE id = $1', [req.params.id]);
@@ -7373,7 +7403,7 @@ app.put('/api/notifications/read-all', async (req, res) => {
   }
 });
 
-app.delete('/api/notifications', async (req, res) => {
+app.delete('/api/notifications', requireHr, async (req, res) => {
   const recipientId = normalizeOptionalText(req.query?.recipientId ?? req.body?.recipientId);
   if (!recipientId) {
     return res.status(400).json({ error: 'recipientId is required' });
@@ -7627,7 +7657,7 @@ app.get('/api/prompt/:key', async (req, res) => {
   }
 });
 
-app.put('/api/prompt/:key', async (req, res) => {
+app.put('/api/prompt/:key', requireHr, async (req, res) => {
   try {
     const { content, description } = req.body;
     const key = req.params.key;
@@ -7653,7 +7683,7 @@ app.put('/api/prompt/:key', async (req, res) => {
   }
 });
 
-app.delete('/api/prompt/:key', async (req, res) => {
+app.delete('/api/prompt/:key', requireHr, async (req, res) => {
   try {
     const { rowCount } = await pool.query(
       'DELETE FROM prompt_templates WHERE key = $1',
