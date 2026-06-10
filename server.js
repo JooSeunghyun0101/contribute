@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
 
 // Load environment variables from .env (manual parsing)
 const __filename = fileURLToPath(import.meta.url);
@@ -2406,6 +2407,199 @@ app.post('/api/ai/chat', async (req, res) => {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     console.error('AI proxy error:', err?.message ?? err);
     res.status(timedOut ? 504 : 500).json({ error: timedOut ? 'AI timeout' : 'AI proxy error' });
+  }
+});
+
+/* ==================== Auth Routes ==================== */
+// 자체 비밀번호(G-1) + httpOnly 쿠키 세션. 세션은 인메모리(단일 인스턴스 전제) —
+// 서버 재시작 시 전원 재로그인. password_hash NULL = 초기 상태(초기 비밀번호=사번, 변경 강제).
+const SESSION_COOKIE = 'egs_session';
+const SESSION_ABS_TTL_MS = 8 * 60 * 60 * 1000; // 절대 8시간
+const SESSION_IDLE_TTL_MS = 2 * 60 * 60 * 1000; // 유휴 2시간
+const BCRYPT_ROUNDS = 10;
+const sessions = new Map(); // token -> { employeeId, createdAt, lastSeenAt }
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, s] of sessions) {
+    if (now - s.createdAt > SESSION_ABS_TTL_MS || now - s.lastSeenAt > SESSION_IDLE_TTL_MS) {
+      sessions.delete(token);
+    }
+  }
+}, 10 * 60_000).unref();
+
+const parseCookies = (req) => {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  const out = {};
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+};
+
+const setSessionCookie = (res, token) => {
+  const attrs = [
+    `${SESSION_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(SESSION_ABS_TTL_MS / 1000)}`,
+  ];
+  // 리버스 프록시 TLS 종단 뒤에서는 COOKIE_SECURE=true 로 Secure 속성 부여
+  if (process.env.COOKIE_SECURE === 'true') attrs.push('Secure');
+  res.setHeader('Set-Cookie', attrs.join('; '));
+};
+
+const clearSessionCookie = (res) => {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+};
+
+// 만료 검사 + 유휴 타임스탬프 갱신. 라우트 가드(S-2)가 이 함수를 공용으로 사용한다.
+const getSession = (req) => {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) return null;
+  const s = sessions.get(token);
+  if (!s) return null;
+  const now = Date.now();
+  if (now - s.createdAt > SESSION_ABS_TTL_MS || now - s.lastSeenAt > SESSION_IDLE_TTL_MS) {
+    sessions.delete(token);
+    return null;
+  }
+  s.lastSeenAt = now;
+  return s;
+};
+
+// 응답에서 인증 비밀은 항상 제거한다.
+const sanitizeEmployee = (employee) => {
+  if (!employee) return employee;
+  const { password_hash: _ph, ...safe } = employee;
+  return safe;
+};
+
+// 로그인 브루트포스 완화: IP별 분당 10회.
+const LOGIN_RATE_LIMIT_PER_MINUTE = 10;
+const loginRateBuckets = new Map();
+const loginRateLimited = (key) => {
+  const now = Date.now();
+  const bucket = loginRateBuckets.get(key);
+  if (!bucket || now - bucket.windowStart >= 60_000) {
+    loginRateBuckets.set(key, { windowStart: now, count: 1 });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > LOGIN_RATE_LIMIT_PER_MINUTE;
+};
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of loginRateBuckets) {
+    if (now - bucket.windowStart >= 60_000) loginRateBuckets.delete(key);
+  }
+}, 5 * 60_000).unref();
+
+const clientIpOf = (req) => {
+  const fwd = req.headers['x-forwarded-for'];
+  return (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.socket?.remoteAddress || 'unknown';
+};
+
+app.post('/api/auth/login', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (loginRateLimited(clientIpOf(req))) {
+    return res.status(429).json({ error: '로그인 시도가 너무 잦습니다. 잠시 후 다시 시도해 주세요.' });
+  }
+  const { employee_id: employeeIdRaw, password } = req.body ?? {};
+  if (typeof employeeIdRaw !== 'string' || !employeeIdRaw.trim() || typeof password !== 'string' || !password) {
+    return res.status(400).json({ error: '사번과 비밀번호를 입력해 주세요.' });
+  }
+  const employeeId = employeeIdRaw.trim();
+  // 사번 존재 여부를 구분해 노출하지 않는다(계정 열거 방지).
+  const fail = () => res.status(401).json({ error: '사번 또는 비밀번호가 올바르지 않습니다.' });
+  try {
+    const { rows } = await pool.query('SELECT * FROM employees WHERE employee_id::text = $1', [employeeId]);
+    const employee = rows[0];
+    if (!employee) return fail();
+
+    let mustChange;
+    if (employee.password_hash) {
+      const ok = await bcrypt.compare(password, employee.password_hash);
+      if (!ok) return fail();
+      mustChange = employee.must_change_password === true;
+    } else {
+      // 초기 상태: 초기 비밀번호 = 사번. 로그인 후 변경 강제.
+      if (password !== String(employee.employee_id)) return fail();
+      mustChange = true;
+    }
+
+    const token = randomUUID();
+    const now = Date.now();
+    sessions.set(token, { employeeId: String(employee.employee_id), createdAt: now, lastSeenAt: now });
+    setSessionCookie(res, token);
+    res.json({ employee: sanitizeEmployee(employee), must_change_password: mustChange });
+  } catch (err) {
+    console.error('로그인 처리 실패:', err.message);
+    res.status(500).json({ error: '로그인 처리 중 오류가 발생했습니다.' });
+  }
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    const { rows } = await pool.query('SELECT * FROM employees WHERE employee_id::text = $1', [session.employeeId]);
+    const employee = rows[0];
+    if (!employee) {
+      return res.status(401).json({ error: '계정을 찾을 수 없습니다.' });
+    }
+    res.json({ employee: sanitizeEmployee(employee), must_change_password: employee.must_change_password === true || !employee.password_hash });
+  } catch (err) {
+    console.error('세션 조회 실패:', err.message);
+    res.status(500).json({ error: '세션 확인 중 오류가 발생했습니다.' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (token) sessions.delete(token);
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/change-password', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const { current_password: currentPassword, new_password: newPassword } = req.body ?? {};
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 입력해 주세요.' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: '새 비밀번호는 8자 이상이어야 합니다.' });
+  }
+  if (newPassword === session.employeeId) {
+    return res.status(400).json({ error: '새 비밀번호로 사번을 사용할 수 없습니다.' });
+  }
+  try {
+    const { rows } = await pool.query('SELECT * FROM employees WHERE employee_id::text = $1', [session.employeeId]);
+    const employee = rows[0];
+    if (!employee) return res.status(401).json({ error: '계정을 찾을 수 없습니다.' });
+
+    const currentOk = employee.password_hash
+      ? await bcrypt.compare(currentPassword, employee.password_hash)
+      : currentPassword === String(employee.employee_id);
+    if (!currentOk) return res.status(401).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+
+    const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await pool.query(
+      'UPDATE employees SET password_hash = $1, must_change_password = FALSE WHERE employee_id::text = $2',
+      [hash, session.employeeId],
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('비밀번호 변경 실패:', err.message);
+    res.status(500).json({ error: '비밀번호 변경 중 오류가 발생했습니다.' });
   }
 });
 
