@@ -61,14 +61,14 @@
 
 ## ⛔ 결정 게이트 2·3 — 직군 필드 / PDF 방식
 
-- [!] **D-2** 직군(family) 필드 추가 여부. 벤치마크(8) 직군 묶음 가능 여부 좌우. → **사용자 확인.**
-- [!] **D-3** 개인 리포트 PDF 생성 방식(클라 라이브러리 vs 서버). → **사용자 확인.**
+- [x] **D-2** 직군(family) 필드. **사용자 결정(2026-06-10): 직종(job_role) 단위만** — 직군 필드 미추가(마이그레이션 없음). 나중에 필요 시 추가.
+- [x] **D-3** 개인 리포트 PDF 방식. **사용자 결정(2026-06-10): PDF 보류** — 화면/엑셀로 먼저, PDF 의존성 추가 안 함. F-D3 보류, F-D2는 엑셀 export 활용.
 
 ## Phase D — 3차 기능 (주기 종료·데이터 완결 후)
 
-- [ ] **F-D1** 직종 벤치마크 (#8). 같은 직종 내 분포 비교. *D-2 결과 반영.*
-- [ ] **F-D2** 부서/본부 결과 리포트 (#7). 임원 보고용 요약.
-- [ ] **F-D3** 개인 피드백 리포트 PDF (#6). *D-3 결과 반영. 가장 무거움.*
+- [ ] **F-D1** 직종 벤치마크 (#8). **직종(job_role) 단위만**(직군 필드 없음). 같은 직종 내 분포 비교(갭/달성/점수), 품질 진단(F-C2a) baseline 공유. 현황·분석 그룹. read-only.
+- [ ] **F-D2** 부서/본부 결과 리포트 (#7). 임원 보고용 요약. **화면 + 엑셀 export 활용(PDF 없음)**. 기존 `hrDataExport` 재사용.
+- [보류] **F-D3** 개인 피드백 리포트 PDF (#6). **사용자 결정: PDF 보류**(D-3). 화면 요약은 가능하나 PDF 생성은 의존성 추가 시 재개.
 
 ---
 
@@ -97,6 +97,7 @@
 - 2026-06-09 F-C4: 신규 코드 없음 — #5(점수-의견 정서 정합성)는 F-B2.1 `reviewSentimentGap`이 이미 충족. 별도 탭 승격 보류(메뉴 비대화). 완료 처리.
 - 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
+- 2026-06-10 D-2/D-3 게이트: **사용자 결정 = 직종(job_role) 단위만(직군 필드 미추가) / PDF 보류.** F-D1(벤치마크)·F-D2(부서리포트 화면+엑셀) 진행, F-D3(개인 PDF) 보류. F-D1 착수.
 - 2026-06-10 F-C5: 신규 `HrNoticesFaqPage`(/hr/notices-faq, 운영 그룹) — 일괄 공지(F-C1 dispatch 재사용·수신자 확인·24h 중복가드·대량경고·자동발송 없음) + FAQ CRUD(settings `faq_catalog` JSONB 재사용, 신규 마이그레이션 0). dispatch DispatchPayload union에 'notice' 추가. 리뷰 pass, medium(NOTICE_HISTORY_LIMIT 500→서버캡 200) 수정 후 커밋. **Phase C 전부 완료. 다음=D-2/D-3 게이트(직군 필드/PDF).**
 - 2026-06-10 **마감기간 평가자 종료일 표시 수정(사용자 검수)**: 마감/잠금 평가기간(2025)인데 마지막 평가자가 "~현재"로 표시됨(`buildEvaluatorPeriods`가 마지막 구간 end=null로 두는데, 이는 활성기간에서만 '현재'가 맞음). `buildEvaluatorPeriods`는 추이 그래프 공유라 안 건드리고 `MyTasksPage` 표시 단계에서 마감/잠금 기간이면 end=null을 `selectedPeriod.ends_on`으로 대체 → 권오선 2025 박판근 "2025.01.01~2025.12.31". typecheck+build 통과.
 - 2026-06-10 **데이터 정합성 버그 수정(사용자 검수 발견)**: ① [데이터] 재구성이 전보 시 마스터(`employees.evaluator_id`=앱의 '현재 평가자')를 '이전(첫) 평가자'로 두고 다른 사람을 최신으로 만들어, 앱의 '현재 평가' 배지(마스터)와 날짜(이력 최신)가 모순(2026 142건). → 스크립트 전보 로직을 **"최신 2026 배정=마스터"** 불변식으로 수정(otherEv는 더 이른 시점), 재실행. 검증: 피평가자 최신배정≠마스터 0명, 권오선 박판근=현재(~현재). ② [앱] `MyTasksPage`가 기간 인자 없이 로드+기간 의존성 누락 → 활성기간(2026)만 로드돼 2025 선택 시 빈 목록. → 선택 기간 전달 + useEffect 의존성에 `selectedPeriod?.id` 추가. 2025 데이터 자체는 정합이었음(표시/로딩 문제). typecheck+build 통과.
