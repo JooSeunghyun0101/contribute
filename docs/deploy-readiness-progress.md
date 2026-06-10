@@ -63,7 +63,7 @@
   - ② RemindersPage·HrNoticesFaqPage 발송 채널 `['inApp','email']` 하드코딩 → inApp만. 토스트의 "건너뜀(이메일 미설정) n" 노출 제거.
   - ③ HrSettingsPage placeholder 탭 2개(일반 "추후 추가됩니다":124 · 권한역할 "준비 중입니다":170) 제거 → 4탭→2탭(알림·고급). 권한역할 UI는 Phase S 인증 완료 후 부활.
   - ④ 로그인 화면 "SSO · OK금융그룹 통합인증" 문구(`Login.tsx:215`) — G-1 결정이 자체 비밀번호이므로 **제거 확정**.
-- [ ] **A-3** 부팅·자산 정리 묶음:
+- [x] **A-3** 부팅·자산 정리 묶음:
   - ① `src/main.tsx:7` 가짜 `testSupabaseConnection()` 호출 제거(브라우저에선 항상 MockPool 허위 성공 로그).
   - ② Pretendard 폰트 jsdelivr CDN(`index.css:1`) → `public/fonts/` 자체 호스팅(내부망 차단 대비).
 
@@ -162,3 +162,4 @@
 - 2026-06-10 P0-1: 브랜치 `feat/hr-admin-enhancement` 확인, 작업트리 clean(신규 파일=본 트래커뿐), 기준선 `npx tsc --noEmit` EXIT 0. 루프 시작.
 - 2026-06-10 A-1: 버그 3종 일괄 수정 — ① EvaluationAccordionCard `?? ''` 제거(취소가 발송되던 버그) ② AiReviewMonitoring visibleRows 기준 selected prune useEffect 추가(숨겨진 선택 행 무음 누락 해소) ③ index.css `.sd-btn:focus-visible`/`.sd-sidebar-link:focus-visible` 포커스 링(+링크 display:block·radius 8, aside가 flex column이라 레이아웃 무변화). tsc+build EXIT 0. 결정 메모: ②는 카운트 보정 대신 prune 채택(표시=처리 일치가 더 예측 가능).
 - 2026-06-10 A-2: UI 약속 정리 — ① NotificationSettings를 채널 현황 안내 2카드(인앱=동작·이메일=준비 중 Badge)로 재작성. 결정 메모: notification_config 토글 7종 전부 소비자 0(시스템·마감일·피드백 토글 포함)이라 부분 배지 대신 전체 안내형 채택, 저장 로직 제거(DB 데이터는 무변경, 재개 시 git 이력 참조) ② Reminders/NoticesFaq 발송 채널 `['inApp']`로, 토스트에서 "건너뜀(이메일 미설정)" 제거 ③ HrSettingsPage 4탭→2탭(알림·고급), 일반·권한역할 placeholder 탭 삭제(평가기간·사용자 관리 링크는 사이드바와 중복 확인), 부제 "알림·시스템 관리" ④ Login SSO 문구 제거. tsc+build EXIT 0.
+- 2026-06-10 A-3: 부팅·자산 정리 — ① main.tsx 가짜 testSupabaseConnection 제거(connectionTest.ts 모듈 자체는 F-2 스윕에서 삭제 예정) ② Pretendard를 dynamic-subset CDN @import → `public/fonts/PretendardVariable.woff2`(1.96MB, 가변 단일 파일, SIL OFL) 자체 호스팅 @font-face로 교체. 결정 메모: 서브셋 수천 파일 대신 단일 가변 woff2 채택(내부망 단순성 우선), jsdelivr 모노레포 경로는 `packages/pretendard/...`였음. dist/fonts 복사 확인. tsc+build EXIT 0.
