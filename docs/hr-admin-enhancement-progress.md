@@ -38,7 +38,7 @@
 ## Phase B — 1차 기능 (인프라 있음·결정 불필요)
 
 - [x] **F-B1.1** 매칭 정합성 점검 화면(read-only). `HrUsersPage` 매칭 데이터 재사용 → 누락·자기평가·이상 탐지 리스트/요약. ⚠ 피평가자 다중 평가자=발령(정상)이므로 중복으로 플래그 금지([[multi-evaluation-means-transfer]]); 진짜 이상만. 신규 라우트 + 사이드바(설정 그룹) 진입.
-- [보류] **F-B1.2** 드래그형 배정 보드(read-write). **사용자 결정(2026-06-09): 보류** — 추후 별도 설계(↓ 보류 섹션).
+- [x] **F-B1.2** 평가자 재배정(read-write). 엑셀과 보완(공존) + 행별 '평가자 변경' 액션. `HrMatchingPage` 드릴다운에 ReassignModal. **기존 `PUT /api/employee`(=HrUsersPage addAssignmentChange) 재사용** — 단일 트랜잭션에서 마스터(`evaluator_id`) 무조건 동기화 + AH 새 행(발령, 이전 보존) + 새 평가자용 draft 평가. **불변식(마스터=최신 배정) 백엔드 독립 검증 통과.** HR 명시+확인, 자기/동일/비활성기간 가드, 활성기간 한정. 리뷰 pass.
 - [x] **F-B2.1** AI 검수 모니터링(read-only). `HrPromptsPage`/품질 영역에 평가의견 AI 플래그 목록(짧음·비구체·점수불일치)·분석. `feedbackApiService`·OpenAI 재사용. AI 호출 비용/배치/캐싱 고려.
 - [x] **F-B2.2** 반려 액션(write=평가자 통지). ✅ D-1 해소 후 활성화·구현 완료(`c29f899`): AI 검수 모니터링 행에 '재검토 요청'(기존 `requestReturn` 재사용, HR 명시+확인). (Phase C 로그 참조)
 
@@ -98,6 +98,7 @@
 - 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
 - 2026-06-10 F-D2: 신규 `HrDepartmentResultsPage`(/hr/results, 결과 그룹) + `hrDataExport.downloadOrgResultWorkbook`. 조직 계층(법인-본부-부-팀) 단위 인원·완료율·달성률·갭 분포·평균갭 요약 + 엑셀 export(2시트), **PDF 없음(D-3)**. useCompanyDashboardRecords 1훅·갭 재사용·소표본 회색·read-only. impl이 TDZ 버그 자가수정. 리뷰 pass.
+- 2026-06-10 F-B1.2(보류 재개): `HrMatchingPage` 드릴다운에 '평가자 변경' 액션 + ReassignModal. 기존 `PUT /api/employee`(`updateEmployee`) 재사용 — 마스터 무조건 동기화 + AH 새 행(발령·이전 보존) + 새 평가자 draft 평가. 백엔드(server.js 4135-4180) 독립 검증으로 불변식(마스터=최신=새 평가자) 확인. HR 명시+확인·self/동일/비활성 가드. 리뷰 pass. ⇒ **남은 보류는 F-D3(개인 PDF, 사용자 보류)뿐 → 루프 재종료.**
 - 2026-06-10 **★루프 종료**: 활성 [ ] 항목 전부 소진. 보류 2건(F-B1.2 드래그 배정·F-D3 개인 PDF)은 사용자 결정으로 후속. 계획서 §1~§3 + §2 센터피스 + 데이터 재구성 + 정합성 버그 3건까지 완료.
 - 2026-06-10 F-D1: 신규 `HrJobRoleBenchmarkPage`(/hr/job-role-benchmark, 현황·분석 그룹). 직종(job_role)별 갭버킷·달성률·평균갭·SD 비교 + 드릴다운. F-C2a 갭계산 재사용, useCompanyDashboardRecords 1훅(무폭주), read-only. 비평이 달성률을 record.achieved(미완료 오염)→samples gap≥0/n으로 정정. 소표본 직종 회색·중립톤·'(직종 미상)' 통합. dead import 정리. typecheck+build·리뷰 pass.
 - 2026-06-10 D-2/D-3 게이트: **사용자 결정 = 직종(job_role) 단위만(직군 필드 미추가) / PDF 보류.** F-D1(벤치마크)·F-D2(부서리포트 화면+엑셀) 진행, F-D3(개인 PDF) 보류. F-D1 착수.

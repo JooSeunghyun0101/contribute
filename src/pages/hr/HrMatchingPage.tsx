@@ -6,6 +6,9 @@ import { IconSearch, Pill, type PillTone } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompanyDashboardRecords, useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
 import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
 import {
@@ -14,14 +17,21 @@ import {
   isBulkMatchingHistory,
 } from '@/lib/evaluatorHistory';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
-import type { EvaluatorAssignmentHistory } from '@/types';
+import type { Employee, EvaluationPeriod, EvaluatorAssignmentHistory } from '@/types';
 
 // ────────────────────────────────────────────────────────────────────────────
-// 매칭 1:1 정합성 점검 (read-only)
+// 매칭 1:1 정합성 점검 (점검=read-only, 개별 재배정=명시적 write 공존)
 //
-// 이 화면은 "경고판"이 아니라 "점검 명세서"다. 데이터 쓰기(배정 변경/삭제/저장)는
-// 일절 하지 않는다. 모든 판정은 이미 로드된 employee/record 컬럼(NULL·문자열 비교)만으로
-// 수행하며, per-employee 추가 호출은 행을 펼치는 드릴다운에서만(lazy) 일어난다.
+// 이 화면은 "경고판"이 아니라 "점검 명세서"다. 분류·요약·드릴다운은 데이터 쓰기를 하지
+// 않으며, 모든 판정은 이미 로드된 employee/record 컬럼(NULL·문자열 비교)만으로 수행한다.
+// per-employee 추가 호출은 행을 펼치는 드릴다운에서만(lazy) 일어난다.
+//
+// 단, 점검에서 드러난 행을 그 자리에서 바로잡을 수 있도록 드릴다운에 "평가자 변경"
+// 액션(개별 재배정)을 제공한다. 이 write 는 HR 이 명시적으로 새 평가자를 고르고 확인
+// 모달을 거친 경우에만 호출되며, 자동 쓰기는 없다. 재배정은 기존 PUT /api/employee/:id
+// (HrUsersPage.addAssignmentChange 와 동일한 경로)를 재사용해 단일 트랜잭션에서
+// employees.evaluator_id(마스터) 동기화 + evaluator_assignment_history 새 행(change/applied)
+// 추가를 함께 수행한다. 이전 배정/평가는 삭제·취소하지 않고 보존(발령=정상)한다.
 //
 // [절대 규칙] 피평가자에게 평가자가 여럿/평가가 여럿인 것은 "발령(전보)"으로 인한 정상
 // 케이스다. 절대 "중복"으로 플래그하지 않는다. 발령 흔적은 중립(neutral) 정보로만 안내하고,
@@ -105,10 +115,14 @@ const evaluatorCell = (record: EmployeeEvaluationRecord): string =>
   record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? '-';
 
 const HrMatchingPage = () => {
-  const { records, isLoading, error } = useCompanyDashboardRecords();
+  const { records, isLoading, error, reload: reloadRecords } = useCompanyDashboardRecords();
   // 평가자 사번 → 직원 매핑(평가자 신원 확인용). 평가 점수/과업은 쓰지 않는 가벼운 로드.
-  const { employees: allEmployees } = useAllEmployees();
+  // 동시에 재배정 시 평가자 후보 풀로 재사용한다(추가 API 호출 없음).
+  const { employees: allEmployees, reload: reloadEmployees } = useAllEmployees();
   const { selectedPeriod } = useEvaluationPeriod();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const actorId = user?.employeeId ?? user?.id ?? null;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
@@ -124,6 +138,28 @@ const HrMatchingPage = () => {
     for (const emp of source) ids.add(emp.employee_id);
     return ids;
   }, [allEmployees, records]);
+
+  // 재배정용 평가자 후보 — 이미 로드된 allEmployees 만 사용(추가 호출 없음).
+  // HrUsersPage.evaluatorOptions 와 동일한 필터: admin·잘못된 사번 제외, evaluator 역할만, 부서→이름 정렬.
+  const evaluatorCandidates = useMemo(
+    () =>
+      allEmployees
+        .filter((employee) => employee.employee_id !== 'admin')
+        .filter((employee) => !/^[A-Za-z]/.test(employee.employee_id))
+        .filter((employee) => employee.available_roles?.includes('evaluator'))
+        .sort(
+          (a, b) =>
+            a.department.localeCompare(b.department, 'ko') || a.name.localeCompare(b.name, 'ko'),
+        ),
+    [allEmployees],
+  );
+
+  // 사번 → 이름 매핑(재배정 확인 모달에서 평가자명 표시용).
+  const employeeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const emp of allEmployees) map.set(emp.employee_id, emp.name);
+    return map;
+  }, [allEmployees]);
 
   const jobRoleOptions = useMemo(() => {
     const set = new Set<string>();
@@ -236,11 +272,83 @@ const HrMatchingPage = () => {
     rules: Set<RuleKey>;
   } | null>(null);
 
+  // 개별 재배정(평가자 변경) 상태. reassignTarget 이 설정된 동안에만 모달이 열린다.
+  // reassigningId 가 차 있으면 해당 직원 호출이 진행 중(중복 클릭 방지).
+  const [reassignTarget, setReassignTarget] = useState<EmployeeEvaluationRecord | null>(null);
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
+
+  // 명시적 "평가자 변경" 확정 — 기존 PUT /api/employee/:id 재사용.
+  // 단일 트랜잭션에서 (1) evaluator_assignment_history 새 행(change/applied) 추가,
+  // (2) employees.evaluator_id(마스터) 동기화를 함께 수행한다(server.js:4135-4180).
+  // 이전 배정/평가는 삭제하지 않고 보존(발령=정상).
+  const handleReassign = async (employee: Employee, newEvaluatorId: string) => {
+    // 게이트(필수): 활성 평가기간 선택 + 동일 평가자/자기평가 차단.
+    // ★ 이 PUT 경로에는 self-eval 서버 가드가 없으므로 프런트가 유일한 게이트다.
+    if (!selectedPeriod || selectedPeriod.status !== 'active') {
+      toast({
+        title: '활성 평가기간을 선택해 주세요.',
+        description: '재배정은 활성(active) 평가기간에서만 가능합니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!newEvaluatorId) return;
+    if (newEvaluatorId === employee.employee_id) {
+      toast({
+        title: '자기 자신은 평가자로 지정할 수 없습니다.',
+        description: '본인 사번과 다른 평가자를 선택해 주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if ((employee.evaluator_id ?? '') === newEvaluatorId) {
+      toast({
+        title: '현재 평가자와 동일합니다.',
+        description: '다른 평가자를 선택해 주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // 모달 고지의 "발령일"과 기록일을 일치시키기 위해 오늘 날짜(yyyy-mm-dd)를 명시 전달.
+    const changedAt = new Date().toISOString().slice(0, 10);
+    const toEvaluatorLabel = employeeNameById.get(newEvaluatorId) ?? newEvaluatorId;
+
+    setReassigningId(employee.employee_id);
+    try {
+      await employeeService.updateEmployee(employee.employee_id, {
+        evaluator_id: newEvaluatorId,
+        changed_by: actorId,
+        changed_at: changedAt,
+        evaluation_period_id: selectedPeriod.id,
+        reason: 'HR matching reassignment',
+      });
+      // 두 데이터 소스를 모두 갱신 — 목록·점검 분류가 새 마스터 기준으로 재계산된다.
+      await Promise.all([reloadRecords(), reloadEmployees()]);
+      setReassignTarget(null);
+      // 드릴다운이 열려 있으면 닫아 옛 타임라인 캐시를 버린다.
+      setDrilldown(null);
+      toast({
+        title: '평가자가 변경되었습니다.',
+        description: `${employee.name}: ${toEvaluatorLabel} (발령일 ${changedAt}, 이전 배정 보존)`,
+      });
+    } catch (err) {
+      console.error('평가자 변경 실패:', err);
+      toast({
+        title: '평가자 변경 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setReassigningId(null);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="매칭 정합성 점검"
-        subtitle="피평가자–평가자 1:1 매칭 상태를 읽기 전용으로 점검합니다. 데이터를 변경하지 않으며, 발령 이력은 행을 펼쳐 확인합니다."
+        subtitle="피평가자–평가자 1:1 매칭 상태를 점검합니다. 분류·요약은 읽기 전용이며, 행을 펼쳐 발령 이력을 확인하거나 평가자를 변경(재배정)할 수 있습니다."
         actions={<Pill tone="neutral">{periodLabel}</Pill>}
         filters={
           <>
@@ -337,6 +445,19 @@ const HrMatchingPage = () => {
           rules={drilldown.rules}
           periodLabel={periodLabel}
           onClose={() => setDrilldown(null)}
+          onReassign={() => setReassignTarget(drilldown.record)}
+        />
+      )}
+
+      {reassignTarget && (
+        <ReassignModal
+          record={reassignTarget}
+          period={selectedPeriod}
+          candidates={evaluatorCandidates}
+          employeeNameById={employeeNameById}
+          isSaving={reassigningId === reassignTarget.employee.employee_id}
+          onCancel={() => setReassignTarget(null)}
+          onConfirm={(newEvaluatorId) => handleReassign(reassignTarget.employee, newEvaluatorId)}
         />
       )}
     </>
@@ -639,9 +760,11 @@ type DrilldownPanelProps = {
   rules: Set<RuleKey>;
   periodLabel: string;
   onClose: () => void;
+  /** "평가자 변경"(개별 재배정) 모달을 연다. */
+  onReassign: () => void;
 };
 
-const DrilldownPanel = ({ record, rules, periodLabel, onClose }: DrilldownPanelProps) => {
+const DrilldownPanel = ({ record, rules, periodLabel, onClose, onReassign }: DrilldownPanelProps) => {
   const { employee } = record;
   const [history, setHistory] = useState<EvaluatorAssignmentHistory[] | null>(null);
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
@@ -710,15 +833,25 @@ const DrilldownPanel = ({ record, rules, periodLabel, onClose }: DrilldownPanelP
           }}
         >
           <div style={{ minWidth: 0 }}>
-            <div className="sd-label-mini">매칭 점검 상세 · 읽기 전용</div>
+            <div className="sd-label-mini">매칭 점검 상세</div>
             <h2 style={{ marginTop: 4, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{employee.name}</h2>
             <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}>
               {employee.employee_id}
             </div>
           </div>
-          <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>
-            닫기
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              onClick={onReassign}
+              title="이 피평가자의 평가자를 변경(재배정)합니다."
+            >
+              평가자 변경
+            </button>
+            <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>
+              닫기
+            </button>
+          </div>
         </div>
 
         <div style={{ overflow: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -869,6 +1002,212 @@ const DrilldownPanel = ({ record, rules, periodLabel, onClose }: DrilldownPanelP
               </ol>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── 평가자 변경(개별 재배정) 확인 모달 ───────────────────────────────────────
+//
+// HR 이 새 평가자를 명시적으로 고르고 "현→새" 요약·발령/보존 고지를 확인한 뒤에만
+// onConfirm 이 호출된다. 자기평가·동일 평가자·후보 미선택은 확인 버튼을 비활성화한다.
+
+type ReassignModalProps = {
+  record: EmployeeEvaluationRecord;
+  period: EvaluationPeriod | null;
+  candidates: Employee[];
+  employeeNameById: Map<string, string>;
+  isSaving: boolean;
+  onCancel: () => void;
+  onConfirm: (newEvaluatorId: string) => void;
+};
+
+const ReassignModal = ({
+  record,
+  period,
+  candidates,
+  employeeNameById,
+  isSaving,
+  onCancel,
+  onConfirm,
+}: ReassignModalProps) => {
+  const { employee } = record;
+  const [newEvaluatorId, setNewEvaluatorId] = useState('');
+
+  const currentEvaluatorId = employee.evaluator_id ?? null;
+  const currentEvaluatorLabel = currentEvaluatorId
+    ? record.evaluation?.evaluator_name ??
+      employeeNameById.get(currentEvaluatorId) ??
+      currentEvaluatorId
+    : '미지정';
+  const newEvaluatorLabel = newEvaluatorId
+    ? employeeNameById.get(newEvaluatorId) ?? newEvaluatorId
+    : '';
+
+  const isActivePeriod = Boolean(period && period.status === 'active');
+  const isSelf = newEvaluatorId === employee.employee_id;
+  const isSame = (currentEvaluatorId ?? '') === newEvaluatorId;
+  const canConfirm =
+    !isSaving && isActivePeriod && Boolean(newEvaluatorId) && !isSelf && !isSame;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 60,
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="sd-card"
+        style={{
+          width: 'min(480px, 100%)',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+        }}
+      >
+        <div>
+          <div className="sd-label-mini">평가자 변경 · 개별 재배정</div>
+          <h2 style={{ marginTop: 6, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>
+            {employee.name}
+            <span
+              style={{
+                marginLeft: 8,
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 600,
+                color: 'var(--fg-muted)',
+                fontFamily: 'monospace',
+              }}
+            >
+              {employee.employee_id}
+            </span>
+          </h2>
+        </div>
+
+        {/* 현 → 새 요약 */}
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ minWidth: 120 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>현재 평가자</div>
+            <div style={{ marginTop: 2, fontSize: 'var(--fs-body)', fontWeight: 700 }}>
+              {currentEvaluatorLabel}
+            </div>
+          </div>
+          <span style={{ color: 'var(--fg-subtle)', fontWeight: 900 }}>→</span>
+          <div style={{ minWidth: 120 }}>
+            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>새 평가자</div>
+            <div
+              style={{
+                marginTop: 2,
+                fontSize: 'var(--fs-body)',
+                fontWeight: 800,
+                color: newEvaluatorLabel ? 'var(--ok-orange)' : 'var(--fg-subtle)',
+              }}
+            >
+              {newEvaluatorLabel || '선택 안 됨'}
+            </div>
+          </div>
+        </div>
+
+        {/* 평가자 선택 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+            새 평가자 선택
+          </label>
+          <EvaluatorPicker
+            options={candidates}
+            value={newEvaluatorId}
+            onChange={setNewEvaluatorId}
+            placeholder="이름·부서·사번으로 검색…"
+            disabled={isSaving}
+            minWidth={0}
+          />
+          {isSelf && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--danger)' }}>
+              자기 자신은 평가자로 지정할 수 없습니다.
+            </span>
+          )}
+          {!isSelf && isSame && newEvaluatorId && (
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--warning)' }}>
+              현재 평가자와 동일합니다. 다른 평가자를 선택해 주세요.
+            </span>
+          )}
+        </div>
+
+        {/* 발령/보존 고지 */}
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 14,
+            background: 'var(--bg-muted)',
+            fontSize: 'var(--fs-sm)',
+            color: 'var(--fg-muted)',
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ fontWeight: 800, color: 'var(--fg)', marginBottom: 4 }}>발령 안내</div>
+          확인하면 이 변경이 <b>발령(평가자 변경)</b>으로 기록됩니다.
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            <li>발령일: {today} (오늘)</li>
+            <li>평가기간: {period ? `${period.name} · ${period.evaluation_year}` : '미선택'}</li>
+            <li>직원 마스터의 현재 평가자가 새 평가자로 갱신됩니다.</li>
+            <li>이전 배정·평가 내역은 삭제하지 않고 발령 이력으로 보존됩니다.</li>
+          </ul>
+          {!isActivePeriod && (
+            <div style={{ marginTop: 8, color: 'var(--danger)', fontWeight: 700 }}>
+              활성(active) 평가기간을 선택해야 재배정할 수 있습니다.
+            </div>
+          )}
+        </div>
+
+        {/* 액션 */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            type="button"
+            className="sd-btn sd-btn-ghost sd-btn-sm"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            className="sd-btn sd-btn-primary sd-btn-sm"
+            onClick={() => onConfirm(newEvaluatorId)}
+            disabled={!canConfirm}
+            title={
+              !isActivePeriod
+                ? '활성 평가기간을 선택해 주세요.'
+                : !newEvaluatorId
+                  ? '새 평가자를 선택해 주세요.'
+                  : '평가자 변경을 확정합니다.'
+            }
+          >
+            {isSaving ? '변경 중…' : '평가자 변경 확정'}
+          </button>
         </div>
       </div>
     </div>
