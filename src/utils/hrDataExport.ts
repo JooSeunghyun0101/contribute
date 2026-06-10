@@ -1276,6 +1276,105 @@ export const downloadDepartmentMembersWorkbook = (
   return { fileName, memberCount: members.length };
 };
 
+// ── 부서·본부 결과 리포트 (F-D2) ─────────────────────────────────────────────
+// 조직 계층(법인-본부-부-팀) 단위 결과 요약을 엑셀로 내려받는다. 화면(HrDepartmentResultsPage)이
+// 이미 메모리에서 집계한 행을 그대로 직렬화한다 — 다운로드 시 추가 DB 조회 0건(커밋 8fc884c 준수).
+// PDF 의존성·생성 없음(D-3). 달성률 분자는 '완료·유효 표본 중 갭>=0' 재계산 값(record.achieved 미사용).
+// 갭은 정수 내림 점수(flooredScore) 기준 절대평가다.
+const MIN_ORG_SAMPLE = 5; // 소표본 임계값(HrDepartmentResultsPage 와 동일).
+
+const ORG_RESULT_HEADERS = [
+  '집계레벨',
+  '조직',
+  '상위경로',
+  '배정인원',
+  '완료인원',
+  '완료율',
+  '평균점수',
+  '평균갭',
+  '표준편차',
+  '달성인원',
+  '달성률',
+  '초과',
+  '충족',
+  '근접',
+  '미달',
+  '표본상태',
+];
+
+const ORG_RESULT_GUIDE_ROWS: unknown[][] = [
+  ['항목', '설명'],
+  ['갭', '갭 = 정수 내림 점수(flooredScore) − 성장레벨. 절대평가 기준이며 원점수 평균으로 줄세우지 않습니다.'],
+  ['평균점수', '가중점수에 소수 절사(둘째 자리 내림)를 적용한 보조 표시값입니다(정렬축 아님).'],
+  ['완료율', '완료인원 / 배정인원. 미완료 평가는 통계(달성률·평균갭·SD)에서 제외됩니다.'],
+  ['달성률', '완료·유효 표본(n명) 중 갭이 0 이상인 비율입니다.'],
+  ['표준편차', '표본표준편차(베셀 보정, n−1). 완료 표본 n<2 이면 정의되지 않습니다.'],
+  ['표본상태', `완료 표본 n<${MIN_ORG_SAMPLE}(소표본) 또는 미지정 조직은 통계 비교에서 제외되는 참고 행입니다.`],
+];
+
+export type OrgResultRow = {
+  levelLabel: string; // 집계 레벨(법인/본부/부/팀 등)
+  org: string; // 조직 키
+  parentPath: string; // 상위 경로 문자열('' 가능)
+  assignedCount: number; // 배정 인원(완료율 분모)
+  completedCount: number; // 완료 인원
+  n: number; // 완료·유효 표본 수(통계 분모)
+  achievedCount: number; // 완료·유효 표본 중 갭>=0
+  meanGap: number | null;
+  sd: number | null;
+  meanScore: number | null; // 평균 가중점수(보조 표시값)
+  buckets: { exceed: number; meet: number; near: number; below: number };
+  isSmall: boolean; // n<MIN_ORG_SAMPLE
+  isUnassigned: boolean; // '미지정' 등 비교 제외 참고 노드
+};
+
+const pctText = (numerator: number, denominator: number) =>
+  denominator > 0 ? `${Math.round((numerator / denominator) * 100)}%` : '';
+
+const gapText = (gap: number) => (gap > 0 ? `+${gap.toFixed(2)}` : gap.toFixed(2));
+
+const buildOrgResultRows = (rows: OrgResultRow[]) =>
+  rows.map((row) => {
+    // 소표본/미지정 노드는 통계 셀을 비우고 표본상태 라벨만 남긴다('%' 미표기).
+    const statsHidden = row.isSmall;
+    const sampleStatus = row.isUnassigned
+      ? '비교 제외(미지정)'
+      : row.isSmall
+        ? `표본 부족(n<${MIN_ORG_SAMPLE})`
+        : '';
+    return {
+      집계레벨: row.levelLabel,
+      조직: row.org,
+      상위경로: row.parentPath,
+      배정인원: row.assignedCount,
+      완료인원: row.completedCount,
+      완료율: pctText(row.completedCount, row.assignedCount),
+      평균점수: statsHidden || row.meanScore == null ? '' : row.meanScore.toFixed(1),
+      평균갭: statsHidden || row.meanGap == null ? '' : gapText(row.meanGap),
+      표준편차: statsHidden || row.sd == null ? '' : row.sd.toFixed(2),
+      달성인원: statsHidden ? '' : row.achievedCount,
+      달성률: statsHidden ? '' : pctText(row.achievedCount, row.n),
+      초과: row.buckets.exceed,
+      충족: row.buckets.meet,
+      근접: row.buckets.near,
+      미달: row.buckets.below,
+      표본상태: sampleStatus,
+    };
+  });
+
+// 부서·본부 결과 리포트 엑셀 다운로드. rows 는 화면이 집계한 결과를 그대로 받는다(추가 조회 없음).
+export const downloadOrgResultWorkbook = (
+  rows: OrgResultRow[],
+  meta: { levelLabel: string; periodLabel?: string } = { levelLabel: '조직' },
+): { fileName: string; rowCount: number } => {
+  const wb = XLSX.utils.book_new();
+  appendObjectSheet(wb, '부서본부결과', ORG_RESULT_HEADERS, buildOrgResultRows(rows));
+  appendAoaSheet(wb, '지표안내', ORG_RESULT_GUIDE_ROWS);
+  const safeLevel = meta.levelLabel.replace(/[\\/:*?"<>|]/g, '_');
+  const fileName = writeWorkbook(wb, `부서본부결과_${safeLevel}_${todayText()}.xlsx`);
+  return { fileName, rowCount: rows.length };
+};
+
 const QNA_LOG_HEADERS = [
   '일시',
   '사번',

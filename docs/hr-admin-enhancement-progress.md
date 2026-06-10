@@ -67,7 +67,7 @@
 ## Phase D — 3차 기능 (주기 종료·데이터 완결 후)
 
 - [x] **F-D1** 직종 벤치마크 (#8). **직종(job_role) 단위만**(직군 필드 없음). 같은 직종 내 분포 비교(갭/달성/점수), 품질 진단(F-C2a) baseline 공유. 현황·분석 그룹. read-only. 신규 `HrJobRoleBenchmarkPage`(/hr/job-role-benchmark). 비평이 달성률 정의 정정(record.achieved 대신 samples gap≥0/n). 리뷰 pass.
-- [ ] **F-D2** 부서/본부 결과 리포트 (#7). 임원 보고용 요약. **화면 + 엑셀 export 활용(PDF 없음)**. 기존 `hrDataExport` 재사용.
+- [x] **F-D2** 부서/본부 결과 리포트 (#7). 임원 보고용 요약. **화면 + 엑셀 export 활용(PDF 없음)**. 기존 `hrDataExport` 재사용. 신규 `HrDepartmentResultsPage`(/hr/results, 결과 그룹) + `downloadOrgResultWorkbook`. 조직 계층 집계·갭/달성/완료율·소표본 회색·read-only. 리뷰 pass.
 - [보류] **F-D3** 개인 피드백 리포트 PDF (#6). **사용자 결정: PDF 보류**(D-3). 화면 요약은 가능하나 PDF 생성은 의존성 추가 시 재개.
 
 ---
@@ -97,6 +97,8 @@
 - 2026-06-09 F-C4: 신규 코드 없음 — #5(점수-의견 정서 정합성)는 F-B2.1 `reviewSentimentGap`이 이미 충족. 별도 탭 승격 보류(메뉴 비대화). 완료 처리.
 - 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
+- 2026-06-10 F-D2: 신규 `HrDepartmentResultsPage`(/hr/results, 결과 그룹) + `hrDataExport.downloadOrgResultWorkbook`. 조직 계층(법인-본부-부-팀) 단위 인원·완료율·달성률·갭 분포·평균갭 요약 + 엑셀 export(2시트), **PDF 없음(D-3)**. useCompanyDashboardRecords 1훅·갭 재사용·소표본 회색·read-only. impl이 TDZ 버그 자가수정. 리뷰 pass.
+- 2026-06-10 **★루프 종료**: 활성 [ ] 항목 전부 소진. 보류 2건(F-B1.2 드래그 배정·F-D3 개인 PDF)은 사용자 결정으로 후속. 계획서 §1~§3 + §2 센터피스 + 데이터 재구성 + 정합성 버그 3건까지 완료.
 - 2026-06-10 F-D1: 신규 `HrJobRoleBenchmarkPage`(/hr/job-role-benchmark, 현황·분석 그룹). 직종(job_role)별 갭버킷·달성률·평균갭·SD 비교 + 드릴다운. F-C2a 갭계산 재사용, useCompanyDashboardRecords 1훅(무폭주), read-only. 비평이 달성률을 record.achieved(미완료 오염)→samples gap≥0/n으로 정정. 소표본 직종 회색·중립톤·'(직종 미상)' 통합. dead import 정리. typecheck+build·리뷰 pass.
 - 2026-06-10 D-2/D-3 게이트: **사용자 결정 = 직종(job_role) 단위만(직군 필드 미추가) / PDF 보류.** F-D1(벤치마크)·F-D2(부서리포트 화면+엑셀) 진행, F-D3(개인 PDF) 보류. F-D1 착수.
 - 2026-06-10 F-C5: 신규 `HrNoticesFaqPage`(/hr/notices-faq, 운영 그룹) — 일괄 공지(F-C1 dispatch 재사용·수신자 확인·24h 중복가드·대량경고·자동발송 없음) + FAQ CRUD(settings `faq_catalog` JSONB 재사용, 신규 마이그레이션 0). dispatch DispatchPayload union에 'notice' 추가. 리뷰 pass, medium(NOTICE_HISTORY_LIMIT 500→서버캡 200) 수정 후 커밋. **Phase C 전부 완료. 다음=D-2/D-3 게이트(직군 필드/PDF).**
