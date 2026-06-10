@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import type { Employee, UserRole } from '@/types';
 
@@ -70,31 +76,19 @@ const AddEmployeeModal = ({ evaluatorOptions, isSaving, onSubmit, onClose }: Pro
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        padding: 24,
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !isSaving) onClose();
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="sd-card sd-card-lg"
-        style={{ width: 'min(560px, 100%)', maxHeight: '88vh', overflow: 'auto' }}
+      <DialogContent
+        className="sm:max-w-[560px]"
+        style={{ maxHeight: '88vh', overflow: 'auto' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900 }}>사용자 추가</h2>
-          <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose} disabled={isSaving}>
-            <X size={16} />
-            닫기
-          </button>
-        </div>
+        <DialogHeader>
+          <DialogTitle>사용자 추가</DialogTitle>
+        </DialogHeader>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
           <div>
@@ -192,7 +186,7 @@ const AddEmployeeModal = ({ evaluatorOptions, isSaving, onSubmit, onClose }: Pro
           />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
+        <DialogFooter style={{ marginTop: 8 }}>
           <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose} disabled={isSaving}>
             취소
           </button>
@@ -208,9 +202,9 @@ const AddEmployeeModal = ({ evaluatorOptions, isSaving, onSubmit, onClose }: Pro
           >
             {isSaving ? '추가 중…' : '추가'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 
