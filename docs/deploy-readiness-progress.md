@@ -58,7 +58,7 @@
   - ① 수정요청 취소 버그 — `src/pages/my/EvaluationAccordionCard.tsx:248` `window.prompt(...) ?? ''` 가 취소(null)를 ''로 바꿔 **취소해도 발송됨** → `?? ''` 제거, null이면 return.
   - ② AI 검수 stale 선택 — `src/components/Feedback/AiReviewMonitoring.tsx:152,348,600` 필터 변경 시 selected Set 미정리 → `useEffect`로 visibleRows 기준 prune(또는 카운트를 `visibleRows ∩ selected`로).
   - ③ 키보드 포커스 링 — `src/index.css` `.sd-btn:focus-visible { box-shadow: var(--sh-focus) }` + 사이드바 NavLink 동일 처리(`--sh-focus` 토큰 :98에 이미 존재).
-- [ ] **A-2** "UI가 약속만 하는 것" 정리 묶음 (이메일은 보류이므로 노출만 정돈):
+- [x] **A-2** "UI가 약속만 하는 것" 정리 묶음 (이메일은 보류이므로 노출만 정돈):
   - ① 설정의 이메일 토글·주간보고서·마감 사전알림·리마인더 주기(`NotificationSettings.tsx:149-157` 등, 소비자 0명) → 숨김 또는 "준비 중" 배지 1종으로 통일.
   - ② RemindersPage·HrNoticesFaqPage 발송 채널 `['inApp','email']` 하드코딩 → inApp만. 토스트의 "건너뜀(이메일 미설정) n" 노출 제거.
   - ③ HrSettingsPage placeholder 탭 2개(일반 "추후 추가됩니다":124 · 권한역할 "준비 중입니다":170) 제거 → 4탭→2탭(알림·고급). 권한역할 UI는 Phase S 인증 완료 후 부활.
@@ -161,3 +161,4 @@
 - 2026-06-10 게이트 일괄 해소(사용자 답변): **G-1=자체 비밀번호+httpOnly 쿠키 세션 / G-2=오렌지 역할 분리(#F55000 강조·#B45309 텍스트) / B-0=키는 사용자가 .env에 직접 입력(루프는 graceful 처리로 무대기 진행)**. 루프 계약을 무정지 모드로 전환 — 잔여 모호함은 보수적 기본값+`결정 메모:` 로그로 진행, 파괴적 작업만 예외 정지.
 - 2026-06-10 P0-1: 브랜치 `feat/hr-admin-enhancement` 확인, 작업트리 clean(신규 파일=본 트래커뿐), 기준선 `npx tsc --noEmit` EXIT 0. 루프 시작.
 - 2026-06-10 A-1: 버그 3종 일괄 수정 — ① EvaluationAccordionCard `?? ''` 제거(취소가 발송되던 버그) ② AiReviewMonitoring visibleRows 기준 selected prune useEffect 추가(숨겨진 선택 행 무음 누락 해소) ③ index.css `.sd-btn:focus-visible`/`.sd-sidebar-link:focus-visible` 포커스 링(+링크 display:block·radius 8, aside가 flex column이라 레이아웃 무변화). tsc+build EXIT 0. 결정 메모: ②는 카운트 보정 대신 prune 채택(표시=처리 일치가 더 예측 가능).
+- 2026-06-10 A-2: UI 약속 정리 — ① NotificationSettings를 채널 현황 안내 2카드(인앱=동작·이메일=준비 중 Badge)로 재작성. 결정 메모: notification_config 토글 7종 전부 소비자 0(시스템·마감일·피드백 토글 포함)이라 부분 배지 대신 전체 안내형 채택, 저장 로직 제거(DB 데이터는 무변경, 재개 시 git 이력 참조) ② Reminders/NoticesFaq 발송 채널 `['inApp']`로, 토스트에서 "건너뜀(이메일 미설정)" 제거 ③ HrSettingsPage 4탭→2탭(알림·고급), 일반·권한역할 placeholder 탭 삭제(평가기간·사용자 관리 링크는 사이드바와 중복 확인), 부제 "알림·시스템 관리" ④ Login SSO 문구 제거. tsc+build EXIT 0.

@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NotificationSettings } from '@/components/Settings/NotificationSettings';
@@ -15,7 +13,6 @@ import { downloadEvaluatorQnaLogsWorkbook } from '@/utils/hrDataExport';
 const DANGER_ZONE_ENABLED = import.meta.env.VITE_ENABLE_DANGER_ZONE === 'true';
 
 const HrSettingsPage = () => {
-  const navigate = useNavigate();
   const { reload } = useAllEmployees();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -105,79 +102,23 @@ const HrSettingsPage = () => {
 
   return (
     <>
-      <PageHeader title="시스템 설정" subtitle="전사 공통 설정" />
+      <PageHeader title="시스템 설정" subtitle="알림·시스템 관리" />
 
       <div className="flex flex-col gap-6" style={{ padding: '24px 32px 32px' }}>
-        <Tabs defaultValue="general" className="space-y-6">
+        <Tabs defaultValue="notifications" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="general">일반</TabsTrigger>
             <TabsTrigger value="notifications">알림</TabsTrigger>
-            <TabsTrigger value="permissions">권한·역할</TabsTrigger>
             <TabsTrigger value="advanced">고급/시스템</TabsTrigger>
           </TabsList>
 
-          {/* 일반 — 전사 공통 설정 홈 + 평가기간 관리 진입 */}
-          <TabsContent value="general" className="space-y-6">
-            <section className="sd-card sd-card-lg">
-              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 12 }}>전사 공통 설정</h3>
-              <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-                전사 공통값(<b>평가척도·기본 라운드 정책</b> 등)은 추후 이 탭에 추가됩니다.
-                개별 평가기간(라운드)의 생성·활성화·마감은 <b>평가기간 관리</b>에서 처리합니다.
-              </p>
-            </section>
+          {/* 일반·권한역할 탭은 placeholder("추후 추가/준비 중")라 제거 — 평가기간·사용자 관리는 사이드바 메뉴와 중복.
+              권한역할 UI는 서버 인증(Phase S) 도입 후 실제 역할 관리 화면으로 부활 예정. */}
 
-            <section className="sd-card sd-card-lg">
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 16,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>평가기간 관리</div>
-                  <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-                    평가기간(라운드)의 생성·활성화·마감과 활성 평가기간 현황을 확인·관리합니다.
-                  </div>
-                </div>
-                <button
-                  className="sd-btn sd-btn-outline sd-btn-sm"
-                  onClick={() => navigate('/hr/periods')}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-                >
-                  평가기간 관리
-                  <ArrowRight size={14} />
-                </button>
-              </div>
-            </section>
-          </TabsContent>
-
-          {/* 알림 — 알림 설정 (변경 없음) */}
+          {/* 알림 — 알림 채널 현황 안내 */}
           <TabsContent value="notifications" className="space-y-6">
             <section className="sd-card sd-card-lg">
               <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
               <NotificationSettings embedded />
-            </section>
-          </TabsContent>
-
-          {/* 권한·역할 — 사용자 관리 안내 placeholder */}
-          <TabsContent value="permissions" className="space-y-6">
-            <section className="sd-card sd-card-lg">
-              <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 12 }}>권한·역할</h3>
-              <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.6, marginBottom: 18 }}>
-                역할·권한 체계 통합 관리 화면은 준비 중입니다.
-                현재 사용자별 역할(<b>HR·평가자</b>)은 <b>사용자 관리</b>에서 부여/회수합니다.
-              </p>
-              <button
-                className="sd-btn sd-btn-outline sd-btn-sm"
-                onClick={() => navigate('/hr/users')}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                사용자 관리
-                <ArrowRight size={14} />
-              </button>
             </section>
           </TabsContent>
 

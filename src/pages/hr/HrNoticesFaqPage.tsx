@@ -345,14 +345,12 @@ const HrNoticesFaqPage = () => {
         is_read: false,
       }));
 
-      const channels: NotificationChannel[] = ['inApp', 'email'];
+      // 이메일 채널은 보류(백엔드 미구현) — 동작하는 인앱만 발송한다.
+      const channels: NotificationChannel[] = ['inApp'];
       const results = await dispatchNotifications(payloads, channels);
 
-      // inApp 채널 기준으로 수신자별 성패 집계(email 은 skipped 고정).
-      const inApp = results.filter((r) => r.channel === 'inApp');
-      const sent = inApp.filter((r) => r.outcome === 'sent');
-      const failed = inApp.filter((r) => r.outcome === 'failed');
-      const skipped = results.filter((r) => r.channel === 'email').length;
+      const sent = results.filter((r) => r.outcome === 'sent');
+      const failed = results.filter((r) => r.outcome === 'failed');
 
       const nameOf = (recipientId: string) =>
         targets.find((t) => t.id === recipientId)?.name ?? recipientId;
@@ -364,7 +362,7 @@ const HrNoticesFaqPage = () => {
 
       toast({
         title: '공지 발송 결과',
-        description: `성공 ${sent.length} · 건너뜀(이메일 미설정) ${skipped} · 실패 ${failed.length}.${failDetail}`,
+        description: `성공 ${sent.length} · 실패 ${failed.length}.${failDetail}`,
         variant: failed.length > 0 ? 'destructive' : undefined,
       });
 

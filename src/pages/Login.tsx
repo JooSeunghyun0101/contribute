@@ -211,9 +211,6 @@ const Login = () => {
           >
             {isLoading ? '로그인 중…' : '로그인'} <IconArrowRight size={16} />
           </button>
-          <div style={{ fontSize: 'var(--fs-xs)', color: textSubtle, textAlign: 'center', marginTop: 6 }}>
-            SSO · OK금융그룹 통합인증
-          </div>
         </form>
 
         <div

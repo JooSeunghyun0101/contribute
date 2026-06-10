@@ -1,14 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { settingService as settingsService } from '@/lib/services';
-import { X, Save, Bell } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { X, Bell, Mail } from 'lucide-react';
 
 interface NotificationSettingsProps {
   onClose?: () => void;
@@ -16,117 +11,17 @@ interface NotificationSettingsProps {
   embedded?: boolean;
 }
 
-interface NotificationConfig {
-  emailNotifications: boolean;
-  systemNotifications: boolean;
-  evaluationDeadline: boolean;
-  feedbackReminder: boolean;
-  weeklyReport: boolean;
-  deadlineWarningDays: number;
-  reminderFrequency: number;
-}
-
+// 알림은 현재 인앱(벨) 채널만 동작한다. 이메일 발송과 수신 세부 설정(주기·마감 사전알림 등)은
+// 백엔드 미구현(보류)이며, 과거의 notification_config 토글들은 어떤 코드도 소비하지 않는 장식이었다.
+// 동작하지 않는 설정을 노출하지 않고 채널 현황만 안내한다. (이메일 재개 시 git 이력의 구버전 참조)
 export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onClose, embedded }) => {
-  const { toast } = useToast();
-  const { user } = useAuth();
-  
-  const defaultConfig: NotificationConfig = {
-    emailNotifications: true,
-    systemNotifications: true,
-    evaluationDeadline: true,
-    feedbackReminder: true,
-    weeklyReport: false,
-    deadlineWarningDays: 3,
-    reminderFrequency: 7
-  };
-  
-  const [config, setConfig] = useState<NotificationConfig>(defaultConfig);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // 컴포넌트 마운트 시 DB에서 설정 로드
-  useEffect(() => {
-    const loadConfig = async () => {
-      if (!user) return;
-
-      try {
-        const setting = await settingsService.getUserSetting(user.employeeId, 'notification_config');
-        
-        if (setting && setting.setting_data) {
-          setConfig(setting.setting_data);
-        } else {
-          console.log('📝 기본 알림 설정 사용');
-        }
-      } catch (error) {
-        console.error('❌ 알림 설정 로딩 실패:', error);
-        // 에러 발생 시 기본 설정 사용
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadConfig();
-  }, [user]);
-
-  const handleConfigChange = (key: keyof NotificationConfig, value: boolean | number) => {
-    setConfig(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
-
-  const handleSave = async () => {
-    if (!user) return;
-
-    try {
-      
-      await settingsService.saveSetting(user.employeeId, 'notification_config', config);
-      
-      toast({
-        title: "알림 설정 저장 완료",
-        description: "알림 설정이 성공적으로 저장되었습니다.",
-      });
-      
-    } catch (error) {
-      console.error('❌ 알림 설정 저장 실패:', error);
-      toast({
-        title: "저장 실패",
-        description: "알림 설정 저장 중 오류가 발생했습니다.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        {!embedded && (
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold">알림 설정</h2>
-              <p className="text-muted-foreground">데이터를 로딩 중입니다...</p>
-            </div>
-            <Button variant="outline" onClick={onClose}>
-              <X className="mr-2 h-4 w-4" />
-              닫기
-            </Button>
-          </div>
-        )}
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">로딩 중...</div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {!embedded && (
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold">알림 설정</h2>
-            <p className="text-muted-foreground">시스템 알림 및 마감일 설정을 관리하세요</p>
+            <p className="text-muted-foreground">알림 채널 현황을 안내합니다</p>
           </div>
           <Button variant="outline" onClick={onClose}>
             <X className="mr-2 h-4 w-4" />
@@ -139,130 +34,34 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ onCl
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5" />
-            기본 알림 설정
+            시스템 내 알림
           </CardTitle>
-          <CardDescription>전체적인 알림 활성화/비활성화를 설정합니다</CardDescription>
+          <CardDescription>
+            리마인드·공지·재검토 요청 등 모든 알림은 화면 상단의 종 아이콘으로 전달됩니다.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>이메일 알림</Label>
-              <p className="text-sm text-muted-foreground">
-                중요한 알림을 이메일로 받습니다
-              </p>
-            </div>
-            <Switch
-              checked={config.emailNotifications}
-              onCheckedChange={(checked) => handleConfigChange('emailNotifications', checked)}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>시스템 알림</Label>
-              <p className="text-sm text-muted-foreground">
-                브라우저 내 팝업 알림을 받습니다
-              </p>
-            </div>
-            <Switch
-              checked={config.systemNotifications}
-              onCheckedChange={(checked) => handleConfigChange('systemNotifications', checked)}
-            />
-          </div>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            별도 설정 없이 항상 수신됩니다. 새 알림은 로그인 후 상단 알림에서 확인하세요.
+          </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>평가 관련 알림</CardTitle>
-          <CardDescription>평가 프로세스와 관련된 알림을 설정합니다</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            이메일 알림
+            <Badge variant="secondary">준비 중</Badge>
+          </CardTitle>
+          <CardDescription>이메일 채널과 수신 주기 등 세부 설정은 추후 제공 예정입니다.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>평가 마감일 알림</Label>
-              <p className="text-sm text-muted-foreground">
-                평가 마감일이 다가올 때 알림을 받습니다
-              </p>
-            </div>
-            <Switch
-              checked={config.evaluationDeadline}
-              onCheckedChange={(checked) => handleConfigChange('evaluationDeadline', checked)}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>피드백 작성 알림</Label>
-              <p className="text-sm text-muted-foreground">
-                피드백 작성이 필요할 때 알림을 받습니다
-              </p>
-            </div>
-            <Switch
-              checked={config.feedbackReminder}
-              onCheckedChange={(checked) => handleConfigChange('feedbackReminder', checked)}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>주간 보고서</Label>
-              <p className="text-sm text-muted-foreground">
-                주간 평가 진행 현황 보고서를 받습니다
-              </p>
-            </div>
-            <Switch
-              checked={config.weeklyReport}
-              onCheckedChange={(checked) => handleConfigChange('weeklyReport', checked)}
-            />
-          </div>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            이메일 발송 기능이 연결되면 이 화면에서 수신 여부와 주기를 설정할 수 있습니다.
+          </p>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>알림 타이밍 설정</CardTitle>
-          <CardDescription>알림이 발송되는 시점을 조정합니다</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>마감일 사전 알림 (일)</Label>
-            <Input
-              type="number"
-              min="1"
-              max="30"
-              value={config.deadlineWarningDays}
-              onChange={(e) => handleConfigChange('deadlineWarningDays', parseInt(e.target.value) || 1)}
-              className="w-32"
-            />
-            <p className="text-sm text-muted-foreground">
-              마감일 {config.deadlineWarningDays}일 전에 알림을 받습니다
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>리마인더 주기 (일)</Label>
-            <Input
-              type="number"
-              min="1"
-              max="30"
-              value={config.reminderFrequency}
-              onChange={(e) => handleConfigChange('reminderFrequency', parseInt(e.target.value) || 1)}
-              className="w-32"
-            />
-            <p className="text-sm text-muted-foreground">
-              {config.reminderFrequency}일마다 미완료 항목에 대한 리마인더를 받습니다
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button onClick={handleSave}>
-          <Save className="mr-2 h-4 w-4" />
-          설정 저장
-        </Button>
-      </div>
     </div>
   );
 };
