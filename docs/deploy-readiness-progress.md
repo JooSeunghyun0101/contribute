@@ -114,7 +114,7 @@
 - [x] **C-3** 손제작 div 모달 → shadcn Dialog 마이그레이션 (묶음 — 서브스텝 분해): HrMatchingPage 재배정 모달(:805,:1062), hr/AddEmployeeModal, hr/EvaluatorHistoryModal, hr/UploadPreviewModal, HrDepartmentsPage:809, HrJobRoleBenchmarkPage:582, hr/Home:590, AiSummaryReportModal, NotificationBell 등 10곳 — focus trap·ESC·aria 확보. 네이티브 `<select>` 11곳 → shadcn Select 통일도 이 주기에 포함(만나는 파일이 겹침).
   - [x] **C-3a** 공용 `Modal` 래퍼(shadcn Dialog 기반, focus trap·ESC·role=dialog 내장) 또는 직접 Dialog 적용 패턴 확립 + AddEmployeeModal(단순·독립) 마이그레이션 후 검증.
   - [x] **C-3b** 독립 모달 컴포넌트 마이그레이션(UploadPreviewModal). **결정 메모**: 페이지 내장 모달(HrMatchingPage·HrDepartments·hr/Home·HrJobRoleBenchmark 거대 파일 내부)·AiSummaryReportModal·NotificationBell·EvaluatorHistoryModal·native select 11곳은 tsc/build로 시각·상호작용 회귀를 못 잡는 UI 작업이라 자동 루프 부적합 → **점진(해당 페이지 개편 동반) 보류**. 패턴은 C-3a/b로 확립됨.
-- [ ] **C-4** ErrorBoundary: 루트 + 라우트 단위(재시도 버튼 포함) — 렌더 예외 1건 백화면 방지.
+- [x] **C-4** ErrorBoundary: 루트 + 라우트 단위(재시도 버튼 포함) — 렌더 예외 1건 백화면 방지.
 
 ## Phase D — 성능·데이터·알림 (1,000명 규모 대비)
 
@@ -190,3 +190,4 @@
 - 2026-06-10 C-2b/c: 대량 렌더 방지 — HrIndividualFeedbackPage 좌측 전직원 명단(~735 버튼 무제한 map)에 표시 상한 PICKER_LIMIT=100 + 초과 시 "검색으로 좁혀주세요" 안내(검색·조직필터 기존). **계획 재정의 결정 메모**: raw table 8곳 shadcn 전면 치환은 회귀 위험 대비 순수 일관성이라 보류 강등(보류 섹션 2건 추가). HrMatching=이미 shadcn·위반행만, AiReview/Duplicate=selected/배치상태 얽힘으로 실데이터 체감 시 처리. **C-2 전체 완료**(C-2a 오류상태 + C-2b 핵심 대량렌더). tsc+build EXIT 0.
 - 2026-06-10 C-3a: 모달 마이그레이션 패턴 확립 — shadcn Dialog 직접 적용(별도 래퍼 불필요: DialogContent에 focus trap·ESC·role=dialog·바깥클릭·우상단 X 내장). AddEmployeeModal(독립·단순) 손제작 오버레이(rgba div+stopPropagation+커스텀 닫기) → `<Dialog open onOpenChange>` + DialogContent(sm:max-w-[560px]) + DialogHeader/Title + DialogFooter. 폼 내용·sd-input·EvaluatorPicker 유지, isSaving 중 닫기 가드. **접근성 확보**(키보드 포커스 가둠·ESC). 결정 메모: 공용 래퍼 대신 Dialog 직접 사용(이미 충분한 추상화), native select는 C-3b에서 shadcn Select와 함께. typo 자가수정(키릴 Ф). tsc+build EXIT 0.
 - 2026-06-10 C-3b: UploadPreviewModal(독립) 손제작 오버레이 → Dialog/DialogContent(flex column·스크롤 테이블 유지)+DialogHeader/Title/Description, isApplying 중 닫기 가드. 본문 raw table은 C-2b 보류라 유지. **결정 메모**: 페이지 내장 모달·native select 11곳은 시각/상호작용 회귀를 tsc·build가 못 잡는 UI 작업 → 자동 루프 부적합, 점진 보류(보류 섹션 기록). 독립 모달 2곳(AddEmployee·UploadPreview)으로 패턴 시연 완료. **C-3 종결**(독립 모달 처리 + 나머지 점진). tsc+build EXIT 0.
+- 2026-06-10 C-4: 신규 `src/components/ErrorBoundary.tsx`(클래스, getDerivedStateFromError+componentDidCatch, ErrorState fallback 재사용+다시시도, resetKey 변경 시 자동 해제). App 2층 적용 — 루트(전체 트리, 최후 방어선) + AppShell 라우트 단위(`resetKey={location.pathname}` → 다른 메뉴 이동 시 페이지 에러 자동 복구, 한 페이지 예외가 헤더·사이드바까지 안 날림). **렌더 예외 백화면 방지**. tsc+build EXIT 0. **Phase C(공통 컴포넌트) 전체 완료.**

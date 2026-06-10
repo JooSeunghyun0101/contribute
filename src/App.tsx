@@ -3,7 +3,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EvaluationMatrixProvider } from "@/contexts/EvaluationMatrixContext";
 import { ExpectationProvider } from "@/contexts/ExpectationContext";
@@ -57,18 +58,25 @@ const RoleRedirect = () => {
   return <Navigate to="/my" replace />;
 };
 
-const AppShell = () => (
-  <ProtectedRoute>
-    <EvaluationPeriodProvider>
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
-    </EvaluationPeriodProvider>
-  </ProtectedRoute>
-);
+const AppShell = () => {
+  // 라우트가 바뀌면 페이지 에러를 자동 해제 — 다른 메뉴로 이동하면 복구된다.
+  const location = useLocation();
+  return (
+    <ProtectedRoute>
+      <EvaluationPeriodProvider>
+        <AppLayout>
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
+        </AppLayout>
+      </EvaluationPeriodProvider>
+    </ProtectedRoute>
+  );
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    <ErrorBoundary>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -332,6 +340,7 @@ const App = () => (
       </AuthProvider>
       </ConfirmDialogProvider>
     </TooltipProvider>
+    </ErrorBoundary>
   </QueryClientProvider>
 );
 
