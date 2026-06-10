@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:server": "nodemon server.js",
     "start:server": "node server.js",
+    "typecheck": "tsc --noEmit",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",

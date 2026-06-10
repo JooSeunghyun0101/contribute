@@ -23,8 +23,9 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
-      "@typescript-eslint/no-unused-vars": "off",
-      "@typescript-eslint/no-explicit-any": "off",
+      // 점진 정리 기반: 에러가 아닌 경고로 켜 빌드·CI를 막지 않으면서 신규 코드의 any·미사용을 드러낸다.
+      "@typescript-eslint/no-unused-vars": "warn",
+      "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-empty-object-type": "off",
       "no-require-imports": "off",
     },
