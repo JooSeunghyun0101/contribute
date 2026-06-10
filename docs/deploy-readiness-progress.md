@@ -69,10 +69,10 @@
 
 ## Phase B — AI 임시 API 전환 (사용자 결정 4 반영)
 
-- [~] **B-1** AI 호출 서버 프록시화 + GitHub Models 임시 연결 (서브스텝 분해):
+- [x] **B-1** AI 호출 서버 프록시화 + GitHub Models 임시 연결 (서브스텝 분해):
   - [x] **B-1a** server.js `POST /api/ai/chat` 프록시 + env 3종 + IP 기준 분당 레이트리밋 + 키 부재 시 503 `{ configured: false }` graceful 응답 + `.env.example` 갱신(GPT-OSS 복귀 시나리오 주석).
   - [x] **B-1b** gptOss.ts 전 호출을 `/api/ai/chat` 경유로 전환(내부 IP 하드코딩 제거, 기존 함수 시그니처 유지), 미설정 응답을 기존 skipped 경로로 매핑.
-  - [ ] **B-1c** AI 화면(AiReviewMonitoring·FeedbackDuplicateDetector·프롬프트 관리 탭)에 "임시 외부 API 사용 중 — 실데이터 검수 자제" 주의 캡션 표시(서버 설정 상태 기반).
+  - [x] **B-1c** AI 화면(AiReviewMonitoring·FeedbackDuplicateDetector·프롬프트 관리 탭)에 "임시 외부 API 사용 중 — 실데이터 검수 자제" 주의 캡션 표시(서버 설정 상태 기반).
   - server.js에 `POST /api/ai/chat` 프록시 신설. env 3종: `AI_BASE_URL`(기본 `https://models.github.ai/inference`), `AI_API_KEY`, `AI_MODEL`(기본 `openai/gpt-4.1-mini`). OpenAI 호환 chat/completions 형식 그대로 중계.
   - `src/lib/gptOss.ts:229`의 IP 하드코딩(`http://172.17.170.201:8000`) 제거 → 모든 AI 호출(피드백 추천·검수·유사도·QnA·요약)을 `/api/ai/chat` 경유로 전환. 기존 함수 시그니처 유지(호출부 무변경 목표).
   - **내부망 이식 시 `.env`에서 `AI_BASE_URL`만 GPT-OSS 주소로 바꾸면 복귀** — 이 전환 시나리오를 `.env.example` 주석으로 명시.
@@ -168,3 +168,4 @@
 - 2026-06-10 A-3: 부팅·자산 정리 — ① main.tsx 가짜 testSupabaseConnection 제거(connectionTest.ts 모듈 자체는 F-2 스윕에서 삭제 예정) ② Pretendard를 dynamic-subset CDN @import → `public/fonts/PretendardVariable.woff2`(1.96MB, 가변 단일 파일, SIL OFL) 자체 호스팅 @font-face로 교체. 결정 메모: 서브셋 수천 파일 대신 단일 가변 woff2 채택(내부망 단순성 우선), jsdelivr 모노레포 경로는 `packages/pretendard/...`였음. dist/fonts 복사 확인. tsc+build EXIT 0.
 - 2026-06-10 B-1a: server.js에 AI 프록시 구획 신설 — `GET /api/ai/status`(configured/external/model, 키 비노출) + `POST /api/ai/chat`(메시지 검증·모델 서버 강제·temperature/max_tokens만 통과·60s 타임아웃·업스트림 에러 본문 로그만). env: AI_BASE_URL(기본 GitHub Models)/AI_API_KEY/AI_MODEL(기본 openai/gpt-4.1-mini), 명시적 AI_BASE_URL=키 불필요(GPT-OSS 복귀 경로). IP별 분당 20회 레이트리밋(+5분 주기 버킷 청소, 인증 후 세션 주체로 교체 예정). **스모크: status configured=true(사용자가 키 기입력 확인) → chat 엔드투엔드 `1+1=2` 응답 OK(gpt-4.1-mini-2025-04-14)**. node --check·tsc·build EXIT 0.
 - 2026-06-10 B-1b: gptOss.ts `callGptOss`를 `/api/ai/chat` 경유로 전환 — 직접 호출 지점은 1곳뿐(grep 확인), 내부 IP·모델명 상수 제거(클라이언트에 주소·키·모델 0), 503→"AI 미설정" / 429→"잠시 제한" 한국어 에러 매핑(검수 래퍼들은 catch→skipped 기존 경로). 함수 시그니처·응답 파싱(OpenAI 호환 choices) 무변경, src 전체 `172.17.` 잔존 0. tsc+build EXIT 0.
+- 2026-06-10 B-1c(+긴급 수습): ① **사용자 편집으로 `.env.example`(추적 파일)에 실키 유입 발견 → 커밋 전 placeholder로 원복**(키는 git 이력 미유입 확인, `.env`에는 보존). ⚠ 키가 평문 파일·세션에 노출됐으므로 **PAT 회전(재발급) 권장** ② `.env` 값이 따옴표로 감싸져 수제 파서가 그대로 읽던 문제 → server.js 파서에 따옴표 벗기기(dotenv 호환) 추가 ③ 사용자가 지정한 `openai/gpt-5-nano`는 업스트림 `unavailable_model` 거부 → **결정 메모: 동작 우선으로 `.env`만 `openai/gpt-4.1-mini` 복원**(재시도는 .env 한 줄), 재스모크 CHAT_OK ④ B-1c 본작업: gptOss `fetchAiStatus`(세션 캐시) + HrPromptsPage 상단 상태 배너 — external=주의(원문 외부 전송·이식 후 자동 소멸), 미설정=안내(휴리스틱은 AI 없이 동작). tsc+build EXIT 0. **B-1 전체 완료.**

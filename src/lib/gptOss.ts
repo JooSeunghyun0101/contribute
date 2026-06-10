@@ -229,6 +229,27 @@ export function deletePrompt(key: string): Promise<{ ok: true; deleted_key: stri
 // 서버 .env(AI_BASE_URL/AI_API_KEY/AI_MODEL)가 관리한다. 클라이언트에는 주소·키·모델명이 없다.
 const AI_CHAT_URL = '/api/ai/chat';
 
+export interface AiStatus {
+  configured: boolean;
+  /** true = 외부 API(GitHub Models 등) — 내부망 GPT-OSS 이식 후 false. 주의 캡션 노출 기준. */
+  external: boolean;
+  model: string;
+}
+
+// 세션당 1회만 조회(설정은 서버 재시작 전엔 불변). 실패 시 미설정으로 간주.
+let aiStatusCache: Promise<AiStatus> | null = null;
+export function fetchAiStatus(): Promise<AiStatus> {
+  if (!aiStatusCache) {
+    aiStatusCache = fetch('/api/ai/status')
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json() as Promise<AiStatus>;
+      })
+      .catch(() => ({ configured: false, external: false, model: '' }));
+  }
+  return aiStatusCache;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;

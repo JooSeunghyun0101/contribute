@@ -17,7 +17,15 @@ if (fs.existsSync(envPath)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return;
     const [key, ...rest] = trimmed.split('=');
-    process.env[key] = rest.join('=');
+    let value = rest.join('=').trim();
+    // .env 값의 둘러싼 따옴표 허용(dotenv 호환) — 수제 파서라 직접 벗긴다.
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key.trim()] = value;
   });
 }
 
