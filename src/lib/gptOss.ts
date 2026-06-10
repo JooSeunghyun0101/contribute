@@ -225,8 +225,9 @@ export function deletePrompt(key: string): Promise<{ ok: true; deleted_key: stri
     });
 }
 
-// GPT‑OSS API 설정 (인증 없이 로컬 엔드포인트)
-const GPT_OSS_URL = `http://172.17.170.201:8000/v1/chat/completions`;
+// AI 호출은 서버 프록시(/api/ai/chat) 경유 — 모델·키·레이트리밋·업스트림(GitHub Models↔GPT-OSS) 전환은
+// 서버 .env(AI_BASE_URL/AI_API_KEY/AI_MODEL)가 관리한다. 클라이언트에는 주소·키·모델명이 없다.
+const AI_CHAT_URL = '/api/ai/chat';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -252,27 +253,33 @@ async function callGptOss(
 
   try {
 
-    const response = await fetch(GPT_OSS_URL, {
+    const response = await fetch(AI_CHAT_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'gpt-oss-120b',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
+    // 503(미설정)·429(레이트리밋)는 사용자에게 그대로 보여줄 수 있는 문구로 변환.
+    // 검수 래퍼들은 이 throw 를 catch 해 기존 skipped 경로로 처리한다.
+    if (response.status === 503) {
+      throw new Error('AI 기능이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.');
+    }
+    if (response.status === 429) {
+      throw new Error('AI 호출이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.');
+    }
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`GPT‑OSS 오류: ${response.status} - ${errorText}`);
+      throw new Error(`AI 오류: ${response.status}`);
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message.content;
     if (!content) {
-      throw new Error('GPT‑OSS 응답에서 텍스트를 찾을 수 없습니다');
+      throw new Error('AI 응답에서 텍스트를 찾을 수 없습니다');
     }
 
     // 보고서 등 긴 응답은 절단하지 않는다.
