@@ -289,8 +289,8 @@ const HrHome = () => {
   return (
     <>
       <PageHeader
-        title="HR 관리자 대시보드"
-        subtitle="2026 연간 기여도 평가 · 전사 현황"
+        title="전사 현황"
+        subtitle="HR 관리자 · 2026 연간 기여도 평가"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button

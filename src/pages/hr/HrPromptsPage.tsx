@@ -22,7 +22,7 @@ const HrPromptsPage = () => {
   return (
     <>
       <PageHeader
-        title="AI 품질 · 검수"
+        title="AI 품질·검수"
         subtitle="평가의견 품질 검수 모니터링, 복붙(중복) 탐지, AI 프롬프트 관리"
       />
 
