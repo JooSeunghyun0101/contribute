@@ -54,7 +54,7 @@
 
 ## Phase A — 즉효 수정 묶음 (S 규모, 결정 불필요 — 체감 완성도 즉시 상승)
 
-- [ ] **A-1** 버그 3종 일괄 수정 (묶음):
+- [x] **A-1** 버그 3종 일괄 수정 (묶음):
   - ① 수정요청 취소 버그 — `src/pages/my/EvaluationAccordionCard.tsx:248` `window.prompt(...) ?? ''` 가 취소(null)를 ''로 바꿔 **취소해도 발송됨** → `?? ''` 제거, null이면 return.
   - ② AI 검수 stale 선택 — `src/components/Feedback/AiReviewMonitoring.tsx:152,348,600` 필터 변경 시 selected Set 미정리 → `useEffect`로 visibleRows 기준 prune(또는 카운트를 `visibleRows ∩ selected`로).
   - ③ 키보드 포커스 링 — `src/index.css` `.sd-btn:focus-visible { box-shadow: var(--sh-focus) }` + 사이드바 NavLink 동일 처리(`--sh-focus` 토큰 :98에 이미 존재).
@@ -160,3 +160,4 @@
 - 2026-06-10 트래커 생성 — 전수 검수 보고서 + 브랜치 구체화 플랜 통합, 사용자 결정 4건(이메일 보류·모바일 제외·기능 묶음·AI 임시 GitHub Models) 반영.
 - 2026-06-10 게이트 일괄 해소(사용자 답변): **G-1=자체 비밀번호+httpOnly 쿠키 세션 / G-2=오렌지 역할 분리(#F55000 강조·#B45309 텍스트) / B-0=키는 사용자가 .env에 직접 입력(루프는 graceful 처리로 무대기 진행)**. 루프 계약을 무정지 모드로 전환 — 잔여 모호함은 보수적 기본값+`결정 메모:` 로그로 진행, 파괴적 작업만 예외 정지.
 - 2026-06-10 P0-1: 브랜치 `feat/hr-admin-enhancement` 확인, 작업트리 clean(신규 파일=본 트래커뿐), 기준선 `npx tsc --noEmit` EXIT 0. 루프 시작.
+- 2026-06-10 A-1: 버그 3종 일괄 수정 — ① EvaluationAccordionCard `?? ''` 제거(취소가 발송되던 버그) ② AiReviewMonitoring visibleRows 기준 selected prune useEffect 추가(숨겨진 선택 행 무음 누락 해소) ③ index.css `.sd-btn:focus-visible`/`.sd-sidebar-link:focus-visible` 포커스 링(+링크 display:block·radius 8, aside가 flex column이라 레이아웃 무변화). tsc+build EXIT 0. 결정 메모: ②는 카운트 보정 대신 prune 채택(표시=처리 일치가 더 예측 가능).

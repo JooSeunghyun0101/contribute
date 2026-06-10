@@ -318,6 +318,14 @@
   .sd-btn-sm { padding: 6px 12px; font-size: var(--fs-sm); }
   .sd-btn-xs { padding: 4px 10px; font-size: var(--fs-xs); }
 
+  /* 키보드 접근성: 버튼·사이드바 링크 포커스 링 (입력은 .sd-input:focus에서 처리) */
+  .sd-sidebar-link { display: block; border-radius: 8px; }
+  .sd-btn:focus-visible,
+  .sd-sidebar-link:focus-visible {
+    outline: none;
+    box-shadow: var(--sh-focus);
+  }
+
   .sd-chip {
     display: inline-flex;
     align-items: center;

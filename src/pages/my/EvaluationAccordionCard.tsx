@@ -245,8 +245,8 @@ const EvaluationAccordionCard = ({
 
   const handleRequestReturn = async () => {
     if (!evaluationData?.id) return;
-    const reason = window.prompt('수정이 필요한 사유를 입력해 주세요. (선택)') ?? '';
-    if (reason === null) return;
+    const reason = window.prompt('수정이 필요한 사유를 입력해 주세요. (선택)');
+    if (reason === null) return; // 취소 시 발송 중단 (?? ''가 null을 삼키면 취소가 무시된다)
     setIsRequestingReturn(true);
     try {
       await evaluationService.requestReturn(evaluationData.id, {

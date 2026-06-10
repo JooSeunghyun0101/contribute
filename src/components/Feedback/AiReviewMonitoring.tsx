@@ -259,6 +259,16 @@ export const AiReviewMonitoring = () => {
     });
   }, [rows, filter, evaluatorFilter, aiResults]);
 
+  // 필터로 숨겨진 행이 selected에 잔존하면 "선택 N건"과 배치 처리 건수가 어긋난다 — 보이는 행으로 한정
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const visibleKeys = new Set(visibleRows.map((r) => r.key));
+      const next = new Set(Array.from(prev).filter((key) => visibleKeys.has(key)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleRows]);
+
   // ── 요약 통계 (로드 시 휴리스틱만 집계, AI는 호출된 것만) ──
   const summary = useMemo(() => {
     let shortCount = 0;
