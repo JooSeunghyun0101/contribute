@@ -114,8 +114,20 @@ const MyTasksPage = () => {
             const isCurrent = Boolean(
               ev.evaluator_id && employeeEvaluatorId && ev.evaluator_id === employeeEvaluatorId,
             );
-            const periodLabel = ev.evaluator_id
-              ? formatEvaluatorPeriod(scopedPeriods.get(ev.evaluator_id))
+            const rawPeriod = ev.evaluator_id ? scopedPeriods.get(ev.evaluator_id) : null;
+            // 마감/잠금된 평가기간은 마지막 평가자도 '현재(진행중)'가 아니라 기간 종료일로 끝낸다.
+            // (buildEvaluatorPeriods는 마지막 구간을 end=null로 두는데, 이는 활성기간에서만 '~현재'가 맞다.)
+            const closedPeriodEnd =
+              selectedPeriod &&
+              (selectedPeriod.status === 'closed' || selectedPeriod.status === 'locked')
+                ? selectedPeriod.ends_on ?? null
+                : null;
+            const periodLabel = rawPeriod
+              ? formatEvaluatorPeriod(
+                  rawPeriod.end === null && closedPeriodEnd
+                    ? { start: rawPeriod.start, end: closedPeriodEnd }
+                    : rawPeriod,
+                )
               : null;
             return (
               <EvaluationAccordionCard
