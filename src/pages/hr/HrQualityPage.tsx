@@ -7,6 +7,7 @@ import { useCompanyDashboardRecords, usePriorYearRecords } from '@/hooks/useDash
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { useReason } from '@/components/ui/confirm-dialog';
 import { evaluationService } from '@/lib/services';
 import OrgFilterBar from '@/components/hr/OrgFilterBar';
 import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
@@ -1916,6 +1917,7 @@ const DrilldownPanel = ({
 }) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const askReason = useReason();
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   // 이미 로드된 표본만 사용(추가 조회 없음). 갭 큰(미달) 순으로 정렬해 점검 우선순위 노출.
@@ -1934,9 +1936,13 @@ const DrilldownPanel = ({
       toast({ title: '재검토 요청 불가', description: '요청자 정보를 확인할 수 없습니다.', variant: 'destructive' });
       return;
     }
-    const reason = window.prompt(
-      `${sample.record.employee.name} 평가에 대해 평가자에게 전달할 재검토 사유를 입력해 주세요. (선택)\n\n※ 평가 상태는 변경되지 않으며 알림만 발송됩니다.`,
-    );
+    const reason = await askReason({
+      title: `${sample.record.employee.name} 평가 재검토 요청`,
+      description:
+        '평가자에게 전달할 재검토 사유를 입력해 주세요. (선택) ※ 평가 상태는 변경되지 않으며 알림만 발송됩니다.',
+      placeholder: '재검토 사유 (선택)',
+      confirmText: '재검토 요청',
+    });
     if (reason === null) return; // 취소
     setPendingId(evaluationId);
     try {

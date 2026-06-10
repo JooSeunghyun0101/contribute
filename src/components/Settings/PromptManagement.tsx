@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Bot, Save, RefreshCw, X, Play, Loader2, Plus, Trash2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -75,6 +76,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
   const [isDeleting, setIsDeleting] = useState(false);
 
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const handleSelectPrompt = useCallback((prompt: PromptTemplate) => {
     selectedPromptKeyRef.current = prompt.key;
@@ -221,9 +223,12 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
 
   const handleDelete = async () => {
     if (!selectedPrompt) return;
-    const ok = window.confirm(
-      `프롬프트 "${selectedPrompt.key}" 를 삭제할까요?\n\n이 프롬프트를 사용하는 화면이 있다면 기본값으로 동작합니다.`,
-    );
+    const ok = await confirm({
+      title: `프롬프트 "${selectedPrompt.key}"를 삭제할까요?`,
+      description: '이 프롬프트를 사용하는 화면이 있다면 기본값으로 동작합니다.',
+      variant: 'danger',
+      confirmText: '삭제',
+    });
     if (!ok) return;
     setIsDeleting(true);
     try {

@@ -11,6 +11,7 @@ import type {
   EvaluatorChangeRequest,
 } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
   pending: '대기',
@@ -95,6 +96,7 @@ const buildSegments = (history: EvaluatorAssignmentHistory[]): Segment[] => {
 const EvaluatorRequestPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { selectedPeriodId, selectedPeriod } = useEvaluationPeriod();
 
   const isEvaluator = user?.role === 'evaluator';
@@ -266,7 +268,8 @@ const EvaluatorRequestPage = () => {
 
   const cancelRequest = async (id: string) => {
     if (!user?.employeeId) return;
-    if (!window.confirm('이 변경요청을 취소할까요?')) return;
+    const ok = await confirm({ title: '이 변경요청을 취소할까요?', confirmText: '변경요청 취소' });
+    if (!ok) return;
     try {
       await changeRequestService.cancel(id, user.employeeId);
       toast({ title: '변경요청이 취소되었습니다.' });

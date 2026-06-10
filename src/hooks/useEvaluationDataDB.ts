@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -189,6 +190,7 @@ export const useEvaluationDataDB = (
   const selectedPeriodStatus = selectedPeriod?.status;
   const selectedPeriodYear = selectedPeriod?.evaluation_year;
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { addNotification } = useNotifications();
   const currentEvaluatorId = getEvaluatorIdentity(user);
   const draftStorageKey = getDraftStorageKey(
@@ -996,14 +998,14 @@ export const useEvaluationDataDB = (
 
 
       if (duplicateWarnings.length > 0) {
-        const shouldContinue = window.confirm(
-          `⚠️ 성의없는 피드백이 감지되었습니다:\n\n${duplicateWarnings.join('\n\n')}\n\n계속 저장하시겠습니까?`
-        );
-        
+        const shouldContinue = await confirm({
+          title: '성의 없는 피드백이 감지되었습니다',
+          description: `${duplicateWarnings.join(' / ')}\n\n계속 저장하시겠습니까?`,
+          confirmText: '계속 저장',
+        });
+
         if (!shouldContinue) {
           return false;
-        } else {
-          console.log('✅ 사용자가 경고 무시하고 저장 진행');
         }
       } else {
         console.log('✅ 중복 피드백 없음 - 저장 진행');

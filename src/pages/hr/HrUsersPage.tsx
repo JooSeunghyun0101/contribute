@@ -12,6 +12,7 @@ import {
   downloadMatchingUploadWorkbook,
 } from '@/utils/hrDataExport';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -312,6 +313,7 @@ const HrUsersPage = () => {
   const [pageIndex, setPageIndex] = useState(0);
   const { employees, records, isLoading, error, reload } = useAllEmployees();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { periods, selectedPeriodId } = useEvaluationPeriod();
   const actorId = user?.employeeId ?? user?.id ?? null;
@@ -579,9 +581,11 @@ const HrUsersPage = () => {
       history.previous_evaluator_id,
       history.previous_evaluator_name,
     );
-    const ok = window.confirm(
-      `${employee.name}님의 평가자 변경을 취소하고 "${previousEvaluator}"(으)로 되돌릴까요?`,
-    );
+    const ok = await confirm({
+      title: '평가자 변경 취소',
+      description: `${employee.name}님의 평가자 변경을 취소하고 "${previousEvaluator}"(으)로 되돌릴까요?`,
+      confirmText: '되돌리기',
+    });
     if (!ok) return;
 
     setHistoryActionId(history.id);
@@ -626,9 +630,11 @@ const HrUsersPage = () => {
       return;
     }
     const toEvaluator = getEvaluatorLabel(newEvaluatorId);
-    const ok = window.confirm(
-      `${employee.name}님의 평가자를 "${toEvaluator}"(으)로 변경하고 이력을 추가할까요?`,
-    );
+    const ok = await confirm({
+      title: '평가자 변경',
+      description: `${employee.name}님의 평가자를 "${toEvaluator}"(으)로 변경하고 이력을 추가할까요?`,
+      confirmText: '변경',
+    });
     if (!ok) return;
 
     setHistoryActionId('add');
@@ -677,9 +683,11 @@ const HrUsersPage = () => {
       history.new_evaluator_name,
     );
     const toEvaluator = getEvaluatorLabel(newEvaluatorId);
-    const ok = window.confirm(
-      `${employee.name}님의 평가자 변경 항목을 "${fromEvaluator}" → "${toEvaluator}"(으)로 정정할까요?\n\n원본 항목은 취소 처리되고, 정정 기록이 새로 남습니다.`,
-    );
+    const ok = await confirm({
+      title: '평가자 변경 정정',
+      description: `${employee.name}님의 평가자 변경 항목을 "${fromEvaluator}" → "${toEvaluator}"(으)로 정정할까요? 원본 항목은 취소 처리되고, 정정 기록이 새로 남습니다.`,
+      confirmText: '정정',
+    });
     if (!ok) return;
 
     setHistoryActionId(history.id);
@@ -719,9 +727,11 @@ const HrUsersPage = () => {
   ) => {
     if (nextStatus === currentStatus) return;
 
-    const ok = window.confirm(
-      `${employeeName}님의 평가 단계를 "${statusLabel(currentStatus)}"에서 "${statusLabel(nextStatus)}"(으)로 변경할까요?`,
-    );
+    const ok = await confirm({
+      title: '평가 단계 변경',
+      description: `${employeeName}님의 평가 단계를 "${statusLabel(currentStatus)}"에서 "${statusLabel(nextStatus)}"(으)로 변경할까요?`,
+      confirmText: '변경',
+    });
     if (!ok) return;
 
     setUpdatingEvaluationId(evaluationId);
@@ -780,9 +790,13 @@ const HrUsersPage = () => {
   };
 
   const handleDeleteUser = async (employee: Employee) => {
-    const ok = window.confirm(
-      `${employee.name}(${employee.employee_id}) 사용자를 삭제할까요?\n\n이 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다.\n되돌릴 수 없습니다.`,
-    );
+    const ok = await confirm({
+      title: `${employee.name}(${employee.employee_id}) 사용자를 삭제할까요?`,
+      description:
+        '이 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다. 되돌릴 수 없습니다.',
+      variant: 'danger',
+      confirmText: '삭제',
+    });
     if (!ok) return;
     setDeletingEmployeeId(employee.employee_id);
     try {
@@ -804,9 +818,13 @@ const HrUsersPage = () => {
   const handleBulkDelete = async () => {
     const ids = [...selectedIds];
     if (!ids.length) return;
-    const ok = window.confirm(
-      `선택한 ${ids.length}명의 사용자를 삭제할까요?\n\n각 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다.\n되돌릴 수 없습니다.`,
-    );
+    const ok = await confirm({
+      title: `선택한 ${ids.length}명의 사용자를 삭제할까요?`,
+      description:
+        '각 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다. 되돌릴 수 없습니다.',
+      variant: 'danger',
+      confirmText: `${ids.length}명 삭제`,
+    });
     if (!ok) return;
     setBulkActionRunning(true);
     let success = 0;
@@ -850,9 +868,11 @@ const HrUsersPage = () => {
       return;
     }
     const toLabel = getEvaluatorLabel(bulkEvaluatorId);
-    const ok = window.confirm(
-      `선택한 ${ids.length}명의 평가자를 "${toLabel}"(으)로 ${bulkChangeDate}부로 일괄 변경할까요?`,
-    );
+    const ok = await confirm({
+      title: '평가자 일괄 변경',
+      description: `선택한 ${ids.length}명의 평가자를 "${toLabel}"(으)로 ${bulkChangeDate}부로 일괄 변경할까요?`,
+      confirmText: `${ids.length}명 변경`,
+    });
     if (!ok) return;
     setBulkActionRunning(true);
     let success = 0;

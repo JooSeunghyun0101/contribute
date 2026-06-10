@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { changeRequestService } from '@/lib/services';
 import type { ChangeRequestStatus, EvaluatorChangeRequest } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
 
 const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
   pending: '대기',
@@ -37,6 +38,8 @@ type FilterKey = 'pending' | 'processed' | 'all';
 const ChangeRequestsPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const askReason = useReason();
   const [requests, setRequests] = useState<EvaluatorChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('pending');
@@ -68,12 +71,12 @@ const ChangeRequestsPage = () => {
 
   const approve = async (r: EvaluatorChangeRequest) => {
     if (!user?.employeeId) return;
-    if (
-      !window.confirm(
-        `${r.evaluatee_name ?? r.evaluatee_id}님의 평가자를 "${r.requested_evaluator_name ?? '미지정'}"(으)로 변경하고 승인할까요?`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: '평가자 변경요청 승인',
+      description: `${r.evaluatee_name ?? r.evaluatee_id}님의 평가자를 "${r.requested_evaluator_name ?? '미지정'}"(으)로 변경하고 승인할까요?`,
+      confirmText: '승인',
+    });
+    if (!ok) return;
     setActionId(r.id);
     try {
       await changeRequestService.approve(r.id, { reviewed_by: user.employeeId });
@@ -92,7 +95,13 @@ const ChangeRequestsPage = () => {
 
   const reject = async (r: EvaluatorChangeRequest) => {
     if (!user?.employeeId) return;
-    const comment = window.prompt('반려 사유를 입력하세요. (요청자에게 전달됩니다)', '');
+    const comment = await askReason({
+      title: '변경요청 반려',
+      description: '반려 사유를 입력하세요. 요청자에게 전달됩니다.',
+      placeholder: '반려 사유 (선택)',
+      variant: 'danger',
+      confirmText: '반려',
+    });
     if (comment === null) return;
     setActionId(r.id);
     try {
@@ -112,12 +121,12 @@ const ChangeRequestsPage = () => {
 
   const revert = async (r: EvaluatorChangeRequest) => {
     if (!user?.employeeId) return;
-    if (
-      !window.confirm(
-        `${r.evaluatee_name ?? r.evaluatee_id}님의 평가자 변경 승인을 취소하고 이전 평가자(${r.current_evaluator_name ?? '없음'})로 되돌릴까요?`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: '변경 승인 되돌리기',
+      description: `${r.evaluatee_name ?? r.evaluatee_id}님의 평가자 변경 승인을 취소하고 이전 평가자(${r.current_evaluator_name ?? '없음'})로 되돌릴까요?`,
+      confirmText: '되돌리기',
+    });
+    if (!ok) return;
     setActionId(r.id);
     try {
       await changeRequestService.revert(r.id, { reviewed_by: user.employeeId });

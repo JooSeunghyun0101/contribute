@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
 import { generateGrowthSuggestion, generatePerformanceReportDraft } from '@/lib/gptOss';
 import type { FeedbackHistoryItem, Task } from '@/types/evaluation';
 import {
@@ -63,6 +64,8 @@ const EvaluationAccordionCard = ({
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const askReason = useReason();
   const {
     evaluationData,
     isLoading,
@@ -245,8 +248,13 @@ const EvaluationAccordionCard = ({
 
   const handleRequestReturn = async () => {
     if (!evaluationData?.id) return;
-    const reason = window.prompt('수정이 필요한 사유를 입력해 주세요. (선택)');
-    if (reason === null) return; // 취소 시 발송 중단 (?? ''가 null을 삼키면 취소가 무시된다)
+    const reason = await askReason({
+      title: '수정 요청',
+      description: '수정이 필요한 사유를 입력해 주세요. (선택)',
+      placeholder: '수정 요청 사유 (선택)',
+      confirmText: '수정 요청',
+    });
+    if (reason === null) return; // 취소 시 발송 중단
     setIsRequestingReturn(true);
     try {
       await evaluationService.requestReturn(evaluationData.id, {
@@ -463,8 +471,13 @@ const EvaluationAccordionCard = ({
       }
     }
 
-    if (isFinal && !window.confirm('최종제출 하시겠습니까?\n제출 후에는 평가자 확인 전까지 수정할 수 없습니다.')) {
-      return;
+    if (isFinal) {
+      const ok = await confirm({
+        title: '최종제출 하시겠습니까?',
+        description: '제출 후에는 평가자 확인 전까지 수정할 수 없습니다.',
+        confirmText: '최종제출',
+      });
+      if (!ok) return;
     }
 
     setIsSaving(true);
@@ -536,9 +549,12 @@ const EvaluationAccordionCard = ({
       showTaskEditLockedToast();
       return;
     }
-    const ok = window.confirm(
-      `"${selectedTask.title || '제목 없음'}" 과업을 삭제할까요?\n삭제 후에는 복구할 수 없습니다.`,
-    );
+    const ok = await confirm({
+      title: `"${selectedTask.title || '제목 없음'}" 과업을 삭제할까요?`,
+      description: '삭제 후에는 복구할 수 없습니다.',
+      variant: 'danger',
+      confirmText: '삭제',
+    });
     if (!ok) return;
 
     setIsSaving(true);

@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
 import { employeeService, evaluationService } from '@/lib/services';
 import { generateFeedbackRecommendation } from '@/lib/gptOss';
 import { buildEvaluatorPeriods, formatEvaluatorPeriod } from '@/lib/evaluatorHistory';
@@ -140,6 +141,8 @@ const Evaluation = () => {
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
+  const confirm = useConfirm();
+  const askReason = useReason();
   const [searchParams] = useSearchParams();
   const overrideEvaluationId = searchParams.get('evaluationId');
 
@@ -457,9 +460,12 @@ const Evaluation = () => {
       });
       return;
     }
-    if (!window.confirm('최종 평가를 저장하시겠습니까?\n저장 후에는 평가 단계가 완료로 전환됩니다.')) {
-      return;
-    }
+    const ok = await confirm({
+      title: '최종 평가를 저장하시겠습니까?',
+      description: '저장 후에는 평가 단계가 완료로 전환됩니다.',
+      confirmText: '최종 저장',
+    });
+    if (!ok) return;
     setIsSaving(true);
     try {
       // 저장 후 홈으로 이동하지 않고 현재 평가 화면을 유지한다.
@@ -535,9 +541,12 @@ const Evaluation = () => {
       return;
     }
 
-    const reason = window.prompt(
-      '피평가자에게 돌려보내 다시 수정하도록 할까요?\n사유를 입력하면 피평가자에게 함께 전달됩니다. (선택)',
-    );
+    const reason = await askReason({
+      title: '피평가자에게 돌려보내 다시 수정하도록 할까요?',
+      description: '사유를 입력하면 피평가자에게 함께 전달됩니다. (선택)',
+      placeholder: '돌려보내는 사유 (선택)',
+      confirmText: '돌려보내기',
+    });
     if (reason === null) return;
 
     setIsReopening(true);

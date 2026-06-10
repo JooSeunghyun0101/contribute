@@ -3,6 +3,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import NotificationItem from '@/components/Notification/NotificationItem';
 import { useNotifications } from '@/contexts/NotificationContextDB';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { UserRole } from '@/types';
 import { ROLE_ORDER, ROLE_LABEL, rolesOf } from '@/lib/notificationRoles';
 
@@ -11,6 +12,7 @@ type FilterId = 'all' | 'unread';
 const NotificationsPage = () => {
   const { notifications, markAsRead, markAllAsRead, deleteAllNotifications } = useNotifications();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [filter, setFilter] = useState<FilterId>('all');
 
   // 사용자가 가진 역할만 탭으로. 2개 이상일 때만 역할 분리 노출.
@@ -66,11 +68,14 @@ const NotificationsPage = () => {
     { id: 'unread', label: '읽지 않음', count: unreadCount },
   ];
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (!recipientId) return;
-    if (window.confirm('모든 알림을 삭제하시겠습니까?')) {
-      void deleteAllNotifications(recipientId);
-    }
+    const ok = await confirm({
+      title: '모든 알림을 삭제하시겠습니까?',
+      variant: 'danger',
+      confirmText: '모두 삭제',
+    });
+    if (ok) void deleteAllNotifications(recipientId);
   };
 
   // 역할 탭이 있으면 "모두 읽음"은 현재 탭에 보이는 알림만 처리(역할 분리와 일관).
