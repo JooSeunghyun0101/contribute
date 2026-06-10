@@ -23,11 +23,15 @@ export type NotificationChannel = 'inApp' | 'email';
  *
  * notificationService.createNotification 의 인자 타입과 **구조적으로 동일**해야 한다.
  * 그 시그니처는 `Omit<Notification, 'id' | 'created_at'>` 이며 여기서 Notification 은
- * snake_case DB 타입(@/types/index.ts)이다. notification_type 만 'reminder' 로 좁힌다.
- * (DB notifications.notification_type 는 CHECK 제약이 없어 'reminder' 가 그대로 통과한다.)
+ * snake_case DB 타입(@/types/index.ts)이다. notification_type 은 'reminder' | 'notice' 로 좁힌다.
+ * (DB notifications.notification_type 는 CHECK 제약이 없어 두 값 모두 그대로 통과한다.)
+ *
+ * 'reminder' : 독려·리마인드 센터(F-C1) 발송분.
+ * 'notice'   : 일괄 공지(F-C5) 발송분. 두 도메인은 type 으로 격리되며,
+ *              각 호출부가 자기 type 으로만 중복가드를 수행한다.
  */
 export type DispatchPayload = Omit<Notification, 'id' | 'created_at' | 'notification_type'> & {
-  notification_type: 'reminder';
+  notification_type: 'reminder' | 'notice';
 };
 
 /** 한 채널·한 수신자에 대한 발송 결과. */

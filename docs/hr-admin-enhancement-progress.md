@@ -57,7 +57,7 @@
   - (※ 원 F-C2는 위 F-C2a/F-C2b로 분해됨.) 변별력(갭 분산)×분포 건전성 주력 + 종단 보조 + 무결성 리스트 + 드릴다운 + 재검토 요청. *서브스텝 분해 필수, 설계원칙 §2.1 준수.*
 - [x] **F-C3** 평가의견 표절·복붙 탐지 (#4). 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭). 평가자 내부 의견 정규화 해시·편집거리 휴리스틱 즉시 + 경계 쌍만 AI 유사도 온디맨드(신규 `reviewFeedbackPairSimilarity` 래퍼). trivial 정형 단문 제외·발령정상·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass.
 - [x] **F-C4** 점수-의견 정서 정합성 (#5). ✅ **F-B2.1에서 이미 구현 완료**(`reviewSentimentGap` = 갭버킷 의미↔의견 논조 정합성 = "4점인데 부정 톤" 탐지, AiReviewMonitoring sentiment 플래그). 신규 코드 없음 — 별도 탭 승격은 메뉴 비대화라 보류(AiReviewMonitoring 플래그로 충분).
-- [ ] **F-C5** 일괄 공지·FAQ 푸시 (#2). *D-1 결과 반영.*
+- [x] **F-C5** 일괄 공지·FAQ 푸시 (#2). 신규 `HrNoticesFaqPage`(/hr/notices-faq, 운영 그룹). 일괄 공지(수신자 범위 토글·OrgFilterBar·수신자 확인·24h 중복가드·대량경고·dispatch 경유 인앱+이메일확장점) + FAQ CRUD(settings `faq_catalog` 재사용, 신규 스키마 0). notification_type='notice' 격리, read 무폭주(1훅). 리뷰 pass, medium(이력한도 500→서버캡 200 정합) 수정. typecheck+build 통과.
 
 ## ⛔ 결정 게이트 2·3 — 직군 필드 / PDF 방식
 
@@ -97,6 +97,7 @@
 - 2026-06-09 F-C4: 신규 코드 없음 — #5(점수-의견 정서 정합성)는 F-B2.1 `reviewSentimentGap`이 이미 충족. 별도 탭 승격 보류(메뉴 비대화). 완료 처리.
 - 2026-06-09 F-C3: 신규 `FeedbackDuplicateDetector`(HrPromptsPage 탭 '평가의견 중복 탐지', 제목 'AI 품질·검수'). 평가자 내부 의견 정규화 해시·자체 Levenshtein 휴리스틱 즉시(exact/near/borderline) + borderline만 AI 온디맨드(신규 gptOss `reviewFeedbackPairSimilarity` 래퍼·기존 프롬프트 재사용). 길이차 prefilter·trivial 다층 제외·발령정상 안내·중립 톤·read-only(requestReturn). typecheck+build·리뷰 pass(info/low만).
 - 2026-06-09 F-C2b: `HrQualityPage`에 종단 보조 패널(전보 코호트·전년 드리프트·코호트-잔차·기질vs급변, 탭 4·기본 급변). 양 기간 일괄 로드 무폭주, priorPeriodId 없으면 자동숨김(2026 선택 시 2025 prior 표시). 발령=정상 준수(전보 코호트=중립·코호트 맥락, by-employee LIMIT1 한계 caveat). §2.1 5원칙·완료율 caveat. **F-C2a 데모 caveat 제거 동반**. typecheck+build·리뷰 pass(info만). → §2 평가 품질 점검 횡단+종단 완성.
+- 2026-06-10 F-C5: 신규 `HrNoticesFaqPage`(/hr/notices-faq, 운영 그룹) — 일괄 공지(F-C1 dispatch 재사용·수신자 확인·24h 중복가드·대량경고·자동발송 없음) + FAQ CRUD(settings `faq_catalog` JSONB 재사용, 신규 마이그레이션 0). dispatch DispatchPayload union에 'notice' 추가. 리뷰 pass, medium(NOTICE_HISTORY_LIMIT 500→서버캡 200) 수정 후 커밋. **Phase C 전부 완료. 다음=D-2/D-3 게이트(직군 필드/PDF).**
 - 2026-06-10 **마감기간 평가자 종료일 표시 수정(사용자 검수)**: 마감/잠금 평가기간(2025)인데 마지막 평가자가 "~현재"로 표시됨(`buildEvaluatorPeriods`가 마지막 구간 end=null로 두는데, 이는 활성기간에서만 '현재'가 맞음). `buildEvaluatorPeriods`는 추이 그래프 공유라 안 건드리고 `MyTasksPage` 표시 단계에서 마감/잠금 기간이면 end=null을 `selectedPeriod.ends_on`으로 대체 → 권오선 2025 박판근 "2025.01.01~2025.12.31". typecheck+build 통과.
 - 2026-06-10 **데이터 정합성 버그 수정(사용자 검수 발견)**: ① [데이터] 재구성이 전보 시 마스터(`employees.evaluator_id`=앱의 '현재 평가자')를 '이전(첫) 평가자'로 두고 다른 사람을 최신으로 만들어, 앱의 '현재 평가' 배지(마스터)와 날짜(이력 최신)가 모순(2026 142건). → 스크립트 전보 로직을 **"최신 2026 배정=마스터"** 불변식으로 수정(otherEv는 더 이른 시점), 재실행. 검증: 피평가자 최신배정≠마스터 0명, 권오선 박판근=현재(~현재). ② [앱] `MyTasksPage`가 기간 인자 없이 로드+기간 의존성 누락 → 활성기간(2026)만 로드돼 2025 선택 시 빈 목록. → 선택 기간 전달 + useEffect 의존성에 `selectedPeriod?.id` 추가. 2025 데이터 자체는 정합이었음(표시/로딩 문제). typecheck+build 통과.
 - 2026-06-09 F-C2b-prep: 데이터 재구성 설계(조사·비평이 갭분포 산술모순 등 치명오류 5건 보정)→스크립트 작성·비평(needs-fix 보정: feedback_history 컬럼·0점 의견 NULL·.cjs)→DRY_RUN 2회 튜닝(score4 37%→26%, 갭 meet중심화, 가중치결함 3→22)→COMMIT 적용. 독립 DB 검증 통과(의견 다양화 확인). 메모리·MEMORY.md 갱신.
