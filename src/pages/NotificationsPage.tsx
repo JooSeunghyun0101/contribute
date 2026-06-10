@@ -4,6 +4,7 @@ import NotificationItem from '@/components/Notification/NotificationItem';
 import { useNotifications } from '@/contexts/NotificationContextDB';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { FaqSection } from '@/components/FaqSection';
 import type { UserRole } from '@/types';
 import { ROLE_ORDER, ROLE_LABEL, rolesOf } from '@/lib/notificationRoles';
 
@@ -201,6 +202,9 @@ const NotificationsPage = () => {
             ))
           )}
         </div>
+
+        {/* HR이 등록한 FAQ를 전 직원에게 노출 (FAQ 없으면 자동 숨김) */}
+        <FaqSection />
       </div>
     </>
   );

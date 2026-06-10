@@ -125,9 +125,9 @@
 
 ## Phase E — 기능 완결 (끊긴 마지막 고리 잇기)
 
-- [~] **E-1** FAQ·공지 직원 노출 (사용자 결정=전면 복구+가드 — 서브스텝 분해):
+- [x] **E-1** FAQ·공지 직원 노출 (사용자 결정=전면 복구+가드 — 서브스텝 분해):
   - [x] **E-1a** settingService 영속 복구 + settings 권한 가드. `settingService`를 pool(MockPool) → apiFetch로 재작성(인터페이스 유지=호출부 무변경). server.js settings 4엔드포인트에 가드: 읽기=`requireSettingsRead`(system 공유는 누구나·개인은 본인/HR), 쓰기/삭제=`requireSettingsWrite`(본인 또는 HR). **검증: HR FAQ 저장→DB 행 생성→재조회 OK / 피평가자 system 쓰기 403·읽기 200·본인 쓰기 200 / 테스트데이터 정리(0행 복귀)**. ⚠ **follow-up**: 매트릭스가 `user.employeeId`(개인별)로 저장/로드됨(`EvaluationMatrixContext`) — 전사 공통이어야 한다면 user_id='system'으로 바꿔야. 복구로 이제 실제 저장되니 매트릭스 페이지 동작 검증 권장(소급 변경은 없음).
-  - [ ] **E-1b** FAQ·공지 직원 노출 컴포넌트: `settingService.getUserSetting('system','faq_catalog')`(이제 동작) 재사용한 FaqSection 아코디언 + my/team 홈 또는 NotificationsPage 표시. 공지(notification_type='notice') 구분 표시.
+  - [x] **E-1b** FAQ·공지 직원 노출 컴포넌트: 신규 `src/components/FaqSection.tsx`(shadcn Accordion, system/faq_catalog 로드·빈 trivial 제외·FAQ 0건 시 자동 숨김) → NotificationsPage 알림 목록 하단 표시(모든 역할 /notifications 접근). 공지(notice)는 이미 알림으로 도달(D-3)하므로 NotificationItem이 표시 — 별도 목록 불필요.
 - [ ] **E-2** write-on-read 제거: `useEvaluationDataDB.ts:259` 조회 시 자동 `createEvaluation` → 명시적 액션(평가 시작)으로 분리. my/team 5곳+Evaluation.tsx 소비부 확인.
 - [ ] **E-3** 사이드바 IA·라벨 정리 묶음: ① '매칭 정합성 점검' 설정→품질 그룹 이동 ② 사이드바 라벨↔페이지 제목 불일치 7건 동기화 ③ `/hr/prompts` → `/hr/ai-review` 라우트 개명(기존 경로 리다이렉트 유지) ④ 중복 아이콘(IconMsg 4회 등) lucide로 변별. 메뉴는 줄이고 이름은 일치 — 간편함의 기본.
 
@@ -200,3 +200,4 @@
 - 2026-06-10 D-4: 라우트 lazy 분할 — App.tsx 23페이지 `lazy(() => import())` + AppShell Outlet `Suspense`(레이아웃 유지·본문만 LoadingState), Login·NotFound는 eager(첫 진입·작음). **빌드 청크 확인: index 2,263KB→420KB(gzip 613→135), 페이지별 독립 청크, hrDataExport 450KB·scoreTrend 435KB·date-picker 63KB 분리 → 피평가자가 HR/xlsx/recharts 미수신**. ② XLSX setTimeout 보류 강등(본질=Web Worker, 가치 낮음). tsc+build EXIT 0. **Phase D 핵심 완료**(D-3 알림·D-4 번들; D-1/D-2는 정합성 위험으로 사용자 검증 동반 보류).
 - 2026-06-10 **E-1 중대 발견 + 사용자 결정(전면 복구+가드)**: settings 테이블 직접 조회=0행 → `settingService`가 브라우저 MockPool이라 FAQ·평가매트릭스·기대수준 저장이 **한 번도 실동작한 적 없음**(검수 "write-only"보다 심각=전체 no-op). settings API 무가드도 발견(피평가자가 시스템 설정 조작 가능, S-2 누락). 사용자 결정=전면 복구.
 - 2026-06-10 E-1a: settingService→apiFetch 복구 + settings 4엔드포인트 권한 가드(requireSettingsRead/Write, requesterIsHr 재사용). 스모크 6케이스 통과(HR 저장·재조회·피평가자 403/200·본인 200·정리). settingService 쓰는 매트릭스·기대수준·FAQ가 이제 실제 영속. follow-up: 매트릭스 user_id=employeeId(개인별) — 전사 공통 의도면 별도 수정. tsc+build EXIT 0.
+- 2026-06-10 E-1b: 신규 `FaqSection`(shadcn Accordion, settingService로 system/faq_catalog 로드, trivial 제외, 0건 자동 숨김) → NotificationsPage 하단. HR이 등록한 FAQ가 전 직원에게 노출(write-only 해소). 공지는 알림 도달(D-3)로 충분. tsc+build EXIT 0. **E-1 전체 완료.**
