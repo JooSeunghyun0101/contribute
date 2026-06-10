@@ -118,9 +118,9 @@
 
 ## Phase D — 성능·데이터·알림 (1,000명 규모 대비)
 
-- [ ] **D-1** 서버 집계 API로 N+1 제거: `GET /api/dashboard/company?periodId=` 신설(evaluations LEFT JOIN tasks SQL 1회) → 현재 직원당 2+요청×동시성6(`src/lib/dashboardData.ts:199-202`)이 1,000명에서 수분 걸리는 병목 해소. 응답을 기존 `EmployeeEvaluationRecord[]`로 매핑(프런트 소비부 무변경 목표). 부분 실패는 무음 흡수(:106-123) 대신 응답에 실패 플래그 포함.
-- [ ] **D-2** React Query 실사용 전환: `useRecordsLoader`(useDashboardRecords.ts:22) 내부만 `useQuery(['companyRecords', periodId])`로 교체(인터페이스 유지) → HR 10개 페이지 캐시 공유, 페이지 이동마다 전사 재로딩 제거. D-1의 실패 플래그를 받아 페이지 상단 "일부 데이터 누락" 경고 배너 표시.
-- [ ] **D-3** 알림 도달 메커니즘(인앱 전용 — 이메일 보류): `NotificationContextDB.tsx:48-50` 로그인 1회 로드 → ① 경량 `GET /api/notifications/unread-count` 신설 ② 포커스/visibilitychange 재조회 + 60~120초 지터 폴링 ③ 컨텍스트에 `reload` 노출. **리마인드·재검토 요청·공지가 실제로 도달해야 F-C1/B2.2/C5 기능이 완성됨.**
+- [보류] **D-1** 서버 집계 API로 N+1 제거. **보류 강등(2026-06-10)**: task 조회가 `task_evaluation_entries` 최신값 덮어쓰기 + assignment_history 연계의 복잡 LATERAL 쿼리라, 평가기간 일괄로 재작성 시 **점수·피드백 정합성** 보장에 전수 비교 검증 필요. 틀리면 조용히 잘못된 평가 수치를 전사 노출(되돌리기 어려운 신뢰 훼손) → 무정지 자동 루프 단독 부적합, **사용자 검증 동반 필요**. (성능 자체는 실제 병목이라 가치 큼 — 사용자와 함께 재개 권장)
+- [보류] **D-2** React Query 실사용 전환. D-1과 동일 데이터 경로(useRecordsLoader)를 건드려 정합성·캐시 무효화 회귀 위험 → D-1과 함께 사용자 검증 동반 시 진행.
+- [x] **D-3** 알림 도달 메커니즘(인앱 전용 — 이메일 보류): `NotificationContextDB.tsx:48-50` 로그인 1회 로드 → ① 경량 `GET /api/notifications/unread-count` 신설 ② 포커스/visibilitychange 재조회 + 60~120초 지터 폴링 ③ 컨텍스트에 `reload` 노출. **리마인드·재검토 요청·공지가 실제로 도달해야 F-C1/B2.2/C5 기능이 완성됨.**
 - [ ] **D-4** 번들·반응성 묶음: ① 라우트 lazy 3분할(`/my/*`·`/team/*`·`/hr/*`) — 피평가자가 HR 페이지+xlsx+recharts 안 받게 ② XLSX export(18곳, `hrDataExport.ts:299` 등) 실행 전 로딩 토스트+`setTimeout(0)` 분리(Web Worker는 보류).
 
 ## Phase E — 기능 완결 (끊긴 마지막 고리 잇기)
@@ -191,3 +191,6 @@
 - 2026-06-10 C-3a: 모달 마이그레이션 패턴 확립 — shadcn Dialog 직접 적용(별도 래퍼 불필요: DialogContent에 focus trap·ESC·role=dialog·바깥클릭·우상단 X 내장). AddEmployeeModal(독립·단순) 손제작 오버레이(rgba div+stopPropagation+커스텀 닫기) → `<Dialog open onOpenChange>` + DialogContent(sm:max-w-[560px]) + DialogHeader/Title + DialogFooter. 폼 내용·sd-input·EvaluatorPicker 유지, isSaving 중 닫기 가드. **접근성 확보**(키보드 포커스 가둠·ESC). 결정 메모: 공용 래퍼 대신 Dialog 직접 사용(이미 충분한 추상화), native select는 C-3b에서 shadcn Select와 함께. typo 자가수정(키릴 Ф). tsc+build EXIT 0.
 - 2026-06-10 C-3b: UploadPreviewModal(독립) 손제작 오버레이 → Dialog/DialogContent(flex column·스크롤 테이블 유지)+DialogHeader/Title/Description, isApplying 중 닫기 가드. 본문 raw table은 C-2b 보류라 유지. **결정 메모**: 페이지 내장 모달·native select 11곳은 시각/상호작용 회귀를 tsc·build가 못 잡는 UI 작업 → 자동 루프 부적합, 점진 보류(보류 섹션 기록). 독립 모달 2곳(AddEmployee·UploadPreview)으로 패턴 시연 완료. **C-3 종결**(독립 모달 처리 + 나머지 점진). tsc+build EXIT 0.
 - 2026-06-10 C-4: 신규 `src/components/ErrorBoundary.tsx`(클래스, getDerivedStateFromError+componentDidCatch, ErrorState fallback 재사용+다시시도, resetKey 변경 시 자동 해제). App 2층 적용 — 루트(전체 트리, 최후 방어선) + AppShell 라우트 단위(`resetKey={location.pathname}` → 다른 메뉴 이동 시 페이지 에러 자동 복구, 한 페이지 예외가 헤더·사이드바까지 안 날림). **렌더 예외 백화면 방지**. tsc+build EXIT 0. **Phase C(공통 컴포넌트) 전체 완료.**
+- 2026-06-10 (사용자 검수 개입) 로그인 500 진단: **코드 정상, 백엔드 미실행이 원인** — `npm run dev`는 vite(프론트)만 띄움, 백엔드는 `npm run dev:server`(nodemon) 별도 필요. 5000 DOWN → vite 프록시가 500 반환. 백엔드 기동 후 admin 로그인 정상(must_change=true·hash 비노출) 확인. unicornstudio 셰이더 import 에러는 로그인 배경 장식 별개 이슈(기능 무관).
+- 2026-06-10 D-1/D-2 보류 결정: task 조회의 `task_evaluation_entries` 최신값 덮어쓰기·assignment_history 연계 복잡 쿼리를 평가기간 일괄로 재작성 시 점수·피드백 **정합성 전수검증 필요**, 틀리면 조용히 잘못된 평가 수치 전사 노출 → 무정지 루프 단독 부적합, 사용자 검증 동반 필요로 보류 강등. **결정 메모**: 성능은 실병목이라 가치 크나, 정합성 리스크가 자동화 부적합. D-3(알림 폴링, 안전·격리·기능실효성)로 진행.
+- 2026-06-10 D-3: NotificationContextDB에 알림 도달 메커니즘 추가 — 로그인 1회 로드 외에 ① 탭 보이는 동안 90~150초 지터 폴링(1,000명 동시 폴링 몰림 방지) ② visibilitychange·focus 시 즉시 재조회. 백그라운드 탭 폴링 안 함(서버 부하·배터리 절약). **클라이언트만 변경**(server.js 무변경=사용자 테스트·nodemon 영향 0). 기존 `loadNotifications`(useCallback) 재사용, cleanup 완비. 결정 메모: 경량 unread-count 엔드포인트 분리는 visible-only 폴링으로 부하 감당되므로 실문제 시로 보류(server.js 무변경 우선). 이로써 HR 리마인드(F-C1)·재검토 요청(F-B2.2)·공지(F-C5)가 새로고침 없이 수신자에 도달 — 기능 실효성 복원. tsc+build EXIT 0.

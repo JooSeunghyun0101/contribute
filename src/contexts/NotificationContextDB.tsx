@@ -49,6 +49,33 @@ export const NotificationProviderDB: React.FC<NotificationProviderProps> = ({ ch
     void loadNotifications();
   }, [loadNotifications]);
 
+  // 알림 도달: 로그인 1회 로드만으로는 HR의 리마인드·공지·재검토 요청이 새로고침 전까지 안 보인다.
+  // ① 탭이 보이는 동안 90~150초 지터 폴링(지터=1,000명 동시 사용자 요청이 한꺼번에 몰리는 것 방지)
+  // ② 다른 탭/창에서 돌아오면(visibilitychange·focus) 즉시 재조회.
+  // 백그라운드 탭은 폴링하지 않아 서버 부하·배터리를 아낀다.
+  useEffect(() => {
+    if (!user) return undefined;
+    let timer: number | undefined;
+    const nextDelay = () => 90_000 + Math.floor(Math.random() * 60_000);
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') void loadNotifications();
+        schedule();
+      }, nextDelay());
+    };
+    const onForeground = () => {
+      if (document.visibilityState === 'visible') void loadNotifications();
+    };
+    schedule();
+    document.addEventListener('visibilitychange', onForeground);
+    window.addEventListener('focus', onForeground);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onForeground);
+      window.removeEventListener('focus', onForeground);
+    };
+  }, [user, loadNotifications]);
+
   const addNotification = async (
     notificationData: Omit<Notification, 'id' | 'createdAt' | 'isRead'>,
   ) => {
