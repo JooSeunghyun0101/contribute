@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 import { BrandLockup, IconSearch, IconMoon, IconSun, IconLogout } from '@/components/brand';
@@ -22,6 +23,7 @@ const getInitialTheme = (): 'light' | 'dark' => {
 
 export const TopBar = () => {
   const { user, switchRole, logout } = useAuth();
+  const navigate = useNavigate();
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
 
   useEffect(() => {
@@ -39,6 +41,8 @@ export const TopBar = () => {
 
   const available = user.availableRoles ?? [user.role];
   const visibleRoles = roleOrder.filter((r) => available.includes(r));
+  // 좌상단 브랜드 로고 클릭 시 현재 역할의 홈으로 이동.
+  const homePath = user.role === 'hr' ? '/hr' : user.role === 'evaluator' ? '/team' : '/my';
 
   return (
     <header
@@ -51,7 +55,23 @@ export const TopBar = () => {
       }}
     >
       <div className="flex items-center gap-5">
-        <BrandLockup />
+        <button
+          type="button"
+          onClick={() => navigate(homePath)}
+          aria-label="홈으로 이동"
+          title="홈으로"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            margin: 0,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+          }}
+        >
+          <BrandLockup />
+        </button>
         <div style={{ height: 22, width: 1, background: 'var(--border)' }} />
         {visibleRoles.length > 1 && (
           <div
