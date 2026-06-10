@@ -1330,7 +1330,7 @@ const HrUsersPage = () => {
                   <TableHead style={{ width: 220 }}>역할</TableHead>
                   <TableHead style={{ width: 140 }}>평가자</TableHead>
                   <TableHead style={{ width: 110 }}>평가 상태</TableHead>
-                  <TableHead className="text-right" style={{ minWidth: 140 }}></TableHead>
+                  <TableHead className="text-right" style={{ minWidth: 140, position: 'sticky', right: 0, background: 'var(--bg-muted)', zIndex: 2, borderLeft: '1px solid var(--border)' }}></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1391,7 +1391,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.name}
                             onChange={(event) => updateEditForm('name', event.target.value)}
-                            style={{ minWidth: 110 }}
+                            style={{ minWidth: 88 }}
                           />
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1422,7 +1422,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.position}
                             onChange={(event) => updateEditForm('position', event.target.value)}
-                            style={{ minWidth: 90 }}
+                            style={{ minWidth: 72 }}
                           />
                         ) : (
                           employee.position
@@ -1434,7 +1434,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgCorporation}
                             onChange={(event) => updateEditForm('orgCorporation', event.target.value)}
-                            style={{ minWidth: 70 }}
+                            style={{ minWidth: 56 }}
                           />
                         ) : (
                           getOrgValue(employee, 'corporation') || '-'
@@ -1446,7 +1446,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgDivision}
                             onChange={(event) => updateEditForm('orgDivision', event.target.value)}
-                            style={{ minWidth: 110 }}
+                            style={{ minWidth: 92 }}
                           />
                         ) : (
                           getOrgValue(employee, 'division') || '-'
@@ -1458,7 +1458,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgDepartment}
                             onChange={(event) => updateEditForm('orgDepartment', event.target.value)}
-                            style={{ minWidth: 110 }}
+                            style={{ minWidth: 92 }}
                           />
                         ) : (
                           getOrgValue(employee, 'department') || '-'
@@ -1470,7 +1470,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgTeam}
                             onChange={(event) => updateEditForm('orgTeam', event.target.value)}
-                            style={{ minWidth: 110 }}
+                            style={{ minWidth: 92 }}
                           />
                         ) : (
                           getOrgValue(employee, 'team') || '-'
@@ -1482,7 +1482,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.jobRole}
                             onChange={(event) => updateEditForm('jobRole', event.target.value)}
-                            style={{ minWidth: 90 }}
+                            style={{ minWidth: 76 }}
                           />
                         ) : (
                           employee.job_role ?? '-'
@@ -1573,7 +1573,16 @@ const HrUsersPage = () => {
                           {statusLabel(currentStatus)}
                         </Pill>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell
+                        className="text-right"
+                        style={{
+                          position: 'sticky',
+                          right: 0,
+                          background: selectedIds.has(employee.employee_id) ? 'var(--ok-orange-50)' : 'var(--bg-card)',
+                          zIndex: 1,
+                          borderLeft: '1px solid var(--border)',
+                        }}
+                      >
                         {isEditing ? (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
                             <button
