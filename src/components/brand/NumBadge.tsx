@@ -19,7 +19,7 @@ export const NumBadge = ({ score, size = 28, className }: Props) => {
 
   return (
     <span
-      className={cn('items-center justify-center font-mono font-bold', className)}
+      className={cn('items-center justify-center tnum font-bold', className)}
       style={{
         display: 'inline-flex',
         flexShrink: 0,
