@@ -1,4 +1,5 @@
 import { employeeService, evaluationService, feedbackApiService, taskService } from '@/lib/services';
+import { isOnLeave } from '@/lib/employeeStatus';
 import type { Employee, Evaluation, FeedbackHistory, Task as DbTask } from '@/types';
 
 export type FeedbackSnapshot = {
@@ -262,5 +263,6 @@ export const loadEmployeeEvaluationRecords = async (
   return mapWithConcurrency(employees, 6, (employee) => loadEmployeeEvaluationRecord(employee, options));
 };
 
+// 활성 평가대상자: evaluatee 역할 보유 + 휴직자 제외(휴직자는 평가 대상 아님).
 export const getActiveEvaluatees = (employees: Employee[]) =>
-  employees.filter((employee) => employee.available_roles?.includes('evaluatee'));
+  employees.filter((employee) => employee.available_roles?.includes('evaluatee') && !isOnLeave(employee));

@@ -22,6 +22,7 @@ import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
 import OrgChecklist from '@/components/hr/OrgChecklist';
 import { getOrgValue, matchesOrgNodes, orgPathLabel } from '@/lib/orgHierarchy';
+import { isOnLeave } from '@/lib/employeeStatus';
 import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
@@ -339,9 +340,13 @@ const HrUsersPage = () => {
     [employees],
   );
 
+  // 휴직자(매칭결과 '휴직'·소속 '휴직자소속')는 조직 조회 대상이 아니므로 제외.
+  // 조직 체크리스트 후보와 목록 모두 이 명단을 기준으로 한다.
+  const orgRosterEmployees = useMemo(() => employees.filter((e) => !isOnLeave(e)), [employees]);
+
   const filteredEmployees = useMemo(
     () =>
-      [...employees]
+      [...orgRosterEmployees]
         .filter((employee) => employee.employee_id !== 'admin')
         // 표시 대상:
         //  - 평가 대상자(evaluatee): 선택한 평가기간에 evaluation 이 있는 직원만.
@@ -373,7 +378,7 @@ const HrUsersPage = () => {
           }
           return a.department.localeCompare(b.department) || a.name.localeCompare(b.name);
         }),
-    [employees, recordMap, query, selectedRole, orgNodeKeys, groupBySection],
+    [orgRosterEmployees, recordMap, query, selectedRole, orgNodeKeys, groupBySection],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -1187,7 +1192,7 @@ const HrUsersPage = () => {
               />
             </div>
 
-            <OrgChecklist items={employees} value={orgNodeKeys} onChange={setOrgNodeKeys} />
+            <OrgChecklist items={orgRosterEmployees} value={orgNodeKeys} onChange={setOrgNodeKeys} />
 
             <div style={{ display: 'flex', gap: 6 }}>
               {roleFilters.map((filter) => (
