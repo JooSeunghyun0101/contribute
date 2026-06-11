@@ -100,22 +100,16 @@ const getReviewStatus = (
 export const loadEmployeeEvaluationRecord = async (
   employee: Employee,
   options: LoadOptions = {},
-  // 벌크 프리페치된 평가. undefined = 프리페치 없음(직원별 조회), null = 평가 없음(조회 생략).
-  preloadedEvaluation: Evaluation | null | undefined = undefined,
 ): Promise<EmployeeEvaluationRecord> => {
   let evaluation: Evaluation | null = null;
 
-  if (preloadedEvaluation !== undefined) {
-    evaluation = preloadedEvaluation;
-  } else {
-    try {
-      evaluation = await evaluationService.getEvaluationByEmployeeId(employee.employee_id, {
-        periodId: options.periodId,
-        evaluatorId: options.evaluatorId,
-      });
-    } catch {
-      evaluation = null;
-    }
+  try {
+    evaluation = await evaluationService.getEvaluationByEmployeeId(employee.employee_id, {
+      periodId: options.periodId,
+      evaluatorId: options.evaluatorId,
+    });
+  } catch {
+    evaluation = null;
   }
 
   let tasks: EnrichedTask[] = [];
@@ -205,39 +199,7 @@ const mapWithConcurrency = async <T, R>(
 export const loadEmployeeEvaluationRecords = async (
   employees: Employee[],
   options: LoadOptions = {},
-) => {
-  // N+1 정리: 직원별 평가 조회(E건)를 벌크 1건으로 대체해 요청 폭주(429)를 막는다.
-  // 한 직원에 평가가 여러 건(발령/전보)인 경우만 per-employee로 폴백해 점수 정합성을 보존하고,
-  // 벌크 조회가 실패하면 전체를 기존 직원별 경로로 되돌린다(undefined 전달).
-  let evalByEmployee: Map<string, Evaluation> | null = null;
-  const multiEvalEmployees = new Set<string>();
-  try {
-    const all = await evaluationService.getAllEvaluations({
-      periodId: options.periodId,
-      evaluatorId: options.evaluatorId,
-    });
-    evalByEmployee = new Map<string, Evaluation>();
-    for (const ev of all) {
-      const empId = ev.employee_id;
-      if (!empId) continue;
-      if (evalByEmployee.has(empId)) {
-        multiEvalEmployees.add(empId); // 다중 평가 → per-employee 폴백 대상
-      } else {
-        evalByEmployee.set(empId, ev);
-      }
-    }
-  } catch {
-    evalByEmployee = null;
-  }
-
-  return mapWithConcurrency(employees, 6, (employee) => {
-    const preEval =
-      evalByEmployee && !multiEvalEmployees.has(employee.employee_id)
-        ? evalByEmployee.get(employee.employee_id) ?? null
-        : undefined; // undefined = 직원별 조회로 폴백
-    return loadEmployeeEvaluationRecord(employee, options, preEval);
-  });
-};
+) => mapWithConcurrency(employees, 6, (employee) => loadEmployeeEvaluationRecord(employee, options));
 
 export const getActiveEvaluatees = (employees: Employee[]) =>
   employees.filter((employee) => employee.available_roles?.includes('evaluatee'));
