@@ -118,3 +118,55 @@ export const orgPathLabel = (item: OrgFields): string =>
   ORG_LEVELS.map((level) => getOrgValue(item, level))
     .filter(Boolean)
     .join(' › ');
+
+// ─────────────────────────────────────────────────────────────
+// 평탄한 조직 노드 모델 (레벨을 섞어 여러 부서를 동시 선택할 때 사용).
+// cascading 필터(OrgFilterState)는 레벨 내 OR·레벨 간 AND라
+// "OK›인사팀 + OKH›인사팀 + OKH›AX›인사부"처럼 서로 다른 가지의
+// 부서들을 한꺼번에 고를 수 없다. 각 노드를 '완전한 경로' 한 개로
+// 평탄화해 체크박스로 OR 선택한다.
+// ─────────────────────────────────────────────────────────────
+
+/** 평탄한 조직 노드(모든 깊이). 각 노드 = 루트~해당 깊이까지의 값 경로. */
+export interface OrgNode {
+  /** 값들을 구분자로 이은 식별자(선택 상태 저장용). */
+  key: string;
+  /** 사람이 읽는 경로. 예: "OKH › AX › 인사부" */
+  label: string;
+  /** 마지막 레벨 값. 예: "인사부" */
+  leaf: string;
+  /** 1=법인 … 4=팀 */
+  depth: number;
+}
+
+// 값 안에 나타날 일이 없는 제어문자를 키 구분자로 사용.
+const ORG_KEY_SEP = '␟';
+
+export const orgNodeKey = (values: string[]): string => values.join(ORG_KEY_SEP);
+
+/** items 에 등장하는 모든 조직 노드(중복 제거, 경로순 정렬). */
+export const orgNodes = (items: OrgFields[]): OrgNode[] => {
+  const map = new Map<string, OrgNode>();
+  for (const item of items) {
+    const values: string[] = [];
+    for (const level of ORG_LEVELS) {
+      const v = getOrgValue(item, level);
+      if (!v) break; // 중간이 비면 더 깊은 노드는 만들지 않음
+      values.push(v);
+      const key = orgNodeKey(values);
+      if (!map.has(key)) {
+        map.set(key, { key, label: values.join(' › '), leaf: v, depth: values.length });
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'));
+};
+
+/** item 이 선택된 노드(키) 중 하나의 하위(또는 자신)인지. 빈 선택=전체 통과. */
+export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
+  if (selectedKeys.length === 0) return true;
+  return selectedKeys.some((key) => {
+    const values = key.split(ORG_KEY_SEP);
+    return values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
+  });
+};

@@ -6,13 +6,12 @@ import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import OrgChecklist from '@/components/hr/OrgChecklist';
 import {
   getOrgValue,
-  matchesOrgFilter,
+  matchesOrgNodes,
   ORG_LEVEL_LABELS,
   ORG_LEVELS,
-  type OrgFilterState,
   type OrgLevel,
 } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
@@ -78,7 +77,7 @@ const HrDepartmentsPage = () => {
   // 대시보드에서 ?dept=로 들어온 부서 필터(레코드 단위, 그룹핑과 무관). 칩으로 해제 가능.
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgNodeKeys, setOrgNodeKeys] = useState<string[]>([]);
   const [groupLevel, setGroupLevel] = useState<OrgLevel>('team');
   const [groupBySection, setGroupBySection] = useState(true); // 상위조직 섹션으로 묶기
   const groupLabel = ORG_LEVEL_LABELS[groupLevel]; // 본부 / 부 / 팀
@@ -112,10 +111,10 @@ const HrDepartmentsPage = () => {
     () =>
       records.filter(
         (r) =>
-          matchesOrgFilter(r.employee, orgFilter) &&
+          matchesOrgNodes(r.employee, orgNodeKeys) &&
           (!deptFilter || (r.employee.department || '미지정') === deptFilter),
       ),
-    [records, orgFilter, deptFilter],
+    [records, orgNodeKeys, deptFilter],
   );
 
   // 선택한 집계 단위의 조직 값으로 그룹 키 + 그 키가 실제 속한 레벨을 만든다.
@@ -373,7 +372,7 @@ const HrDepartmentsPage = () => {
               />
             </div>
 
-            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} multiSelect />
+            <OrgChecklist items={records.map((r) => r.employee)} value={orgNodeKeys} onChange={setOrgNodeKeys} />
 
             {deptFilter && (
               <button

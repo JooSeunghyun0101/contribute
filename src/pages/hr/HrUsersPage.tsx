@@ -20,8 +20,8 @@ import EvaluatorHistoryModal from '@/components/hr/EvaluatorHistoryModal';
 import AddEmployeeModal, { type NewEmployeeInput } from '@/components/hr/AddEmployeeModal';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { getOrgValue, matchesOrgFilter, orgPathLabel, type OrgFilterState } from '@/lib/orgHierarchy';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { getOrgValue, matchesOrgNodes, orgPathLabel } from '@/lib/orgHierarchy';
 import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
@@ -279,7 +279,7 @@ const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgNodeKeys, setOrgNodeKeys] = useState<string[]>([]);
   const [selectedRole, setSelectedRole] = useState<'all' | UserRole>('all');
   const [groupBySection, setGroupBySection] = useState(false); // 조직별로 묶어서 보기
   const [updatingEvaluationId, setUpdatingEvaluationId] = useState<string | null>(null);
@@ -364,7 +364,7 @@ const HrUsersPage = () => {
             selectedRole === 'all' || employee.available_roles.includes(selectedRole);
           return matchesQuery && matchesRole;
         })
-        .filter((employee) => matchesOrgFilter(employee, orgFilter))
+        .filter((employee) => matchesOrgNodes(employee, orgNodeKeys))
         .sort((a, b) => {
           // 묶어서 보기일 땐 같은 조직 그룹이 인접하도록 그룹 키 우선 정렬.
           if (groupBySection) {
@@ -373,7 +373,7 @@ const HrUsersPage = () => {
           }
           return a.department.localeCompare(b.department) || a.name.localeCompare(b.name);
         }),
-    [employees, recordMap, query, selectedRole, orgFilter, groupBySection],
+    [employees, recordMap, query, selectedRole, orgNodeKeys, groupBySection],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -1187,7 +1187,7 @@ const HrUsersPage = () => {
               />
             </div>
 
-            <OrgFilterBar items={employees} value={orgFilter} onChange={setOrgFilter} multiSelect />
+            <OrgChecklist items={employees} value={orgNodeKeys} onChange={setOrgNodeKeys} />
 
             <div style={{ display: 'flex', gap: 6 }}>
               {roleFilters.map((filter) => (
