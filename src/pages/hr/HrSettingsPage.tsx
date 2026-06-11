@@ -3,6 +3,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NotificationSettings } from '@/components/Settings/NotificationSettings';
+import PasswordResetManager from '@/components/hr/PasswordResetManager';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -110,6 +111,7 @@ const HrSettingsPage = () => {
         <Tabs defaultValue="notifications" className="space-y-6">
           <TabsList>
             <TabsTrigger value="notifications">알림</TabsTrigger>
+            <TabsTrigger value="account">비밀번호</TabsTrigger>
             <TabsTrigger value="advanced">고급/시스템</TabsTrigger>
           </TabsList>
 
@@ -122,6 +124,11 @@ const HrSettingsPage = () => {
               <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
               <NotificationSettings embedded />
             </section>
+          </TabsContent>
+
+          {/* 비밀번호 — 초기화 요청 승인/반려 + HR 직접 초기화 */}
+          <TabsContent value="account" className="space-y-6">
+            <PasswordResetManager />
           </TabsContent>
 
           {/* 고급/시스템 — 데이터 내보내기 + 위험 영역(가드) */}
