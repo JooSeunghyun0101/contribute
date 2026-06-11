@@ -2630,6 +2630,64 @@ app.post('/api/auth/change-password', async (req, res) => {
   }
 });
 
+// 비밀번호 초기화 '요청' (공개 — 비밀번호를 잊은 사용자가 로그인 전 단계에서 사번으로 요청).
+// 승인은 HR. 존재하지 않는 사번도 동일 성공 응답으로 처리해 사번 존재 여부를 노출하지 않는다.
+// pending 중복은 partial unique index 로 1건만 유지하고, 새로 생성된 경우에만 HR 에 알림(스팸 방지).
+app.post('/api/auth/password-reset-request', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const employeeId = typeof req.body?.employee_id === 'string' ? req.body.employee_id.trim() : '';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  if (!employeeId) {
+    return res.status(400).json({ error: '사번을 입력해 주세요.' });
+  }
+  const successMessage =
+    '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 사번(초기 비밀번호)으로 로그인할 수 있습니다.';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'SELECT employee_id, name FROM employees WHERE employee_id::text = $1 LIMIT 1',
+      [employeeId],
+    );
+    const employee = rows[0];
+    if (employee) {
+      const inserted = await client.query(
+        `INSERT INTO password_reset_requests (employee_id, employee_name, reason, status)
+         VALUES ($1, $2, NULLIF($3, ''), 'pending')
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        [employee.employee_id, employee.name ?? null, reason],
+      );
+      // 새 요청이 실제로 생성된 경우에만 HR 전원에게 알림(중복 요청 스팸 방지).
+      if (inserted.rows[0]) {
+        const { rows: hrRows } = await client.query(
+          `SELECT employee_id FROM employees
+            WHERE employee_id = 'admin' OR 'hr' = ANY(available_roles)`,
+        );
+        for (const hr of hrRows) {
+          await insertNotificationRow(client, {
+            notificationType: 'hr_message',
+            title: '비밀번호 초기화 요청',
+            message: `${employee.name ?? employee.employee_id}(${employee.employee_id})님이 비밀번호 초기화를 요청했습니다.`,
+            priority: 'high',
+            senderId: employee.employee_id,
+            senderName: employee.name ?? employee.employee_id,
+            recipientId: hr.employee_id,
+          });
+        }
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, message: successMessage });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('비밀번호 초기화 요청 실패:', err.message);
+    res.status(500).json({ error: '요청 처리 중 오류가 발생했습니다.' });
+  } finally {
+    client.release();
+  }
+});
+
 /* ==================== Authorization Gate ==================== */
 // 이 지점 이후 등록되는 모든 /api 라우트는 로그인 세션 필수(req.session 주입).
 // 예외(위쪽 등록): /api/auth/*(로그인 자체), /api/ai/status(무해한 설정 조회), /health.
@@ -5603,6 +5661,151 @@ app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsPara
   } catch (err) {
     console.error('Error fetching evaluation by employee:', err);
     res.json(null);
+  }
+});
+
+// ── 비밀번호 초기화: HR 조회/승인/반려 + HR 직접 초기화 ──
+// 승인·직접초기화는 동일 효과: employees.password_hash = NULL, must_change_password = TRUE
+// → 해당 직원은 사번(초기 비밀번호)으로 로그인 후 변경을 강제받는다.
+
+// 초기화 요청 목록 (기본 pending, ?status=all 이면 전체 최근순).
+app.get('/api/admin/password-reset-requests', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : 'pending';
+    const where = status === 'all' ? '' : 'WHERE status = $1';
+    const params = status === 'all' ? [] : [status];
+    const { rows } = await pool.query(
+      `SELECT id, employee_id, employee_name, status, reason,
+              resolved_by, resolved_at, review_comment, created_at
+         FROM password_reset_requests
+         ${where}
+         ORDER BY created_at DESC
+         LIMIT 200`,
+      params,
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('비밀번호 초기화 요청 목록 조회 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 요청 승인 → 해당 직원 비밀번호를 사번으로 초기화.
+app.post('/api/admin/password-reset-requests/:id/approve', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const actorId = req.session.employeeId;
+  const requestId = req.params.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT * FROM password_reset_requests WHERE id = $1 FOR UPDATE`,
+      [requestId],
+    );
+    const request = rows[0];
+    if (!request) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '요청을 찾을 수 없습니다.' });
+    }
+    if (request.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: '이미 처리된 요청입니다.' });
+    }
+    const { rowCount } = await client.query(
+      `UPDATE employees SET password_hash = NULL, must_change_password = TRUE
+        WHERE employee_id::text = $1`,
+      [request.employee_id],
+    );
+    if (rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '대상 직원을 찾을 수 없습니다.' });
+    }
+    await client.query(
+      `UPDATE password_reset_requests
+          SET status = 'approved', resolved_by = $2, resolved_at = now(), updated_at = now()
+        WHERE id = $1`,
+      [requestId, actorId],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'password_reset_approved',
+      actorId,
+      targetEmployeeId: request.employee_id,
+      reason: `비밀번호 초기화 요청 승인 (요청 ${requestId})`,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, employee_id: request.employee_id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('비밀번호 초기화 승인 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 요청 반려.
+app.post('/api/admin/password-reset-requests/:id/reject', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const actorId = req.session.employeeId;
+  const requestId = req.params.id;
+  const comment = typeof req.body?.comment === 'string' ? req.body.comment.trim() : '';
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE password_reset_requests
+          SET status = 'rejected', resolved_by = $2, resolved_at = now(),
+              review_comment = NULLIF($3, ''), updated_at = now()
+        WHERE id = $1 AND status = 'pending'`,
+      [requestId, actorId, comment],
+    );
+    if (rowCount === 0) {
+      return res.status(409).json({ error: '대기 중인 요청이 아닙니다.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('비밀번호 초기화 반려 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// HR 직접 초기화 (요청행 없이 즉시) — 사용자관리 등에서 대상 직원 지정.
+app.post('/api/admin/password-reset/:employeeId', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const actorId = req.session.employeeId;
+  const targetId = req.params.employeeId;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rowCount } = await client.query(
+      `UPDATE employees SET password_hash = NULL, must_change_password = TRUE
+        WHERE employee_id::text = $1`,
+      [targetId],
+    );
+    if (rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '대상 직원을 찾을 수 없습니다.' });
+    }
+    // 대기 중인 같은 직원의 요청이 있으면 함께 승인 처리(정합).
+    await client.query(
+      `UPDATE password_reset_requests
+          SET status = 'approved', resolved_by = $2, resolved_at = now(), updated_at = now()
+        WHERE employee_id = $1 AND status = 'pending'`,
+      [targetId, actorId],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'password_reset_direct',
+      actorId,
+      targetEmployeeId: targetId,
+      reason: `HR 직접 비밀번호 초기화 (actor: ${actorId})`,
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, employee_id: targetId });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('HR 직접 비밀번호 초기화 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
   }
 });
 
