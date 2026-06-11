@@ -5,8 +5,8 @@ import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { matchesOrgNodes } from '@/lib/orgHierarchy';
 import { getScoreGapBucket, formatScore, type ScoreGapBucket } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
@@ -171,7 +171,7 @@ const HrJobRoleBenchmarkPage = () => {
   const { selectedPeriod } = useEvaluationPeriod();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('sample');
   const [hideSmall, setHideSmall] = useState(false);
   const [drilldown, setDrilldown] = useState<JobRoleRow | null>(null);
@@ -180,7 +180,7 @@ const HrJobRoleBenchmarkPage = () => {
   const targetRecords = useMemo(
     () =>
       records.filter(
-        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgFilter(r.employee, orgFilter),
+        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgNodes(r.employee, orgFilter),
       ),
     [records, orgFilter],
   );
@@ -248,7 +248,7 @@ const HrJobRoleBenchmarkPage = () => {
                 style={{ paddingLeft: 36, width: '100%' }}
               />
             </div>
-            <OrgFilterBar
+            <OrgChecklist
               items={targetRecords.map((r) => r.employee)}
               value={orgFilter}
               onChange={setOrgFilter}

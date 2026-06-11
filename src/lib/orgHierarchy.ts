@@ -163,10 +163,11 @@ export const orgNodes = (items: OrgFields[]): OrgNode[] => {
 };
 
 /**
- * item 이 선택된 노드(키) 중 하나와 '정확히' 같은 단위인지. 빈 선택=전체 통과.
- * 정확 매칭: 노드 깊이까지 값이 모두 일치하고, 노드가 곧 그 직원의 말단이어야 한다
- * (노드보다 더 깊은 레벨에 값이 있으면=하위 팀 소속이면 제외). 즉, '부'를 고르면
- * 그 부에 직접 속한 인원만 잡히고 하위 팀 인원은 따로 체크해야 잡힌다.
+ * item 이 선택된 노드(키) 중 하나에 부합하는지. 빈 선택=전체 통과.
+ * 레벨별 매칭(사용자 결정):
+ *  - 법인(depth 1)·본부(depth 2): 하위 전원 포함 — 노드 경로가 item 의 상위 경로와 일치하면 통과.
+ *  - 부(depth 3)·팀(depth 4): 고른 단위만 — 위 조건 + 노드가 곧 item 의 말단(더 깊은 레벨 값이 비어야 함).
+ * 예) '경영지원본부' 체크 → 그 본부 아래 모든 부·팀 인원. '인사부' 체크 → 인사부 직속만(하위 팀 제외).
  */
 export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
   if (selectedKeys.length === 0) return true;
@@ -174,7 +175,8 @@ export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolea
     const values = key.split(ORG_KEY_SEP);
     const prefixOk = values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
     if (!prefixOk) return false;
-    const deeper = ORG_LEVELS[values.length]; // 노드 바로 아래 레벨(없으면 팀=최하위)
+    if (values.length <= 2) return true; // 법인·본부: 하위 전체 포함
+    const deeper = ORG_LEVELS[values.length]; // 부·팀: 노드가 말단이어야(하위 없음)
     return !deeper || getOrgValue(item, deeper) === '';
   });
 };

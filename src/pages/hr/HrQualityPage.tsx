@@ -9,8 +9,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useReason } from '@/components/ui/confirm-dialog';
 import { evaluationService } from '@/lib/services';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { getOrgValue, matchesOrgNodes } from '@/lib/orgHierarchy';
 import { getScoreGapBucket, formatScore, type ScoreGapBucket } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
@@ -628,7 +628,7 @@ const HrQualityPage = () => {
 
   const [tab, setTab] = useState<TabKey>('evaluator');
   const [searchQuery, setSearchQuery] = useState('');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('sample');
   const [hideSmall, setHideSmall] = useState(false);
   const [drilldown, setDrilldown] = useState<EvaluatorRow | null>(null);
@@ -639,7 +639,7 @@ const HrQualityPage = () => {
   const targetRecords = useMemo(
     () =>
       records.filter(
-        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgFilter(r.employee, orgFilter),
+        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgNodes(r.employee, orgFilter),
       ),
     [records, orgFilter],
   );
@@ -718,7 +718,7 @@ const HrQualityPage = () => {
   const priorTargetRecords = useMemo(
     () =>
       priorRecords.filter(
-        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgFilter(r.employee, orgFilter),
+        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgNodes(r.employee, orgFilter),
       ),
     [priorRecords, orgFilter],
   );
@@ -804,7 +804,7 @@ const HrQualityPage = () => {
                 style={{ paddingLeft: 36, width: '100%' }}
               />
             </div>
-            <OrgFilterBar
+            <OrgChecklist
               items={targetRecords.map((r) => r.employee)}
               value={orgFilter}
               onChange={setOrgFilter}

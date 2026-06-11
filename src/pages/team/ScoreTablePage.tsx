@@ -25,10 +25,10 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { employeeService } from '@/lib/services';
 import { buildEvaluatorPeriods, evaluatorActiveMonthRange } from '@/lib/evaluatorHistory';
 import type { EvaluatorAssignmentHistory } from '@/types';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import OrgChecklist from '@/components/hr/OrgChecklist';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
-import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import { matchesOrgNodes } from '@/lib/orgHierarchy';
 import { useStuck } from '@/hooks/use-stuck';
 import {
   formatScore,
@@ -65,11 +65,11 @@ const ScoreTablePage = () => {
   // 발령으로 떠난 과거 담당 피평가자도 월별 추이 분모에 포함하기 위해 함께 로드.
   const { records: formerRecords } = useFormerTeamDashboardRecords(evaluatorId);
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
 
   // 카드/도넛/히트맵은 "현재 담당" 스냅샷 기준(기존 유지).
   const records = useMemo(
-    () => allRecords.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
+    () => allRecords.filter((r) => matchesOrgNodes(r.employee, orgFilter)),
     [allRecords, orgFilter],
   );
 
@@ -132,7 +132,7 @@ const ScoreTablePage = () => {
   const buildTrendMembers = useCallback(
     (sourceRecords: EmployeeEvaluationRecord[], year: number, periodId: string | null) =>
       sourceRecords
-        .filter((r) => matchesOrgFilter(r.employee, orgFilter))
+        .filter((r) => matchesOrgNodes(r.employee, orgFilter))
         .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
         .map((r) => {
           const history = historyById.get(r.employee.employee_id) ?? [];
@@ -291,7 +291,7 @@ const ScoreTablePage = () => {
         filters={
           allRecords.length > 0 ? (
             <>
-              <OrgFilterBar
+              <OrgChecklist
                 items={allRecords.map((r) => r.employee)}
                 value={orgFilter}
                 onChange={setOrgFilter}

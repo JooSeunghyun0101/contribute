@@ -14,7 +14,7 @@ import {
   downloadDepartmentMembersWorkbook,
   type DepartmentExportMember,
 } from '@/utils/hrDataExport';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import OrgChecklist from '@/components/hr/OrgChecklist';
 import {
   Donut,
   ChartCard,
@@ -25,7 +25,7 @@ import {
   type DeptSort,
 } from '@/components/Dashboard/HrDashboardCharts';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
-import { matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import { matchesOrgNodes } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 const MONTH_LABELS = [
@@ -87,14 +87,14 @@ const HrHome = () => {
   const { selectedPeriod, periods } = useEvaluationPeriod();
   const { toast } = useToast();
   const [isExportingReport, setIsExportingReport] = useState(false);
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [deptSort, setDeptSort] = useState<DeptSort>('achievement');
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
   const [memberModal, setMemberModal] = useState<{ title: string; records: EmployeeEvaluationRecord[] } | null>(null);
   const [showAiReport, setShowAiReport] = useState(false);
 
   const filteredRecords = useMemo(
-    () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
+    () => records.filter((r) => matchesOrgNodes(r.employee, orgFilter)),
     [records, orgFilter],
   );
 
@@ -240,7 +240,7 @@ const HrHome = () => {
   const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
   const priorScoreTrend = useMemo(() => {
     const members = priorRecords
-      .filter((r) => matchesOrgFilter(r.employee, orgFilter))
+      .filter((r) => matchesOrgNodes(r.employee, orgFilter))
       .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
       .map((r) => ({
         tasks:
@@ -311,7 +311,7 @@ const HrHome = () => {
         }
         filters={
           <>
-            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+            <OrgChecklist items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {(['all', 1, 2, 3, 4] as const).map((lv) => (
                 <button

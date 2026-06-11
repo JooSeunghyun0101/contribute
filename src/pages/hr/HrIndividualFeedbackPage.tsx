@@ -6,8 +6,8 @@ import { IconSearch, IconUser, Pill } from '@/components/brand';
 import { useToast } from '@/hooks/use-toast';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { matchesOrgFilter, orgPathLabel, type OrgFilterState } from '@/lib/orgHierarchy';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { matchesOrgNodes, orgPathLabel } from '@/lib/orgHierarchy';
 import {
   formatScore,
   getGrowthLevelExpectation,
@@ -102,7 +102,7 @@ const HrIndividualFeedbackPage = () => {
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
   const [record, setRecord] = useState<EmployeeEvaluationRecord | null>(null);
@@ -129,7 +129,7 @@ const HrIndividualFeedbackPage = () => {
   const filteredEmployees = useMemo(() => {
     const q = debouncedQuery;
     return evaluatees
-      .filter((employee) => matchesOrgFilter(employee, orgFilter))
+      .filter((employee) => matchesOrgNodes(employee, orgFilter))
       .filter((employee) => {
         if (!q) return true;
         return (
@@ -283,7 +283,7 @@ const HrIndividualFeedbackPage = () => {
                 style={{ paddingLeft: 36, width: '100%' }}
               />
             </div>
-            <OrgFilterBar items={evaluatees} value={orgFilter} onChange={setOrgFilter} />
+            <OrgChecklist items={evaluatees} value={orgFilter} onChange={setOrgFilter} />
             <div style={{ marginLeft: 'auto', fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
               대상{' '}
               <b className="tnum" style={{ color: 'var(--fg)' }}>

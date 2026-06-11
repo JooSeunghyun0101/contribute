@@ -9,8 +9,8 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
-import { getOrgValue, matchesOrgFilter, type OrgFilterState } from '@/lib/orgHierarchy';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { getOrgValue, matchesOrgNodes } from '@/lib/orgHierarchy';
 import {
   assignmentTypeLabel,
   formatAssignmentDate,
@@ -125,7 +125,7 @@ const HrMatchingPage = () => {
   const actorId = user?.employeeId ?? user?.id ?? null;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [jobRole, setJobRole] = useState('');
   const [openSections, setOpenSections] = useState<Set<RuleKey>>(
     () => new Set<RuleKey>(['unassigned', 'no-evaluation', 'self-eval']),
@@ -180,7 +180,7 @@ const HrMatchingPage = () => {
   const filteredRecords = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return targetRecords.filter((r) => {
-      if (!matchesOrgFilter(r.employee, orgFilter)) return false;
+      if (!matchesOrgNodes(r.employee, orgFilter)) return false;
       if (jobRole && (r.employee.job_role ?? '') !== jobRole) return false;
       if (!q) return true;
       const haystack = [
@@ -369,7 +369,7 @@ const HrMatchingPage = () => {
               />
             </div>
 
-            <OrgFilterBar items={targetRecords.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+            <OrgChecklist items={targetRecords.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
 
             {jobRoleOptions.length > 0 && (
               <label

@@ -12,11 +12,10 @@ import {
 } from '@/lib/notifications/dispatch';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 import {
-  matchesOrgFilter,
+  matchesOrgNodes,
   type OrgFields,
-  type OrgFilterState,
 } from '@/lib/orgHierarchy';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import OrgChecklist from '@/components/hr/OrgChecklist';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -109,7 +108,7 @@ const HrNoticesFaqPage = () => {
 
   /* ── 공지 발송 상태 ─────────────────────────────────────────────── */
   const [audience, setAudience] = useState<AudienceKey>('evaluators');
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -202,7 +201,7 @@ const HrNoticesFaqPage = () => {
     const byId = new Map<string, RecipientRow>();
     for (const record of records) {
       // 조직 필터: 평가자/피평가자 공통으로 피평가자(=record.employee)의 소속 기준.
-      if (!matchesOrgFilter(record.employee, orgFilter)) continue;
+      if (!matchesOrgNodes(record.employee, orgFilter)) continue;
 
       if (audience === 'evaluatees') {
         const id = record.employee.employee_id?.trim();
@@ -481,7 +480,7 @@ const HrNoticesFaqPage = () => {
                 );
               })}
             </div>
-            <OrgFilterBar items={orgItems} value={orgFilter} onChange={setOrgFilter} />
+            <OrgChecklist items={orgItems} value={orgFilter} onChange={setOrgFilter} />
             <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
               {audience === 'evaluators'
                 ? '현재 평가가 배정된 평가자만 집계됩니다(담당 피평가자가 없는 평가자는 포함되지 않습니다).'

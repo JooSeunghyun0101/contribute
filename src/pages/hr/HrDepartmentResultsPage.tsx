@@ -14,13 +14,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import OrgFilterBar from '@/components/hr/OrgFilterBar';
+import OrgChecklist from '@/components/hr/OrgChecklist';
 import {
   getOrgValue,
-  matchesOrgFilter,
+  matchesOrgNodes,
   ORG_LEVELS,
   ORG_LEVEL_LABELS,
-  type OrgFilterState,
   type OrgLevel,
 } from '@/lib/orgHierarchy';
 import { getScoreGapBucket, floorScoreTenths, type ScoreGapBucket } from '@/lib/evaluationMatrix';
@@ -134,7 +133,7 @@ const HrDepartmentResultsPage = () => {
   const { selectedPeriod } = useEvaluationPeriod();
   const { toast } = useToast();
 
-  const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
   const [groupLevel, setGroupLevel] = useState<OrgLevel>('division');
   const [sortKey, setSortKey] = useState<SortKey>('sample');
   const [hideSmall, setHideSmall] = useState(false);
@@ -143,7 +142,7 @@ const HrDepartmentResultsPage = () => {
   const targetRecords = useMemo(
     () =>
       records.filter(
-        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgFilter(r.employee, orgFilter),
+        (r) => r.employee.available_roles?.includes('evaluatee') && matchesOrgNodes(r.employee, orgFilter),
       ),
     [records, orgFilter],
   );
@@ -322,7 +321,7 @@ const HrDepartmentResultsPage = () => {
                 </SelectContent>
               </Select>
             </label>
-            <OrgFilterBar
+            <OrgChecklist
               items={targetRecords.map((r) => r.employee)}
               value={orgFilter}
               onChange={setOrgFilter}
