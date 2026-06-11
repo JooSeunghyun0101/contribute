@@ -144,6 +144,12 @@ const ORG_KEY_SEP = '␟';
 
 export const orgNodeKey = (values: string[]): string => values.join(ORG_KEY_SEP);
 
+/** 노드 key 를 값 배열로 되돌린다. */
+export const orgNodeValues = (key: string): string[] => key.split(ORG_KEY_SEP);
+
+/** 범위(법인/본부) 선택을 부서 칩과 구분하는 접두. value 배열에 함께 담는다. */
+export const ORG_SCOPE_PREFIX = 'scope:';
+
 /** items 에 등장하는 모든 조직 노드(중복 제거, 경로순 정렬). */
 export const orgNodes = (items: OrgFields[]): OrgNode[] => {
   const map = new Map<string, OrgNode>();
@@ -163,20 +169,35 @@ export const orgNodes = (items: OrgFields[]): OrgNode[] => {
 };
 
 /**
- * item 이 선택된 노드(키) 중 하나에 부합하는지. 빈 선택=전체 통과.
- * 레벨별 매칭(사용자 결정):
- *  - 법인(depth 1)·본부(depth 2): 하위 전원 포함 — 노드 경로가 item 의 상위 경로와 일치하면 통과.
- *  - 부(depth 3)·팀(depth 4): 고른 단위만 — 위 조건 + 노드가 곧 item 의 말단(더 깊은 레벨 값이 비어야 함).
- * 예) '경영지원본부' 체크 → 그 본부 아래 모든 부·팀 인원. '인사부' 체크 → 인사부 직속만(하위 팀 제외).
+ * item 이 현재 선택(범위 + 부서 칩)에 부합하는지. 빈 선택=전체 통과.
+ * selectedKeys 는 두 종류를 한 배열에 담는다:
+ *  - 범위(ORG_SCOPE_PREFIX): 법인/본부 단일 경로. 모두(보통 1개) 접두 일치해야 함(AND).
+ *  - 부서 칩(접두 없음): 특정 부서들. 비었으면 통과, 있으면 하나라도 매칭하면 통과(OR).
+ * 부서 칩 매칭은 레벨별: 법인·본부 칩=하위 전원 포함, 부·팀 칩=그 단위만(하위 제외).
+ * 최종 = 범위 AND 부서칩.
  */
 export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
   if (selectedKeys.length === 0) return true;
-  return selectedKeys.some((key) => {
-    const values = key.split(ORG_KEY_SEP);
-    const prefixOk = values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
-    if (!prefixOk) return false;
-    if (values.length <= 2) return true; // 법인·본부: 하위 전체 포함
-    const deeper = ORG_LEVELS[values.length]; // 부·팀: 노드가 말단이어야(하위 없음)
+  const matchPrefix = (key: string): boolean =>
+    orgNodeValues(key).every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
+
+  const scopeKeys: string[] = [];
+  const unitKeys: string[] = [];
+  for (const k of selectedKeys) {
+    if (k.startsWith(ORG_SCOPE_PREFIX)) scopeKeys.push(k.slice(ORG_SCOPE_PREFIX.length));
+    else unitKeys.push(k);
+  }
+
+  // 범위: 모든 scope 접두 만족(AND). cascading 단일 경로라 보통 0~1개.
+  if (!scopeKeys.every(matchPrefix)) return false;
+
+  // 부서 칩: 비었으면 통과. 있으면 레벨별 매칭 OR.
+  if (unitKeys.length === 0) return true;
+  return unitKeys.some((key) => {
+    if (!matchPrefix(key)) return false;
+    const depth = orgNodeValues(key).length;
+    if (depth <= 2) return true; // 법인·본부 칩: 하위 전체
+    const deeper = ORG_LEVELS[depth]; // 부·팀 칩: 노드가 말단이어야
     return !deeper || getOrgValue(item, deeper) === '';
   });
 };
