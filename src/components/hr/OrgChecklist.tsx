@@ -20,7 +20,8 @@ interface OrgChecklistProps {
  * 법인/본부/부/팀을 한 목록에 펼쳐(들여쓰기로 깊이 표시) 레벨을 섞어 여러 부서를
  * 동시에 선택할 수 있다. cascading 칩 필터로는 불가능한
  * "OK›인사팀 + OKH›인사팀 + OKH›AX›인사부 동시 조회" 케이스를 지원한다.
- * 상위 노드를 선택하면 그 하위(부·팀) 인원이 모두 포함된다(접두 매칭).
+ * 각 체크는 '그 단위에 직접 속한 인원'만 잡는다(정확 매칭). 부를 골라도 하위 팀
+ * 인원은 안 잡히며, 필요하면 그 팀도 따로 체크한다. (matchesOrgNodes 참조)
  */
 const OrgChecklist = ({ items, value, onChange, label = '조직' }: OrgChecklistProps) => {
   const [open, setOpen] = useState(false);

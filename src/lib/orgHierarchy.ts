@@ -162,11 +162,19 @@ export const orgNodes = (items: OrgFields[]): OrgNode[] => {
   return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'));
 };
 
-/** item 이 선택된 노드(키) 중 하나의 하위(또는 자신)인지. 빈 선택=전체 통과. */
+/**
+ * item 이 선택된 노드(키) 중 하나와 '정확히' 같은 단위인지. 빈 선택=전체 통과.
+ * 정확 매칭: 노드 깊이까지 값이 모두 일치하고, 노드가 곧 그 직원의 말단이어야 한다
+ * (노드보다 더 깊은 레벨에 값이 있으면=하위 팀 소속이면 제외). 즉, '부'를 고르면
+ * 그 부에 직접 속한 인원만 잡히고 하위 팀 인원은 따로 체크해야 잡힌다.
+ */
 export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
   if (selectedKeys.length === 0) return true;
   return selectedKeys.some((key) => {
     const values = key.split(ORG_KEY_SEP);
-    return values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
+    const prefixOk = values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
+    if (!prefixOk) return false;
+    const deeper = ORG_LEVELS[values.length]; // 노드 바로 아래 레벨(없으면 팀=최하위)
+    return !deeper || getOrgValue(item, deeper) === '';
   });
 };
