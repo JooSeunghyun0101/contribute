@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { authService } from '@/lib/services/authService';
 import { IconArrowRight } from '@/components/brand';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -17,6 +18,9 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetReason, setResetReason] = useState('');
+  const [info, setInfo] = useState('');
 
   // 로그인됐지만 비밀번호 변경이 강제된 상태(새로고침 포함)면 변경 폼을 보여준다.
   const showChangeForm = Boolean(user) && mustChangePassword;
@@ -40,6 +44,27 @@ const Login = () => {
     }
     // 변경 강제면 user+플래그가 세팅되어 showChangeForm 이 변경 폼으로 전환한다.
     if (!result.mustChangePassword) navigate('/');
+  };
+
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setInfo('');
+    if (!employeeId) {
+      setError('사번을 입력해주세요.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const res = await authService.requestPasswordReset(employeeId, resetReason || undefined);
+      setInfo(res.message ?? '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 사번으로 로그인하세요.');
+      setResetReason('');
+      setResetOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '요청에 실패했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -200,7 +225,26 @@ const Login = () => {
           </div>
         )}
 
+        {info && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: '10px 14px',
+              background: 'rgba(60, 170, 90, 0.15)',
+              border: '1px solid rgba(60, 170, 90, 0.4)',
+              borderRadius: 10,
+              color: '#B7E3C0',
+              fontSize: 'var(--fs-body)',
+              lineHeight: 1.5,
+            }}
+          >
+            {info}
+          </div>
+        )}
+
         {!showChangeForm ? (
+          <>
+            {/* 로그인 폼은 fragment 로 감싸 아래 '초기화 요청' 토글을 형제로 둔다. */}
           <form
             onSubmit={handleCredentials}
             style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
@@ -250,6 +294,107 @@ const Login = () => {
               {isLoading ? '로그인 중…' : '로그인'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
             </button>
           </form>
+            {!resetOpen ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setResetOpen(true);
+                  setError('');
+                  setInfo('');
+                }}
+                style={{
+                  marginTop: 14,
+                  alignSelf: 'flex-start',
+                  background: 'none',
+                  border: 'none',
+                  color: textSubtle,
+                  fontSize: 'var(--fs-sm)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  textDecoration: 'underline',
+                }}
+              >
+                비밀번호를 잊으셨나요? 초기화 요청
+              </button>
+            ) : (
+              <form
+                onSubmit={handleResetRequest}
+                style={{
+                  marginTop: 16,
+                  paddingTop: 16,
+                  borderTop: `1px solid ${borderL}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 'var(--fs-sm)', color: textSoft, lineHeight: 1.55 }}>
+                  사번을 입력하면 관리자에게 초기화 요청이 전달됩니다. 승인되면 <b>사번(초기 비밀번호)</b>으로
+                  로그인 후 새 비밀번호를 설정하세요.
+                </div>
+                <div className="sd-field">
+                  <label style={{ color: textSoft }}>사번</label>
+                  <input
+                    className="sd-input"
+                    style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                    value={employeeId}
+                    onChange={(e) => setEmployeeId(e.target.value)}
+                    placeholder="예: H1911042"
+                    spellCheck={false}
+                  />
+                </div>
+                <input
+                  className="sd-input"
+                  style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                  value={resetReason}
+                  onChange={(e) => setResetReason(e.target.value)}
+                  placeholder="요청 사유 (선택)"
+                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    style={{
+                      flex: 1,
+                      height: 42,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      background: 'var(--ok-orange-brand)',
+                      color: '#fff',
+                      fontWeight: 700,
+                      borderRadius: 10,
+                      border: 'none',
+                      cursor: isLoading ? 'not-allowed' : 'pointer',
+                      opacity: isLoading ? 0.7 : 1,
+                    }}
+                  >
+                    {isLoading ? '요청 중…' : '초기화 요청'} {isLoading && <Spinner size={16} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetOpen(false);
+                      setError('');
+                    }}
+                    style={{
+                      height: 42,
+                      padding: '0 14px',
+                      background: 'transparent',
+                      color: textSubtle,
+                      fontWeight: 600,
+                      borderRadius: 10,
+                      border: `1px solid ${borderL}`,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    취소
+                  </button>
+                </div>
+              </form>
+            )}
+          </>
         ) : (
           <form
             onSubmit={handleChangePassword}

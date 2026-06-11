@@ -39,4 +39,11 @@ export const authService = {
       '/api/auth/change-password',
       jsonInit({ current_password: currentPassword, new_password: newPassword }),
     ),
+
+  // 비밀번호 초기화 요청 (공개 — 비번 잊은 사용자). HR 승인 후 사번으로 로그인.
+  requestPasswordReset: (employeeId: string, reason?: string) =>
+    authFetch<{ ok: boolean; message?: string }>(
+      '/api/auth/password-reset-request',
+      jsonInit({ employee_id: employeeId, reason }),
+    ),
 };
