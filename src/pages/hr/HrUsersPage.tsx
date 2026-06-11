@@ -1187,7 +1187,7 @@ const HrUsersPage = () => {
               />
             </div>
 
-            <OrgFilterBar items={employees} value={orgFilter} onChange={setOrgFilter} />
+            <OrgFilterBar items={employees} value={orgFilter} onChange={setOrgFilter} multiSelect />
 
             <div style={{ display: 'flex', gap: 6 }}>
               {roleFilters.map((filter) => (

@@ -44,19 +44,29 @@ export const getOrgValue = (item: OrgFields | null | undefined, level: OrgLevel)
   return s === '-' ? '' : s;
 };
 
+/** 한 레벨의 선택값. 단일(string) 또는 다중(string[]). */
+export type OrgSelection = string | string[];
+
 /** 선택된 계층 필터 상태. 비어있으면 전체. */
-export type OrgFilterState = Partial<Record<OrgLevel, string>>;
+export type OrgFilterState = Partial<Record<OrgLevel, OrgSelection>>;
+
+/** 선택값을 배열로 정규화(단일/다중/빈값 모두 처리). */
+export const selectedOrgValues = (sel: OrgSelection | undefined): string[] => {
+  if (sel == null) return [];
+  const arr = Array.isArray(sel) ? sel : [sel];
+  return arr.filter(Boolean);
+};
 
 export const emptyOrgFilter = (): OrgFilterState => ({});
 
 export const hasActiveOrgFilter = (filter: OrgFilterState): boolean =>
-  ORG_LEVELS.some((level) => Boolean(filter[level]));
+  ORG_LEVELS.some((level) => selectedOrgValues(filter[level]).length > 0);
 
-/** 한 항목이 현재 필터(상위~하위 모든 선택값)에 부합하는지. */
+/** 한 항목이 현재 필터(상위~하위 모든 선택값)에 부합하는지. 같은 레벨 내 다중 선택은 OR. */
 export const matchesOrgFilter = (item: OrgFields, filter: OrgFilterState): boolean =>
   ORG_LEVELS.every((level) => {
-    const selected = filter[level];
-    return !selected || getOrgValue(item, level) === selected;
+    const vals = selectedOrgValues(filter[level]);
+    return vals.length === 0 || vals.includes(getOrgValue(item, level));
   });
 
 /**
@@ -73,8 +83,8 @@ export const orgOptionsForLevel = (
   const values = new Set<string>();
   for (const item of items) {
     const okHigher = higher.every((h) => {
-      const sel = filter[h];
-      return !sel || getOrgValue(item, h) === sel;
+      const vals = selectedOrgValues(filter[h]);
+      return vals.length === 0 || vals.includes(getOrgValue(item, h));
     });
     if (!okHigher) continue;
     const v = getOrgValue(item, level);
@@ -85,7 +95,7 @@ export const orgOptionsForLevel = (
 
 /**
  * 상위 레벨 선택이 바뀌면 더 이상 유효하지 않은 하위 선택을 제거한다.
- * (예: 본부를 바꾸면 기존 부/팀 선택 해제)
+ * (예: 본부를 바꾸면 기존 부/팀 선택 해제) 다중 선택은 유효한 값만 남긴다.
  */
 export const pruneOrgFilter = (
   items: OrgFields[],
@@ -93,10 +103,12 @@ export const pruneOrgFilter = (
 ): OrgFilterState => {
   const next: OrgFilterState = {};
   for (const level of ORG_LEVELS) {
-    const sel = filter[level];
-    if (!sel) continue;
-    const valid = orgOptionsForLevel(items, level, next).includes(sel);
-    if (valid) next[level] = sel;
+    const vals = selectedOrgValues(filter[level]);
+    if (vals.length === 0) continue;
+    const options = orgOptionsForLevel(items, level, next);
+    const validVals = vals.filter((v) => options.includes(v));
+    if (validVals.length === 1) next[level] = validVals[0];
+    else if (validVals.length > 1) next[level] = validVals;
   }
   return next;
 };

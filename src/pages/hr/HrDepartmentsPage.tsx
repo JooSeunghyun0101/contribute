@@ -352,7 +352,7 @@ const HrDepartmentsPage = () => {
               />
             </div>
 
-            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+            <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} multiSelect />
 
             {deptFilter && (
               <button
