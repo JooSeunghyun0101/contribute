@@ -69,6 +69,8 @@ const HrDepartmentsPage = () => {
   const deptParam = searchParams.get('dept');
   const consumedDeptParam = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // 대시보드에서 ?dept=로 들어온 부서 필터(레코드 단위, 그룹핑과 무관). 칩으로 해제 가능.
+  const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('completion-asc');
   const [orgFilter, setOrgFilter] = useState<OrgFilterState>({});
   const [groupLevel, setGroupLevel] = useState<OrgLevel>('team');
@@ -76,8 +78,13 @@ const HrDepartmentsPage = () => {
   const groupLabel = ORG_LEVEL_LABELS[groupLevel]; // 본부 / 부 / 팀
 
   const filteredRecords = useMemo(
-    () => records.filter((r) => matchesOrgFilter(r.employee, orgFilter)),
-    [records, orgFilter],
+    () =>
+      records.filter(
+        (r) =>
+          matchesOrgFilter(r.employee, orgFilter) &&
+          (!deptFilter || (r.employee.department || '미지정') === deptFilter),
+      ),
+    [records, orgFilter, deptFilter],
   );
 
   // 선택한 집계 단위의 조직 값으로 그룹 키 + 그 키가 실제 속한 레벨을 만든다.
@@ -112,18 +119,20 @@ const HrDepartmentsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRecords, groupLevel]);
 
-  // 대시보드 등에서 ?dept=<부서명> 으로 들어오면 모달 대신 해당 부서로 검색 필터를 걸어
-  // 그 부서 카드만 보이게 한다(1회). 검색창에 부서명이 채워져 사용자가 직접 해제할 수 있다.
+  // 대시보드 등에서 ?dept=<부서명> 으로 들어오면 그 부서로 필터(레코드 단위 department 필드)를 걸어
+  // 해당 부서 카드만 보이게 한다(1회). 페이지는 조직계층으로 그룹핑하지만 대시보드는 레거시
+  // department로 그룹핑하므로, 그룹 키가 아니라 department 필드로 매칭해야 일치한다.
   useEffect(() => {
     if (!deptParam || consumedDeptParam.current) return;
-    if (recordsByDepartment.has(deptParam)) {
-      setSearchQuery(deptParam);
+    const exists = records.some((r) => (r.employee.department || '미지정') === deptParam);
+    if (exists) {
+      setDeptFilter(deptParam);
       consumedDeptParam.current = true;
       const next = new URLSearchParams(searchParams);
       next.delete('dept');
       setSearchParams(next, { replace: true });
     }
-  }, [deptParam, recordsByDepartment, searchParams, setSearchParams]);
+  }, [deptParam, records, searchParams, setSearchParams]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
@@ -320,6 +329,29 @@ const HrDepartmentsPage = () => {
             </div>
 
             <OrgFilterBar items={records.map((r) => r.employee)} value={orgFilter} onChange={setOrgFilter} />
+
+            {deptFilter && (
+              <button
+                type="button"
+                onClick={() => setDeptFilter(null)}
+                title="부서 필터 해제"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--ok-orange-100)',
+                  background: 'var(--ok-orange-50)',
+                  color: 'var(--ok-brown)',
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                부서: {deptFilter} ✕
+              </button>
+            )}
 
             <label
               style={{
