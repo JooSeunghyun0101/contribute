@@ -256,7 +256,7 @@ const Login = () => {
                 style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
-                placeholder="예: H1911042"
+                placeholder="예: 1234567"
                 autoComplete="username"
                 spellCheck={false}
               />
@@ -339,7 +339,7 @@ const Login = () => {
                     style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                     value={employeeId}
                     onChange={(e) => setEmployeeId(e.target.value)}
-                    placeholder="예: H1911042"
+                    placeholder="예: 1234567"
                     spellCheck={false}
                   />
                 </div>

@@ -178,7 +178,7 @@ const PasswordResetManager = () => {
             style={{ maxWidth: 240 }}
             value={directId}
             onChange={(e) => setDirectId(e.target.value)}
-            placeholder="대상 사번 (예: H1911042)"
+            placeholder="대상 사번 (예: 1234567)"
             spellCheck={false}
           />
           <button
