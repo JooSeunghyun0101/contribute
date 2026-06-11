@@ -243,21 +243,24 @@ const TeamHome = () => {
   };
 
   const openFormerEvaluation = async (card: CardModel) => {
-    if (card.disabled) {
-      notifyNotYetSubmitted(card);
-      return;
-    }
     try {
       const evals = await evaluationService.getEvaluationsByEmployeeId(
         card.record.employee.employee_id,
       );
       const myPast = evals.find((ev) => ev.evaluator_id === user?.employeeId);
       if (myPast) {
+        // 과거(이전) 평가는 피평가자 현재 제출 상태와 무관하게 항상 연결한다.
+        // (이전 평가자가 평가수정요청을 보낸 케이스에서 평가자가 과거 평가에 못 들어가던 버그)
         navigate(`/evaluation/${card.record.employee.employee_id}?evaluationId=${myPast.id}`);
         return;
       }
     } catch {
       // fall through
+    }
+    // 과거 평가가 없을 때만 현재 평가로 진입 — 미제출이면 안내.
+    if (card.disabled) {
+      notifyNotYetSubmitted(card);
+      return;
     }
     navigate(`/evaluation/${card.record.employee.employee_id}`);
   };
