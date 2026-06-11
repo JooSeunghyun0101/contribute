@@ -47,13 +47,17 @@ const GROUP_LEVELS: OrgLevel[] = ['division', 'department', 'team'];
 // 그룹 내 최상위 직급(성장레벨이 가장 높은) 구성원의 평가자를 뽑는다.
 // 예) 본부 → 부장의 평가자, 부 → 팀장의 평가자, 팀 → 팀원의 평가자.
 // 최상위가 여럿이면 최빈 평가자명으로 결정한다.
-const topEvaluatorName = (members: EmployeeEvaluationRecord[]): string => {
+const topEvaluatorName = (
+  members: EmployeeEvaluationRecord[],
+  nameById: Map<string, string>,
+): string => {
   if (!members.length) return '';
   const maxLevel = Math.max(...members.map((m) => m.employee.growth_level ?? 0));
   const counts = new Map<string, number>();
   for (const m of members) {
     if ((m.employee.growth_level ?? 0) !== maxLevel) continue;
-    const name = m.evaluation?.evaluator_name ?? m.employee.evaluator_id ?? '';
+    const evId = m.employee.evaluator_id ?? '';
+    const name = m.evaluation?.evaluator_name ?? (evId ? nameById.get(evId) ?? evId : '');
     if (!name) continue;
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
@@ -76,6 +80,12 @@ const HrDepartmentsPage = () => {
   const [groupLevel, setGroupLevel] = useState<OrgLevel>('team');
   const [groupBySection, setGroupBySection] = useState(true); // 상위조직 섹션으로 묶기
   const groupLabel = ORG_LEVEL_LABELS[groupLevel]; // 본부 / 부 / 팀
+
+  // 평가자 사번 → 이름 해석 맵. 평가의 evaluator_name 이 비면 사번 대신 이 맵으로 이름을 보여준다.
+  const empNameById = useMemo(
+    () => new Map(records.map((r) => [r.employee.employee_id, r.employee.name])),
+    [records],
+  );
 
   const filteredRecords = useMemo(
     () =>
@@ -232,7 +242,7 @@ const HrDepartmentsPage = () => {
           const topLevel = levelEntries.length ? levelEntries.sort((a, b) => b[1] - a[1])[0][0] : 'none';
           const level: OrgLevel | null = topLevel === 'none' ? null : (topLevel as OrgLevel);
           // 이 그룹의 최상위 직급 구성원의 평가자(가장 높은 평가자).
-          const evaluatorName = topEvaluatorName(recordsByDepartment.get(department.name) ?? []);
+          const evaluatorName = topEvaluatorName(recordsByDepartment.get(department.name) ?? [], empNameById);
 
           return {
             ...department,
@@ -811,7 +821,11 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
         department: record.employee.department,
         jobRole: record.employee.job_role ?? null,
         growthLevel: record.employee.growth_level,
-        evaluatorName: record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? null,
+        evaluatorName:
+          record.evaluation?.evaluator_name ??
+          (record.employee.evaluator_id
+            ? empNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
+            : null),
         reviewStatusLabel: REVIEW_STATUS_LABEL[record.reviewStatus],
         weightedScore: record.weightedScore,
         isFinalized: isEvaluationFinalized(record),
@@ -1006,7 +1020,10 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                         {record.employee.growth_level ? `Lv.${record.employee.growth_level}` : '-'}
                       </TableCell>
                       <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
-                        {record.evaluation?.evaluator_name ?? record.employee.evaluator_id ?? '-'}
+                        {record.evaluation?.evaluator_name ??
+                          (record.employee.evaluator_id
+                            ? empNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
+                            : '-')}
                       </TableCell>
                       <TableCell style={{ minWidth: 120 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
