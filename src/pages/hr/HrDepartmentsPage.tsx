@@ -101,13 +101,25 @@ const HrDepartmentsPage = () => {
   // 선택 레벨이 비어 있으면 더 하위 레벨로 내려가며 폴백(상위로 조회해도 미지정이면 하위 조직으로 묶임).
   // 그래도 없으면 레거시 department(팀급으로 간주) → '미지정'.
   const groupStartIdx = ORG_LEVELS.indexOf(groupLevel);
-  const resolveGroup = (record: EmployeeEvaluationRecord): { key: string; level: OrgLevel | null } => {
+  const resolveGroup = (
+    record: EmployeeEvaluationRecord,
+  ): { key: string; level: OrgLevel | null; label: string } => {
     for (let i = groupStartIdx; i < ORG_LEVELS.length; i += 1) {
       const value = getOrgValue(record.employee, ORG_LEVELS[i]);
-      if (value) return { key: value, level: ORG_LEVELS[i] };
+      if (value) {
+        // 상위 경로로 한정한 key — 동명이부서(예: OK 인사팀 vs OKH 인사팀)를 분리한다.
+        // 표시는 label(말단 조직명), 그룹핑·조회는 key(전체 경로)로 분리.
+        const ancestors = ORG_LEVELS.slice(0, i)
+          .map((lv) => getOrgValue(record.employee, lv))
+          .filter(Boolean);
+        const key = [...ancestors, value].join(' › ');
+        return { key, level: ORG_LEVELS[i], label: value };
+      }
     }
-    if (record.employee.department) return { key: record.employee.department, level: 'team' };
-    return { key: '미지정', level: null };
+    if (record.employee.department) {
+      return { key: record.employee.department, level: 'team', label: record.employee.department };
+    }
+    return { key: '미지정', level: null, label: '미지정' };
   };
 
   // 상위 조직 경로(선택 레벨보다 위 레벨들)를 사람이 읽는 문자열로. 예) 부 조회 시 "경영지원본부".
@@ -162,6 +174,7 @@ const HrDepartmentsPage = () => {
           Record<
             string,
             {
+              groupKey: string;
               name: string;
               totalMembers: number;
               finalizedMembers: number;
@@ -174,11 +187,12 @@ const HrDepartmentsPage = () => {
             }
           >
         >((acc, record) => {
-          const { key, level } = resolveGroup(record);
+          const { key, level, label } = resolveGroup(record);
 
           if (!acc[key]) {
             acc[key] = {
-              name: key,
+              groupKey: key,
+              name: label,
               totalMembers: 0,
               finalizedMembers: 0,
               achievedMembers: 0,
@@ -242,7 +256,7 @@ const HrDepartmentsPage = () => {
           const topLevel = levelEntries.length ? levelEntries.sort((a, b) => b[1] - a[1])[0][0] : 'none';
           const level: OrgLevel | null = topLevel === 'none' ? null : (topLevel as OrgLevel);
           // 이 그룹의 최상위 직급 구성원의 평가자(가장 높은 평가자).
-          const evaluatorName = topEvaluatorName(recordsByDepartment.get(department.name) ?? [], empNameById);
+          const evaluatorName = topEvaluatorName(recordsByDepartment.get(department.groupKey) ?? [], empNameById);
 
           return {
             ...department,
@@ -480,9 +494,9 @@ const HrDepartmentsPage = () => {
                 <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
                   {depts.map((department) => (
               <button
-                key={department.name}
+                key={department.groupKey}
                 type="button"
-                onClick={() => setOpenDepartment(department.name)}
+                onClick={() => setOpenDepartment(department.groupKey)}
                 className="sd-card sd-card-lg"
                 style={{
                   textAlign: 'left',
@@ -749,9 +763,9 @@ const HrDepartmentsPage = () => {
 
       {openDepartment && (
         <DepartmentMembersModal
-          name={openDepartment}
+          name={departments.find((d) => d.groupKey === openDepartment)?.name ?? openDepartment}
           levelLabel={groupLabel}
-          parentPath={departments.find((d) => d.name === openDepartment)?.parentPath ?? ''}
+          parentPath={departments.find((d) => d.groupKey === openDepartment)?.parentPath ?? ''}
           records={openDepartmentRecords}
           onClose={() => setOpenDepartment(null)}
         />
