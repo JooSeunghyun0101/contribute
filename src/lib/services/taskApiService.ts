@@ -73,6 +73,19 @@ export const taskApiService = {
     }
   },
 
+  // 한 기간의 모든 과업 일괄 조회 (대시보드 N+1 완화, 최신 평가입력 반영). HR 전용.
+  async getCurrentYearTasks(query?: { periodId?: string | null; year?: number | null }): Promise<Task[]> {
+    const params = new URLSearchParams();
+    if (query?.periodId) params.set('periodId', query.periodId);
+    else if (query?.year != null) params.set('year', String(query.year));
+    const qs = params.toString();
+    try {
+      return await apiFetch<Task[]>(`/api/tasks/current-year${qs ? `?${qs}` : ''}`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 모든 과업 조회 (삭제된 과업 포함 여부는 백엔드 로직에 따라 다름)
   async getAllTasks(): Promise<Task[]> {
     try {

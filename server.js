@@ -5606,6 +5606,80 @@ app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsPara
   }
 });
 
+// 대시보드 N+1 완화: 한 기간의 '직원별 현재 평가' 1건씩을 한 번에 반환.
+// 위 /by-employee/:id 의 선택 로직(LATERAL 최신배정 + 현재평가자 우선·그 외 최신, LIMIT 1)을
+// DISTINCT ON (evaluatee_id) 로 일반화 — 직원당 정확히 같은 1건을 고른다(개별 호출과 동치).
+// 개별 호출과 동일한 컬럼(evaluator_id/_name 등)을 포함해 매핑 시 평가자 정보 유실이 없게 한다.
+app.get('/api/evaluations/current-by-employee', requireHr, async (req, res) => {
+  if (!isDbAvailable) {
+    return res.json([]);
+  }
+  try {
+    const filter = await resolveEvaluationPeriodFilter(req.query, 1);
+    const requestedEvaluatorId =
+      typeof req.query.evaluatorId === 'string' && req.query.evaluatorId.trim()
+        ? req.query.evaluatorId.trim()
+        : null;
+    const evaluatorIndex = 1 + filter.values.length;
+    const evaluatorClause = requestedEvaluatorId
+      ? `AND latest_ah.new_evaluator_id = $${evaluatorIndex}`
+      : '';
+    const params = requestedEvaluatorId
+      ? [...filter.values, requestedEvaluatorId]
+      : [...filter.values];
+    // DISTINCT ON 선두 정렬키=evaluatee_id, 그 뒤는 개별 라우트의 LIMIT 1 선택순서와 동일.
+    const tiebreak = requestedEvaluatorId
+      ? 'ev.created_at DESC'
+      : `CASE
+            WHEN latest_ah.new_evaluator_id IS NOT DISTINCT FROM emp.evaluator_id THEN 0
+            ELSE 1
+          END,
+          ev.created_at DESC`;
+    const { rows } = await pool.query(
+      `
+        SELECT DISTINCT ON (ev.evaluatee_id)
+          ev.*,
+          latest_ah.new_evaluator_id AS evaluator_id,
+          latest_ah.changed_at AS evaluator_assigned_at,
+          ev_emp.name AS evaluator_name,
+          ev_emp.position AS evaluator_position,
+          ev_emp.department AS evaluator_department
+        FROM evaluations ev
+        LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
+        LEFT JOIN LATERAL (
+          SELECT h.*
+          FROM evaluator_assignment_history h
+          WHERE h.evaluation_id = ev.id
+            AND h.employee_id = ev.evaluatee_id
+            AND h.status = 'applied'
+            AND h.change_type <> 'cancel'
+          ORDER BY h.changed_at DESC, h.id DESC
+          LIMIT 1
+        ) latest_ah ON TRUE
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = latest_ah.new_evaluator_id
+        WHERE ${filter.clause.replaceAll('evaluation_period_id', 'ev.evaluation_period_id').replaceAll('evaluation_year', 'ev.evaluation_year')}
+          AND (
+            COALESCE(ev.record_status, 'active') = 'active'
+            OR EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history live
+              WHERE live.evaluation_id = ev.id
+                AND live.status = 'applied'
+                AND live.change_type <> 'cancel'
+            )
+          )
+          ${evaluatorClause}
+        ORDER BY ev.evaluatee_id, ${tiebreak}
+      `,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching current evaluations by employee:', err);
+    res.json([]);
+  }
+});
+
 app.get('/api/evaluator-mappings', async (req, res) => {
   try {
     // Fetch evaluator?멷valuatee mappings using the employees table.

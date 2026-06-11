@@ -53,6 +53,15 @@ export const taskService = {
     }
   },
 
+  // 한 기간의 모든 과업 일괄 조회 (대시보드 N+1 완화). HR 전용.
+  async getCurrentYearTasks(query?: { periodId?: string | null; year?: number | null }): Promise<Task[]> {
+    try {
+      return await taskApiService.getCurrentYearTasks(query);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 전체 과업 조회 (삭제된 과업 포함 여부는 백엔드 로직에 따름)
   async getAllTasks(): Promise<Task[]> {
     try {

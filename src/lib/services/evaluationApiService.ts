@@ -32,6 +32,18 @@ export const evaluationService = {
     }
   },
 
+  // 직원별 '현재 평가' 1건씩 일괄 조회 (대시보드 N+1 완화). HR 전용.
+  // 서버가 getEvaluationByEmployeeId 와 동일한 선택 로직으로 직원당 1건을 고른다.
+  async getCurrentEvaluationsByEmployee(query?: EvaluationQuery): Promise<Evaluation[]> {
+    try {
+      return await apiFetch<Evaluation[]>(
+        `/api/evaluations/current-by-employee${buildEvaluationQuery(query)}`,
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 특정 직원의 평가 조회
   async getEvaluationByEmployeeId(employeeId: string, query?: EvaluationQuery): Promise<Evaluation | null> {
     if (!employeeId) {

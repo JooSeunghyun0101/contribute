@@ -25,6 +25,7 @@ const useRecordsLoader = (
   includeFeedbackHistory = false,
   recordEvaluatorId: string | null = null,
   skipTasks = false,
+  bulk = false,
 ): DashboardState => {
   const { selectedPeriodId } = useEvaluationPeriod();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -46,6 +47,7 @@ const useRecordsLoader = (
         periodId: selectedPeriodId,
         evaluatorId: recordEvaluatorId,
         skipTasks,
+        bulk,
       });
       setRecords(loadedRecords);
     } catch (err) {
@@ -55,13 +57,13 @@ const useRecordsLoader = (
     } finally {
       setIsLoading(false);
     }
-  }, [includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks]);
+  }, [includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks, bulk]);
 
   useEffect(() => {
     void reload();
     // re-run only when the input identity changes, not on every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaderKey, includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks]);
+  }, [loaderKey, includeFeedbackHistory, selectedPeriodId, recordEvaluatorId, skipTasks, bulk]);
 
   return { employees, records, isLoading, error, reload };
 };
@@ -127,9 +129,13 @@ export const useCompanyDashboardRecords = (includeFeedbackHistory = false) =>
     },
     'company',
     includeFeedbackHistory,
+    null,
+    false,
+    true, // HR 전체 대시보드 — 벌크 로드로 N+1·429 완화
   );
 
 export const useAllEmployees = (): DashboardState =>
   // 직원관리 목록은 평가 "존재/상태"(record.evaluation)만 사용하고 과업 점수는 쓰지 않는다.
   // per-employee 과업 조회를 생략해 대규모 직원 로드 시 요청 폭주(포트 고갈)를 막는다.
-  useRecordsLoader(() => employeeService.getAllEmployees(), 'all', false, null, true);
+  // bulk=true: 평가 존재/상태도 벌크 1회로 모아 직원 수만큼의 개별 호출 제거.
+  useRecordsLoader(() => employeeService.getAllEmployees(), 'all', false, null, true, true);
