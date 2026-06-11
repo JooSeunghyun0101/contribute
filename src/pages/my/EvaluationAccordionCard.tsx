@@ -778,7 +778,8 @@ const EvaluationAccordionCard = ({
                   }}
                 >
                   <span>{taskEditMessage}</span>
-                  {isCurrent && isTaskEditingLocked && (
+                  {/* 현재·이전 평가 모두: 최종제출 이후 잠금 상태면 그 평가의 담당 평가자에게 수정 요청. */}
+                  {isTaskEditingLocked && (
                     <button
                       type="button"
                       onClick={handleRequestReturn}
