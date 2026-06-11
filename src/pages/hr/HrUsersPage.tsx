@@ -1391,7 +1391,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.name}
                             onChange={(event) => updateEditForm('name', event.target.value)}
-                            style={{ minWidth: 88 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1422,7 +1422,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.position}
                             onChange={(event) => updateEditForm('position', event.target.value)}
-                            style={{ minWidth: 72 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           employee.position
@@ -1434,7 +1434,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgCorporation}
                             onChange={(event) => updateEditForm('orgCorporation', event.target.value)}
-                            style={{ minWidth: 56 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           getOrgValue(employee, 'corporation') || '-'
@@ -1446,7 +1446,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgDivision}
                             onChange={(event) => updateEditForm('orgDivision', event.target.value)}
-                            style={{ minWidth: 92 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           getOrgValue(employee, 'division') || '-'
@@ -1458,7 +1458,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgDepartment}
                             onChange={(event) => updateEditForm('orgDepartment', event.target.value)}
-                            style={{ minWidth: 92 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           getOrgValue(employee, 'department') || '-'
@@ -1470,7 +1470,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.orgTeam}
                             onChange={(event) => updateEditForm('orgTeam', event.target.value)}
-                            style={{ minWidth: 92 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           getOrgValue(employee, 'team') || '-'
@@ -1482,7 +1482,7 @@ const HrUsersPage = () => {
                             className="sd-input"
                             value={editForm.jobRole}
                             onChange={(event) => updateEditForm('jobRole', event.target.value)}
-                            style={{ minWidth: 76 }}
+                            style={{ minWidth: 0 }}
                           />
                         ) : (
                           employee.job_role ?? '-'
