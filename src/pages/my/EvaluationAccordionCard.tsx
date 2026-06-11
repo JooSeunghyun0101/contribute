@@ -1090,15 +1090,15 @@ const EvaluationAccordionCard = ({
                             style={lockedInputStyle}
                           />
                         </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
+                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0, textAlign: 'center' }}>
                           <div className="sd-label-mini">기여 방식</div>
-                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 'var(--fs-body)' }}>
+                          <div style={{ marginTop: 4, fontWeight: 800, fontSize: 'var(--fs-h3)' }}>
                             {mode === 'create' ? '평가자 지정' : selectedTask?.contributionMethod || '미정'}
                           </div>
                         </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
+                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0, textAlign: 'center' }}>
                           <div className="sd-label-mini">기여 범위</div>
-                          <div style={{ marginTop: 4, fontWeight: 700, fontSize: 'var(--fs-body)' }}>
+                          <div style={{ marginTop: 4, fontWeight: 800, fontSize: 'var(--fs-h3)' }}>
                             {mode === 'create' ? '평가자 지정' : selectedTask?.contributionScope || '미정'}
                           </div>
                         </div>
