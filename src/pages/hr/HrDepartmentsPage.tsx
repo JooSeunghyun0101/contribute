@@ -16,6 +16,8 @@ import {
   type OrgLevel,
 } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+import { employeeService } from '@/lib/services';
+import type { Employee } from '@/types';
 import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
 
 type SortKey =
@@ -82,10 +84,29 @@ const HrDepartmentsPage = () => {
   const groupLabel = ORG_LEVEL_LABELS[groupLevel]; // 본부 / 부 / 팀
 
   // 평가자 사번 → 이름 해석 맵. 평가의 evaluator_name 이 비면 사번 대신 이 맵으로 이름을 보여준다.
-  const empNameById = useMemo(
-    () => new Map(records.map((r) => [r.employee.employee_id, r.employee.name])),
-    [records],
-  );
+  // records(평가대상자)만으로는 평가자(피평가자 아님)가 빠질 수 있어 전체 직원으로 보강한다.
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    employeeService
+      .getAllEmployees()
+      .then((list) => {
+        if (!cancelled) setAllEmployees(list);
+      })
+      .catch(() => {
+        /* 실패 시 records 기반 맵으로 폴백 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const empNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of records) map.set(r.employee.employee_id, r.employee.name);
+    for (const e of allEmployees) map.set(e.employee_id, e.name);
+    return map;
+  }, [records, allEmployees]);
 
   const filteredRecords = useMemo(
     () =>
@@ -767,6 +788,7 @@ const HrDepartmentsPage = () => {
           levelLabel={groupLabel}
           parentPath={departments.find((d) => d.groupKey === openDepartment)?.parentPath ?? ''}
           records={openDepartmentRecords}
+          evaluatorNameById={empNameById}
           onClose={() => setOpenDepartment(null)}
         />
       )}
@@ -779,6 +801,7 @@ type DepartmentMembersModalProps = {
   levelLabel: string;
   parentPath: string;
   records: EmployeeEvaluationRecord[];
+  evaluatorNameById: Map<string, string>;
   onClose: () => void;
 };
 
@@ -803,7 +826,7 @@ const REVIEW_STATUS_TONE: Record<
   locked: 'neutral',
 };
 
-const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose }: DepartmentMembersModalProps) => {
+const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluatorNameById, onClose }: DepartmentMembersModalProps) => {
   const { toast } = useToast();
   const finalizedRecords = records.filter(isEvaluationFinalized);
   const finalized = finalizedRecords.length;
@@ -838,7 +861,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
         evaluatorName:
           record.evaluation?.evaluator_name ??
           (record.employee.evaluator_id
-            ? empNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
+            ? evaluatorNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
             : null),
         reviewStatusLabel: REVIEW_STATUS_LABEL[record.reviewStatus],
         weightedScore: record.weightedScore,
@@ -1036,7 +1059,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, onClose
                       <TableCell style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
                         {record.evaluation?.evaluator_name ??
                           (record.employee.evaluator_id
-                            ? empNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
+                            ? evaluatorNameById.get(record.employee.evaluator_id) ?? record.employee.evaluator_id
                             : '-')}
                       </TableCell>
                       <TableCell style={{ minWidth: 120 }}>
