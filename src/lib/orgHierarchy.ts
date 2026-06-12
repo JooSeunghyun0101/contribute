@@ -172,15 +172,12 @@ export const orgNodes = (items: OrgFields[]): OrgNode[] => {
 };
 
 /**
- * item 이 선택된 조직 노드 중 하나의 '하위(또는 자신)'인지. 빈 선택=전체 통과.
- * 각 노드는 압축경로이고, 선택 = 그 단위 하위 전원(subtree, OR). 노드의 경로가
- * 직원 압축경로의 접두면 매칭 → 법인/본부/부/팀 어느 레벨을 골라도 그 아래 전원이 나온다.
+ * item 이 선택에 부합하는지. 빈 선택=전체 통과.
+ * selectedKeys 는 '캐스케이드로 펼쳐진' 노드키 집합(상위 체크 시 하위 노드가 모두 포함됨).
+ * 매칭은 직원의 '정확한 소속 단위'(압축경로 전체) 노드키가 집합에 있는지로 본다 —
+ * 이렇게 해야 부모가 집합에 남아 있어도 특정 하위만 해제하면 그 인원이 실제로 빠진다.
  */
 export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
   if (selectedKeys.length === 0) return true;
-  const path = orgCompactPath(item);
-  return selectedKeys.some((key) => {
-    const vals = orgNodeValues(key);
-    return vals.every((v, i) => path[i] === v);
-  });
+  return selectedKeys.includes(orgNodeKey(orgCompactPath(item)));
 };
