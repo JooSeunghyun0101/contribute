@@ -122,12 +122,11 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     onChange([...set]);
   };
 
-  // 노드의 체크 상태: 하위(자신 포함) 전부 선택=true, 일부=indeterminate, 없음=false.
+  // 부서 자체(직속) 미포함이면 표시 없음(false). 직속 포함 시 — 하위 전부=✓, 일부=–.
   const checkStateOf = (nodeKey: string): boolean | 'indeterminate' => {
+    if (!selected.has(nodeKey)) return false;
     const sub = subtreeOf.get(nodeKey) ?? [nodeKey];
-    let n = 0;
-    for (const k of sub) if (selected.has(k)) n += 1;
-    return n === 0 ? false : n === sub.length ? true : 'indeterminate';
+    return sub.every((k) => selected.has(k)) ? true : 'indeterminate';
   };
 
   const setNode = (node: OrgNode, check: boolean) => {
@@ -218,7 +217,6 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             {kids.length > 0 && (
               <span style={{ color: 'var(--fg-muted)', fontWeight: 600 }}> ({kids.length})</span>
             )}
-            {selfIn && state === 'indeterminate' && <span style={selfBadgeStyle}>직속 포함</span>}
           </button>
         </div>
         {isOpen && kids.map(renderNode)}
@@ -249,7 +247,6 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             }}
           >
             {node.leaf}
-            {selfIn && state === 'indeterminate' && <span style={selfBadgeStyle}>직속 포함</span>}
           </span>
         </div>
         {kids.map(renderSelectedNode)}
@@ -384,17 +381,6 @@ const emptyStyle: CSSProperties = {
   padding: '12px 8px',
   color: 'var(--fg-muted)',
   fontSize: 'var(--fs-sm)',
-};
-
-const selfBadgeStyle: CSSProperties = {
-  marginLeft: 6,
-  padding: '0 6px',
-  borderRadius: 6,
-  background: 'var(--ok-orange-100)',
-  color: 'var(--ok-brown)',
-  fontSize: 10,
-  fontWeight: 800,
-  whiteSpace: 'nowrap',
 };
 
 const smallPrimaryBtn: CSSProperties = {
