@@ -212,6 +212,7 @@ const EMPLOYEE_UPDATE_FIELDS = new Set([
   'org_division',
   'org_department',
   'org_team',
+  'matching_result', // 복직 처리 시 '휴직' 해제 등
 ]);
 const ASSIGNMENT_HISTORY_CHANGE_TYPES = new Set(['change', 'cancel']);
 const ASSIGNMENT_HISTORY_STATUSES = new Set(['applied', 'cancelled']);

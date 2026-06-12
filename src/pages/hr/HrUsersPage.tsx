@@ -287,6 +287,7 @@ const HrUsersPage = () => {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EmployeeEditForm | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   // 평가자 변경 이력 모달 대상 직원 id (null = 모달 닫힘)
   const [historyModalEmployeeId, setHistoryModalEmployeeId] = useState<string | null>(null);
   const [assignmentHistoryByEmployee, setAssignmentHistoryByEmployee] = useState<
@@ -793,6 +794,37 @@ const HrUsersPage = () => {
       });
     } finally {
       setIsAddingUser(false);
+    }
+  };
+
+  // 복직 처리 — 휴직 표시(레거시 department='휴직자소속' + matching_result='휴직')만 되돌린다.
+  // 실제 소속은 org_* 에 보존돼 있으므로, 그 말단 값으로 department 를 복원하고 matching_result 를 비운다.
+  const handleRestore = async (employee: Employee) => {
+    const realDept =
+      getOrgValue(employee, 'team') ||
+      getOrgValue(employee, 'department') ||
+      getOrgValue(employee, 'division') ||
+      getOrgValue(employee, 'corporation') ||
+      '미지정';
+    const ok = await confirm({
+      title: `${employee.name} 복직 처리`,
+      description: `소속을 실제 부서(${realDept})로 복원하고 휴직 표시를 해제합니다.`,
+      confirmText: '복직',
+    });
+    if (!ok) return;
+    setRestoringId(employee.employee_id);
+    try {
+      await employeeService.updateEmployee(employee.employee_id, {
+        department: realDept,
+        matching_result: null,
+      });
+      await reload();
+      toast({ title: '복직 처리되었습니다.', description: `${employee.name} → ${realDept}` });
+    } catch (error) {
+      console.error('복직 처리 실패:', error);
+      toast({ title: '복직 처리 실패', description: '잠시 후 다시 시도해 주세요.', variant: 'destructive' });
+    } finally {
+      setRestoringId(null);
     }
   };
 
@@ -1626,6 +1658,16 @@ const HrUsersPage = () => {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                            {isOnLeave(employee) && (
+                              <button
+                                className="sd-btn sd-btn-sm"
+                                onClick={() => handleRestore(employee)}
+                                disabled={restoringId === employee.employee_id}
+                                style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
+                              >
+                                {restoringId === employee.employee_id ? '복직 중' : '복직'}
+                              </button>
+                            )}
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
                               onClick={() => openAssignmentHistory(employee.employee_id)}
