@@ -8075,21 +8075,21 @@ app.get('/api/settings/:userId', requireSettingsRead, async (req, res) => {
 
 app.post('/api/setting', requireSettingsWrite, async (req, res) => {
   try {
-    const cols = ['user_id', 'setting_type', 'setting_data', 'updated_at'];
-    const vals = [
-      req.body.user_id,
-      req.body.setting_type,
-      req.body.setting_data,
-      new Date().toISOString()
-    ];
-    const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+    const { user_id, setting_type, setting_data } = req.body ?? {};
+    if (!user_id || !setting_type || setting_data === undefined) {
+      return res.status(400).json({ error: 'user_id, setting_type, setting_data가 필요합니다.' });
+    }
+    // node-pg는 배열 파라미터를 JSON이 아닌 Postgres 배열 리터럴로 직렬화하므로,
+    // 루트가 배열인 payload(평가 매트릭스 등)는 jsonb 바인딩이 invalid input syntax로 실패한다.
+    // 항상 문자열화해 jsonb로 캐스팅한다(객체·배열·스칼라 모두 안전).
     const { rows } = await pool.query(
-      `INSERT INTO settings (${cols.join(',')}) VALUES (${placeholders})
+      `INSERT INTO settings (user_id, setting_type, setting_data, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4)
        ON CONFLICT (user_id, setting_type) DO UPDATE
        SET setting_data = EXCLUDED.setting_data,
            updated_at = EXCLUDED.updated_at
        RETURNING *`,
-      vals
+      [user_id, setting_type, JSON.stringify(setting_data), new Date().toISOString()]
     );
     res.json(rows[0]);
   } catch (err) {
