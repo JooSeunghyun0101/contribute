@@ -97,6 +97,7 @@ type EmployeeEditForm = {
   orgDivision: string;
   orgDepartment: string;
   orgTeam: string;
+  onLeave: boolean; // 휴직 여부(편집 폼에서 토글). 실제 소속은 org_* 로 보존.
 };
 
 type AssignmentChangeOptions = {
@@ -287,7 +288,6 @@ const HrUsersPage = () => {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EmployeeEditForm | null>(null);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
   // 평가자 변경 이력 모달 대상 직원 id (null = 모달 닫힘)
   const [historyModalEmployeeId, setHistoryModalEmployeeId] = useState<string | null>(null);
   const [assignmentHistoryByEmployee, setAssignmentHistoryByEmployee] = useState<
@@ -484,6 +484,7 @@ const HrUsersPage = () => {
       orgDivision: getOrgValue(employee, 'division'),
       orgDepartment: getOrgValue(employee, 'department'),
       orgTeam: getOrgValue(employee, 'team'),
+      onLeave: isOnLeave(employee),
     });
   };
 
@@ -510,7 +511,18 @@ const HrUsersPage = () => {
 
     const name = editForm.name.trim();
     const position = editForm.position.trim();
-    const department = editForm.department.trim();
+    const realDept =
+      editForm.orgTeam.trim() ||
+      editForm.orgDepartment.trim() ||
+      editForm.orgDivision.trim() ||
+      editForm.orgCorporation.trim() ||
+      '미지정';
+    // 휴직이면 소속 표시를 '휴직자소속'으로(실제 소속은 org_* 에 보존). 재직이면 실제 소속으로 복원.
+    const department = editForm.onLeave
+      ? '휴직자소속'
+      : editForm.department.trim() === '휴직자소속' || !editForm.department.trim()
+        ? realDept
+        : editForm.department.trim();
     const growthLevel = editForm.growthLevel.trim();
 
     if (!name || !position || !department) {
@@ -561,6 +573,8 @@ const HrUsersPage = () => {
         org_division: orgOrNull(editForm.orgDivision),
         org_department: orgOrNull(editForm.orgDepartment),
         org_team: orgOrNull(editForm.orgTeam),
+        // 휴직=‘휴직’, 복직(휴직→재직)=null 로 해제, 그 외 일반 편집은 미전송(기존값 유지).
+        matching_result: editForm.onLeave ? '휴직' : isOnLeave(employee) ? null : undefined,
         changed_by: actorId,
       });
       await reload();
@@ -794,37 +808,6 @@ const HrUsersPage = () => {
       });
     } finally {
       setIsAddingUser(false);
-    }
-  };
-
-  // 복직 처리 — 휴직 표시(레거시 department='휴직자소속' + matching_result='휴직')만 되돌린다.
-  // 실제 소속은 org_* 에 보존돼 있으므로, 그 말단 값으로 department 를 복원하고 matching_result 를 비운다.
-  const handleRestore = async (employee: Employee) => {
-    const realDept =
-      getOrgValue(employee, 'team') ||
-      getOrgValue(employee, 'department') ||
-      getOrgValue(employee, 'division') ||
-      getOrgValue(employee, 'corporation') ||
-      '미지정';
-    const ok = await confirm({
-      title: `${employee.name} 복직 처리`,
-      description: `소속을 실제 부서(${realDept})로 복원하고 휴직 표시를 해제합니다.`,
-      confirmText: '복직',
-    });
-    if (!ok) return;
-    setRestoringId(employee.employee_id);
-    try {
-      await employeeService.updateEmployee(employee.employee_id, {
-        department: realDept,
-        matching_result: null,
-      });
-      await reload();
-      toast({ title: '복직 처리되었습니다.', description: `${employee.name} → ${realDept}` });
-    } catch (error) {
-      console.error('복직 처리 실패:', error);
-      toast({ title: '복직 처리 실패', description: '잠시 후 다시 시도해 주세요.', variant: 'destructive' });
-    } finally {
-      setRestoringId(null);
     }
   };
 
@@ -1426,12 +1409,33 @@ const HrUsersPage = () => {
                       </TableCell>
                       <TableCell>
                         {isEditing && editForm ? (
-                          <input
-                            className="sd-input"
-                            value={editForm.name}
-                            onChange={(event) => updateEditForm('name', event.target.value)}
-                            style={{ minWidth: 0 }}
-                          />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <input
+                              className="sd-input"
+                              value={editForm.name}
+                              onChange={(event) => updateEditForm('name', event.target.value)}
+                              style={{ minWidth: 0 }}
+                            />
+                            <label
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 'var(--fs-xs)',
+                                color: editForm.onLeave ? 'var(--ok-brown)' : 'var(--fg-muted)',
+                                fontWeight: editForm.onLeave ? 700 : 600,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editForm.onLeave}
+                                onChange={(event) => updateEditForm('onLeave', event.target.checked)}
+                              />
+                              휴직 처리
+                            </label>
+                          </div>
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
                             <div
@@ -1658,16 +1662,6 @@ const HrUsersPage = () => {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                            {isOnLeave(employee) && (
-                              <button
-                                className="sd-btn sd-btn-sm"
-                                onClick={() => handleRestore(employee)}
-                                disabled={restoringId === employee.employee_id}
-                                style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
-                              >
-                                {restoringId === employee.employee_id ? '복직 중' : '복직'}
-                              </button>
-                            )}
                             <button
                               className="sd-btn sd-btn-ghost sd-btn-sm"
                               onClick={() => openAssignmentHistory(employee.employee_id)}
