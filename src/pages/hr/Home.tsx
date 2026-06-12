@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Pill } from '@/components/brand';
 import AiSummaryReportModal from '@/components/Dashboard/AiSummaryReportModal';
 import { useCompanyDashboardRecords, usePriorYearRecords } from '@/hooks/useDashboardRecords';
+import { useSharedOrgFilter } from '@/hooks/useSharedOrgFilter';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -36,10 +37,18 @@ import {
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 // 부서별 그룹핑은 '실제 조직' 기준 — 동명 부서(예: OK 인사팀 vs OKH 인사팀)를
-// 합치지 않도록 법인›본부›부 경로로 정규화한다. 표시는 말단(부) 이름.
-const DEPT_LEVELS: readonly OrgLevel[] = ['corporation', 'division', 'department'];
-const deptPathOf = (emp: { org_corporation?: string | null; org_division?: string | null; org_department?: string | null; org_team?: string | null }) =>
-  DEPT_LEVELS.map((lv) => getOrgValue(emp, lv)).filter(Boolean);
+// 합치지 않도록 법인›…›선택레벨 경로로 정규화한다. 표시는 말단 이름.
+type DeptLevel = 'division' | 'department' | 'team';
+const DEPT_LEVEL_PATHS: Record<DeptLevel, readonly OrgLevel[]> = {
+  division: ['corporation', 'division'],
+  department: ['corporation', 'division', 'department'],
+  team: ['corporation', 'division', 'department', 'team'],
+};
+const DEPT_LEVEL_LABEL: Record<DeptLevel, string> = { division: '본부', department: '부', team: '팀' };
+const deptPathOf = (
+  emp: { org_corporation?: string | null; org_division?: string | null; org_department?: string | null; org_team?: string | null },
+  level: DeptLevel,
+) => DEPT_LEVEL_PATHS[level].map((lv) => getOrgValue(emp, lv)).filter(Boolean);
 
 const MONTH_LABELS = [
   '1월',
@@ -100,8 +109,9 @@ const HrHome = () => {
   const { selectedPeriod, periods } = useEvaluationPeriod();
   const { toast } = useToast();
   const [isExportingReport, setIsExportingReport] = useState(false);
-  const [orgFilter, setOrgFilter] = useState<string[]>([]);
+  const [orgFilter, setOrgFilter] = useSharedOrgFilter();
   const [deptSort, setDeptSort] = useState<DeptSort>('achievement');
+  const [deptLevel, setDeptLevel] = useState<DeptLevel>('department'); // 부서 바 그룹핑 단위
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
   const [memberModal, setMemberModal] = useState<{ title: string; records: EmployeeEvaluationRecord[] } | null>(null);
   const [showAiReport, setShowAiReport] = useState(false);
@@ -163,7 +173,7 @@ const HrHome = () => {
           }
         >
       >((acc, r) => {
-        const path = deptPathOf(r.employee);
+        const path = deptPathOf(r.employee, deptLevel);
         const id = path.length ? orgNodeKey(path) : '미지정';
         const name = path.length ? path[path.length - 1] : r.employee.department || '미지정';
         if (!acc[id]) {
@@ -248,7 +258,7 @@ const HrHome = () => {
       monthlyTrend,
       completionDelta,
     };
-  }, [scopedRecords, filteredRecords, trendYear]);
+  }, [scopedRecords, filteredRecords, trendYear, deptLevel]);
 
   // 모수(분모)는 전체 대상자(미완료 포함). 점수/달성은 완료(또는 잠금)만 반영(미완료는 빈 과업).
   const hrTrendMembers = useMemo(
@@ -486,18 +496,33 @@ const HrHome = () => {
                   <button
                     className="sd-btn sd-btn-ghost sd-btn-sm"
                     style={{ color: 'var(--ok-orange)' }}
-                    onClick={() =>
-                      navigate(
-                        orgFilter.length
-                          ? `/hr/departments?org=${encodeURIComponent(JSON.stringify(orgFilter))}`
-                          : '/hr/departments',
-                      )
-                    }
+                    onClick={() => navigate('/hr/departments')}
                   >
                     전체 보기 →
                   </button>
                 }
               >
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  {(['division', 'department', 'team'] as DeptLevel[]).map((lv) => (
+                    <button
+                      key={lv}
+                      type="button"
+                      onClick={() => setDeptLevel(lv)}
+                      style={{
+                        padding: '3px 12px',
+                        borderRadius: 7,
+                        fontSize: 'var(--fs-xs)',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        border: `1px solid ${deptLevel === lv ? 'var(--ok-orange)' : 'var(--border)'}`,
+                        background: deptLevel === lv ? 'var(--ok-orange-50)' : 'transparent',
+                        color: deptLevel === lv ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                      }}
+                    >
+                      {DEPT_LEVEL_LABEL[lv]}
+                    </button>
+                  ))}
+                </div>
                 <DeptHeadcountList
                   data={summary.departments.map((d) => ({
                     id: d.id,
@@ -513,9 +538,8 @@ const HrHome = () => {
                   rowsVisible={5}
                   onSelect={(id) => {
                     const dept = summary.departments.find((d) => d.id === id);
-                    navigate(
-                      `/hr/departments?org=${encodeURIComponent(JSON.stringify(dept ? dept.navKeys : []))}`,
-                    );
+                    setOrgFilter(dept ? dept.navKeys : []); // 공유 필터에 반영 후 이동
+                    navigate('/hr/departments');
                   }}
                 />
               </ChartCard>
