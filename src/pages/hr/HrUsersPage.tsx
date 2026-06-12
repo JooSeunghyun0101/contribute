@@ -340,19 +340,21 @@ const HrUsersPage = () => {
     [employees],
   );
 
-  // 휴직자(매칭결과 '휴직'·소속 '휴직자소속')는 조직 조회 대상이 아니므로 제외.
-  // 조직 체크리스트 후보와 목록 모두 이 명단을 기준으로 한다.
+  // 휴직자(매칭결과 '휴직'·소속 '휴직자소속')는 '조직 필터 후보'에서만 제외한다.
+  // 사용자관리 목록에는 복직·계정관리를 위해 표시하되, 조직 필터를 걸면 자연히 빠진다
+  // ('휴직자소속'이 필터 노드가 아니므로 매칭되지 않음).
   const orgRosterEmployees = useMemo(() => employees.filter((e) => !isOnLeave(e)), [employees]);
 
   const filteredEmployees = useMemo(
     () =>
-      [...orgRosterEmployees]
+      [...employees]
         .filter((employee) => employee.employee_id !== 'admin')
         // 표시 대상:
         //  - 평가 대상자(evaluatee): 선택한 평가기간에 evaluation 이 있는 직원만.
         //    (대상자 업로드 시 그 평가기간에 evaluation 이 생성되므로, 업로드한 평가기간 화면에만 나온다.)
         //  - 평가자/HR 전용(evaluatee 아님): 평가 대상이 아니므로 평가기간과 무관하게 항상 표시.
         .filter((employee) => {
+          if (isOnLeave(employee)) return true; // 휴직자는 평가 유무와 무관하게 계정관리용으로 표시
           const isEvaluatee = employee.available_roles.includes('evaluatee');
           if (!isEvaluatee) return true;
           return Boolean(recordMap.get(employee.employee_id)?.evaluation);
@@ -378,7 +380,7 @@ const HrUsersPage = () => {
           }
           return a.department.localeCompare(b.department) || a.name.localeCompare(b.name);
         }),
-    [orgRosterEmployees, recordMap, query, selectedRole, orgNodeKeys, groupBySection],
+    [employees, recordMap, query, selectedRole, orgNodeKeys, groupBySection],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -1418,6 +1420,23 @@ const HrUsersPage = () => {
                               {employee.name.charAt(0)}
                             </div>
                             <strong>{employee.name}</strong>
+                            {isOnLeave(employee) && (
+                              <span
+                                style={{
+                                  marginLeft: 6,
+                                  padding: '1px 7px',
+                                  borderRadius: 999,
+                                  background: 'var(--bg-muted)',
+                                  color: 'var(--fg-muted)',
+                                  fontSize: 'var(--fs-xs)',
+                                  fontWeight: 800,
+                                  border: '1px solid var(--border)',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                휴직
+                              </span>
+                            )}
                           </div>
                         )}
                       </TableCell>
