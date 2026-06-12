@@ -1401,7 +1401,7 @@ const HrUsersPage = () => {
                             style={{ minWidth: 0 }}
                           />
                         ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
                             <div
                               style={{
                                 width: 30,
@@ -1419,7 +1419,7 @@ const HrUsersPage = () => {
                             >
                               {employee.name.charAt(0)}
                             </div>
-                            <strong>{employee.name}</strong>
+                            <strong style={{ whiteSpace: 'nowrap' }}>{employee.name}</strong>
                             {isOnLeave(employee) && (
                               <span
                                 style={{
