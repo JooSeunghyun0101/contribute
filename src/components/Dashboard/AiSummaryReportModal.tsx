@@ -38,33 +38,28 @@ const download = (filename: string, content: string, mime: string) => {
 
 const AiSummaryReportModal = ({
   records,
+  scopeLabel,
   onClose,
 }: {
   records: EmployeeEvaluationRecord[];
+  scopeLabel: string;
   onClose: () => void;
 }) => {
   const { toast } = useToast();
-  const [dept, setDept] = useState<string>('all');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [report, setReport] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const deptOptions = useMemo(() => {
-    const set = new Set<string>();
-    records.forEach((r) => set.add(r.employee.department || '미지정'));
-    return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
-  }, [records]);
-
-  const pool = useMemo(
-    () => (dept === 'all' ? records : records.filter((r) => (r.employee.department || '미지정') === dept)),
-    [records, dept],
-  );
+  // 대상 풀 = 전사현황 화면에서 적용된 조직 필터 결과(상위에서 그대로 전달).
+  const pool = records;
   const selected = useMemo(
     () => pool.filter((r) => !excluded.has(r.employee.employee_id)),
     [pool, excluded],
   );
 
-  const scopeLabel = dept === 'all' ? '전사' : dept;
+  const allSelected = excluded.size === 0;
+  const selectAll = () => setExcluded(new Set());
+  const deselectAll = () => setExcluded(new Set(pool.map((r) => r.employee.employee_id)));
 
   const handleGenerate = async () => {
     if (selected.length === 0) {
@@ -169,22 +164,32 @@ const AiSummaryReportModal = ({
           {/* 좌: 대상 선택 */}
           <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid var(--border)' }}>
-              <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--fg-muted)' }}>부서</label>
-              <select
-                className="sd-input"
-                value={dept}
-                onChange={(e) => {
-                  setDept(e.target.value);
-                  setExcluded(new Set());
-                }}
-              >
-                <option value="all">전사 전체</option>
-                {deptOptions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                <label style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--fg-muted)' }}>
+                  대상 범위 (전사현황 필터)
+                </label>
+                <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg)' }}>{scopeLabel}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="sd-btn sd-btn-outline sd-btn-sm"
+                  style={{ flex: 1 }}
+                  disabled={allSelected}
+                  onClick={selectAll}
+                >
+                  전체 선택
+                </button>
+                <button
+                  type="button"
+                  className="sd-btn sd-btn-ghost sd-btn-sm"
+                  style={{ flex: 1 }}
+                  disabled={selected.length === 0}
+                  onClick={deselectAll}
+                >
+                  전체 해제
+                </button>
+              </div>
               <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                 대상자 <b style={{ color: 'var(--fg)' }}>{selected.length}</b>/{pool.length}명
               </div>

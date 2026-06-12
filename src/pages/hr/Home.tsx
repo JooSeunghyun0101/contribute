@@ -29,6 +29,7 @@ import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
 import {
   getOrgValue,
   matchesOrgNodes,
+  ORG_LEVELS,
   orgCompactPath,
   orgNodeKey,
   orgNodeValues,
@@ -120,6 +121,20 @@ const HrHome = () => {
     () => records.filter((r) => matchesOrgNodes(r.employee, orgFilter)),
     [records, orgFilter],
   );
+
+  // AI 요약 보고서 대상 범위 라벨 — 필터된 인원을 모두 포함하는 가장 깊은 단일 조직명(없으면 '전사').
+  const reportScopeLabel = useMemo(() => {
+    if (orgFilter.length === 0 || filteredRecords.length === 0) return '전사';
+    let label = '전사';
+    for (const lv of ORG_LEVELS) {
+      const vals = new Set(
+        filteredRecords.map((r) => getOrgValue(r.employee, lv)).filter(Boolean),
+      );
+      if (vals.size === 1) label = [...vals][0] as string;
+      else if (vals.size > 1) break;
+    }
+    return label;
+  }, [orgFilter, filteredRecords]);
 
   // 레벨 필터 적용 — 도넛·점수분포·부서·추이는 선택 레벨로 스코프. (성장레벨 분포 차트는 전체 유지)
   const scopedRecords = useMemo(
@@ -560,7 +575,11 @@ const HrHome = () => {
       )}
 
       {showAiReport && (
-        <AiSummaryReportModal records={records} onClose={() => setShowAiReport(false)} />
+        <AiSummaryReportModal
+          records={filteredRecords}
+          scopeLabel={reportScopeLabel}
+          onClose={() => setShowAiReport(false)}
+        />
       )}
     </>
   );
