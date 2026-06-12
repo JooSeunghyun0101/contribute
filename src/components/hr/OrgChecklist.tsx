@@ -273,9 +273,12 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             style={{ height: 34, marginBottom: 8 }}
           />
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            <button type="button" onClick={selectAll} style={smallPrimaryBtn}>
-              {terms.length > 0 ? '검색결과 전체선택' : '전체 선택'}
-            </button>
+            {/* 비검색 '전체 선택'은 '필터 없음(전체)'과 결과가 같아 제거. 검색 중에만 일치항목 일괄선택 제공. */}
+            {terms.length > 0 && (
+              <button type="button" onClick={selectAll} style={smallPrimaryBtn}>
+                검색결과 전체선택
+              </button>
+            )}
             <button type="button" onClick={clearAll} disabled={selected.size === 0} style={smallBtn(selected.size === 0)}>
               전체 해제
             </button>
