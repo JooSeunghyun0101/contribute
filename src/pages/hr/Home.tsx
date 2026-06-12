@@ -538,8 +538,11 @@ const HrHome = () => {
                   rowsVisible={5}
                   onSelect={(id) => {
                     const dept = summary.departments.find((d) => d.id === id);
-                    setOrgFilter(dept ? dept.navKeys : []); // 공유 필터에 반영 후 이동
-                    navigate('/hr/departments');
+                    // 필터는 그대로 두고(변경 없이), 선택한 카드만 열린 상태로 부서별 진행으로 이동.
+                    const groupKey = dept ? orgNodeValues(dept.id).join(' › ') : '';
+                    navigate(
+                      `/hr/departments?open=${encodeURIComponent(groupKey)}&lvl=${encodeURIComponent(deptLevel)}`,
+                    );
                   }}
                 />
               </ChartCard>

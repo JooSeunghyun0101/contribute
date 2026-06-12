@@ -74,6 +74,9 @@ const HrDepartmentsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const deptParam = searchParams.get('dept');
   const consumedDeptParam = useRef(false);
+  const openParam = searchParams.get('open');
+  const lvlParam = searchParams.get('lvl');
+  const consumedOpenParam = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   // 대시보드에서 ?dept=로 들어온 부서 필터(레코드 단위, 그룹핑과 무관). 칩으로 해제 가능.
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
@@ -176,6 +179,20 @@ const HrDepartmentsPage = () => {
       setSearchParams(next, { replace: true });
     }
   }, [deptParam, records, searchParams, setSearchParams]);
+
+  // 대시보드 부서 바 클릭: 필터는 그대로(공유), 전달된 레벨로 그룹핑을 맞추고 그 카드를 연다(1회).
+  useEffect(() => {
+    if (!openParam || consumedOpenParam.current) return;
+    consumedOpenParam.current = true;
+    if (lvlParam && (ORG_LEVELS as readonly string[]).includes(lvlParam)) {
+      setGroupLevel(lvlParam as OrgLevel);
+    }
+    setOpenDepartment(openParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete('open');
+    next.delete('lvl');
+    setSearchParams(next, { replace: true });
+  }, [openParam, lvlParam, searchParams, setSearchParams]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {
