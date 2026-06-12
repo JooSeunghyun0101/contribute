@@ -30,6 +30,7 @@ import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTren
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
 import { matchesOrgNodes } from '@/lib/orgHierarchy';
 import { useStuck } from '@/hooks/use-stuck';
+import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import {
   formatScore,
   getMatrixMethodIndex,
@@ -213,9 +214,12 @@ const ScoreTablePage = () => {
   );
   const scopedTotal = scopedRecords.length;
 
+  // 셀 점수 = 현재 평가 매트릭스의 기준 점수(전사 공통 설정 실시간 반영).
+  // 저장된 과업 점수 평균을 쓰면 매트릭스 개정 이전 점수가 남아 다른 화면과 어긋난다.
+  const { matrix } = useEvaluationMatrix();
   const matrixHeatmap = useMemo(() => {
-    const cells = MATRIX_METHODS.map(() =>
-      MATRIX_SCOPES.map(() => ({ count: 0, scoreSum: 0, avgScore: 0 })),
+    const cells = MATRIX_METHODS.map((_, mi) =>
+      MATRIX_SCOPES.map((_, si) => ({ count: 0, score: matrix[mi]?.[si] ?? 0 })),
     );
     scopedRecords.forEach((r) => {
       r.tasks.forEach((t) => {
@@ -223,19 +227,12 @@ const ScoreTablePage = () => {
         const mi = getMatrixMethodIndex(t.contribution_method);
         const si = getMatrixScopeIndex(t.contribution_scope);
         if (mi < 0 || si < 0) return;
-        const cell = cells[mi][si];
-        cell.count += 1;
-        cell.scoreSum += t.score;
+        cells[mi][si].count += 1;
       });
     });
-    cells.forEach((row) =>
-      row.forEach((cell) => {
-        cell.avgScore = cell.count > 0 ? cell.scoreSum / cell.count : 0;
-      }),
-    );
     const totalEvaluated = cells.reduce((s, row) => s + row.reduce((rs, c) => rs + c.count, 0), 0);
     return { cells, totalEvaluated };
-  }, [scopedRecords]);
+  }, [scopedRecords, matrix]);
 
   const achievementBuckets = useMemo(() => {
     const counts = { achieved: 0, missed: 0, pending: 0 };
@@ -879,7 +876,7 @@ const LevelSummaryCard = ({
   );
 };
 
-type HeatmapCell = { count: number; scoreSum: number; avgScore: number };
+type HeatmapCell = { count: number; score: number };
 
 const HEATMAP_CELL = 56; // 정사각형 셀 크기 (px) — 막대/도넛 차트 280px와 시각적 균형
 
@@ -1011,7 +1008,7 @@ const FragmentRow = ({
           key={si}
           title={
             cell.count > 0
-              ? `${method} × ${MATRIX_SCOPES[si]} · ${cell.count}건 · 평균 ${formatScore(cell.avgScore)}`
+              ? `${method} × ${MATRIX_SCOPES[si]} · ${cell.count}건 · 기준 점수 ${cell.score}`
               : `${method} × ${MATRIX_SCOPES[si]} · 평가 없음`
           }
           style={{
@@ -1035,7 +1032,7 @@ const FragmentRow = ({
                 lineHeight: 1,
               }}
             >
-              {Math.round(cell.avgScore)}
+              {cell.score}
             </span>
           )}
         </div>
