@@ -1007,9 +1007,20 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                   {levelChips.map((c) => (
                     <span
                       key={c.lv}
-                      style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 'var(--fs-xs)',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: 'var(--bg-muted)',
+                        border: '1px solid var(--border)',
+                      }}
                     >
-                      Lv.{c.lv} <b className="tnum">{c.n}</b>
+                      <span style={{ color: 'var(--fg-muted)', fontWeight: 700 }}>Lv.{c.lv}</span>
+                      <b className="tnum">{c.n}명</b>
                     </span>
                   ))}
                 </div>
