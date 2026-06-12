@@ -148,27 +148,23 @@ export const orgNodeKey = (values: string[]): string => values.join(ORG_KEY_SEP)
 export const orgNodeValues = (key: string): string[] => key.split(ORG_KEY_SEP);
 
 /**
- * value:string[] 인코딩 접두 — 한 배열에 세 종류를 담는다.
- *  - 법인 범위(레벨 OR): `corp:<법인값>`
- *  - 본부 범위(레벨 OR): `div:<본부값>`
- *  - 부서 단위(레벨별 매칭): `unit:<노드키>` (부/팀 전체경로)
+ * 직원의 '압축 경로' — 빈 레벨을 건너뛴, 비어있지 않은 조직값 배열.
+ * 예) 법인=OK, 본부=(없음), 부=준법지원부, 팀=준법지원팀 → ['OK','준법지원부','준법지원팀'].
+ * 계층에 구멍이 있어도(본부 누락 등) 모든 부/팀이 노드·매칭에 잡히게 한다.
  */
-export const ORG_FILTER_CORP = 'corp:';
-export const ORG_FILTER_DIV = 'div:';
-export const ORG_FILTER_UNIT = 'unit:';
+export const orgCompactPath = (item: OrgFields): string[] =>
+  ORG_LEVELS.map((level) => getOrgValue(item, level)).filter(Boolean);
 
-/** items 에 등장하는 모든 조직 노드(중복 제거, 경로순 정렬). */
+/** items 에 등장하는 모든 조직 노드(압축경로 기준, 중복 제거, 경로순 정렬). */
 export const orgNodes = (items: OrgFields[]): OrgNode[] => {
   const map = new Map<string, OrgNode>();
   for (const item of items) {
-    const values: string[] = [];
-    for (const level of ORG_LEVELS) {
-      const v = getOrgValue(item, level);
-      if (!v) break; // 중간이 비면 더 깊은 노드는 만들지 않음
-      values.push(v);
-      const key = orgNodeKey(values);
+    const acc: string[] = [];
+    for (const v of orgCompactPath(item)) {
+      acc.push(v);
+      const key = orgNodeKey(acc);
       if (!map.has(key)) {
-        map.set(key, { key, label: values.join(' › '), leaf: v, depth: values.length });
+        map.set(key, { key, label: acc.join(' › '), leaf: v, depth: acc.length });
       }
     }
   }
@@ -176,35 +172,15 @@ export const orgNodes = (items: OrgFields[]): OrgNode[] => {
 };
 
 /**
- * item 이 현재 선택(법인 범위 + 본부 범위 + 부서 단위)에 부합하는지. 빈 선택=전체 통과.
- * selectedKeys 인코딩(ORG_FILTER_* 접두):
- *  - 법인(corp:)·본부(div:): 각 레벨 내 OR, 두 레벨 사이 AND(범위 좁히기).
- *  - 부서(unit:): 비었으면 통과, 있으면 하나라도 매칭(OR). 레벨별 — 부·팀=그 단위만, 법인·본부=하위 전원.
- * 최종 = (법인범위 AND 본부범위) AND 부서단위.
+ * item 이 선택된 조직 노드 중 하나의 '하위(또는 자신)'인지. 빈 선택=전체 통과.
+ * 각 노드는 압축경로이고, 선택 = 그 단위 하위 전원(subtree, OR). 노드의 경로가
+ * 직원 압축경로의 접두면 매칭 → 법인/본부/부/팀 어느 레벨을 골라도 그 아래 전원이 나온다.
  */
 export const matchesOrgNodes = (item: OrgFields, selectedKeys: string[]): boolean => {
   if (selectedKeys.length === 0) return true;
-  const corpVals: string[] = [];
-  const divVals: string[] = [];
-  const unitKeys: string[] = [];
-  for (const k of selectedKeys) {
-    if (k.startsWith(ORG_FILTER_CORP)) corpVals.push(k.slice(ORG_FILTER_CORP.length));
-    else if (k.startsWith(ORG_FILTER_DIV)) divVals.push(k.slice(ORG_FILTER_DIV.length));
-    else if (k.startsWith(ORG_FILTER_UNIT)) unitKeys.push(k.slice(ORG_FILTER_UNIT.length));
-  }
-
-  // 범위: 법인·본부 각각 OR, 둘 사이 AND.
-  if (corpVals.length > 0 && !corpVals.includes(getOrgValue(item, 'corporation'))) return false;
-  if (divVals.length > 0 && !divVals.includes(getOrgValue(item, 'division'))) return false;
-
-  // 부서 단위: 비었으면 통과. 있으면 레벨별 매칭 OR.
-  if (unitKeys.length === 0) return true;
-  return unitKeys.some((key) => {
-    const values = orgNodeValues(key);
-    const prefixOk = values.every((v, i) => getOrgValue(item, ORG_LEVELS[i]) === v);
-    if (!prefixOk) return false;
-    if (values.length <= 2) return true; // 법인·본부 단위: 하위 전체
-    const deeper = ORG_LEVELS[values.length]; // 부·팀 단위: 노드가 말단이어야
-    return !deeper || getOrgValue(item, deeper) === '';
+  const path = orgCompactPath(item);
+  return selectedKeys.some((key) => {
+    const vals = orgNodeValues(key);
+    return vals.every((v, i) => path[i] === v);
   });
 };

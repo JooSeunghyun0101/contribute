@@ -3,65 +3,161 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-  ORG_FILTER_CORP,
-  ORG_FILTER_DIV,
-  ORG_FILTER_UNIT,
-  ORG_LEVEL_LABELS,
-  orgNodeKey,
-  orgNodeValues,
-  orgNodes,
-  orgOptionsForLevel,
-  type OrgFields,
-  type OrgNode,
-} from '@/lib/orgHierarchy';
+import { orgNodeKey, orgNodeValues, orgNodes, type OrgFields, type OrgNode } from '@/lib/orgHierarchy';
 
 interface OrgChecklistProps {
   /** 후보를 뽑을 대상(직원 등). org_* 필드를 가진 객체. */
   items: OrgFields[];
-  /** 선택 상태(corp:/div:/unit: 인코딩)를 한 배열로 보관. */
+  /** 선택된 조직 노드키 목록. 노드 선택 = 그 단위 하위 전원(subtree). */
   value: string[];
   onChange: (next: string[]) => void;
 }
 
-// 트리거 버튼 + 팝오버 묶음(법인·본부·부서 공용).
-const CheckDropdown = ({
-  label,
-  count,
-  width = 150,
-  children,
-}: {
-  label: string;
-  count: number;
-  width?: number;
-  children: ReactNode;
-}) => {
+const rowStyle = (on: boolean, depth: number): CSSProperties => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '5px 6px',
+  paddingLeft: 6 + (depth - 1) * 20,
+  borderRadius: 6,
+  background: on ? 'var(--ok-orange-50)' : 'transparent',
+});
+
+/**
+ * 조직 필터(법인 → 본부 → 부 → 팀 단일 트리).
+ *  - 압축경로 기반이라 계층 구멍(본부 누락 등)이 있어도 모든 부/팀이 나온다.
+ *  - 노드 체크 = 그 단위 하위 전원(subtree). 여러 단위 OR.
+ *  - 항목별 펼침/접기(▸/▾), 전체선택/해제, 부서명 다중어(띄어쓰기) 검색.
+ * 선택은 value:string[](노드키)로 보관 → matchesOrgNodes 와 단일 인터페이스(10개 화면 무수정).
+ */
+const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const nodes = useMemo(() => orgNodes(items), [items]);
+  const selected = useMemo(() => new Set(value), [value]);
+
+  const roots = useMemo(() => nodes.filter((n) => n.depth === 1), [nodes]);
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, OrgNode[]>();
+    for (const n of nodes) {
+      if (n.depth < 2) continue;
+      const parentKey = orgNodeKey(orgNodeValues(n.key).slice(0, -1));
+      const arr = map.get(parentKey);
+      if (arr) arr.push(n);
+      else map.set(parentKey, [n]);
+    }
+    return map;
+  }, [nodes]);
+
+  const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
+  const matches = useMemo(() => {
+    if (terms.length === 0) return [];
+    return nodes.filter((n) => {
+      const l = n.label.toLowerCase();
+      return terms.every((t) => l.includes(t));
+    });
+  }, [nodes, terms]);
+
+  if (nodes.length === 0) return null;
+
+  const toggle = (key: string) =>
+    onChange(selected.has(key) ? value.filter((k) => k !== key) : [...value, key]);
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const selectAll = () =>
+    onChange(terms.length > 0 ? [...new Set([...value, ...matches.map((n) => n.key)])] : roots.map((n) => n.key));
+  const clearAll = () => onChange([]);
+
+  const renderNode = (node: OrgNode): ReactNode => {
+    const kids = childrenOf.get(node.key) ?? [];
+    const isOpen = expanded.has(node.key);
+    const on = selected.has(node.key);
+    return (
+      <div key={node.key}>
+        <div style={rowStyle(on, node.depth)}>
+          {kids.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => toggleExpand(node.key)}
+              aria-label={isOpen ? '접기' : '펼치기'}
+              style={{
+                width: 22,
+                height: 22,
+                flexShrink: 0,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--fg)',
+                fontSize: 13,
+                lineHeight: 1,
+              }}
+            >
+              {isOpen ? '▾' : '▸'}
+            </button>
+          ) : (
+            <span style={{ width: 22, flexShrink: 0 }} />
+          )}
+          <Checkbox checked={on} onCheckedChange={() => toggle(node.key)} />
+          <button
+            type="button"
+            onClick={() => (kids.length > 0 ? toggleExpand(node.key) : toggle(node.key))}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
+              padding: 0,
+              fontSize: 'var(--fs-sm)',
+              fontWeight: on ? 700 : 600,
+              color: 'var(--fg)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {node.leaf}
+            {kids.length > 0 && (
+              <span style={{ color: 'var(--fg-muted)', fontWeight: 600 }}> ({kids.length})</span>
+            )}
+          </button>
+        </div>
+        {isOpen && kids.map(renderNode)}
+      </div>
+    );
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            height: 36,
-            padding: '0 12px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg-card)',
-            color: 'var(--fg)',
-            fontSize: 'var(--fs-sm)',
-            fontWeight: 600,
-            cursor: 'pointer',
-            minWidth: width,
-            justifyContent: 'space-between',
-          }}
-        >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {label}
-            {count > 0 && (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              height: 36,
+              padding: '0 12px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-card)',
+              color: 'var(--fg)',
+              fontSize: 'var(--fs-sm)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            조직 필터
+            {selected.size > 0 && (
               <span
                 style={{
                   display: 'inline-flex',
@@ -77,251 +173,90 @@ const CheckDropdown = ({
                   fontWeight: 800,
                 }}
               >
-                {count}
+                {selected.size}
               </span>
             )}
-          </span>
-          <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>▾</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" style={{ width: 300, padding: 8 }}>
-        {children}
-      </PopoverContent>
-    </Popover>
-  );
-};
-
-const checkRowStyle = (on: boolean, indent = 0): CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '6px 6px',
-  paddingLeft: 6 + indent,
-  borderRadius: 6,
-  cursor: 'pointer',
-  background: on ? 'var(--ok-orange-50)' : 'transparent',
-});
-
-/**
- * 조직 필터(사용자 결정):
- *  - 법인·본부: 다중체크 드롭다운. 각 레벨 내 OR, 두 레벨 AND로 범위를 좁힌다.
- *  - 부서: 체크박스 다중선택. 후보(부/팀)는 선택한 법인·본부 범위에 따라 바뀐다.
- * 선택 상태는 value:string[] 하나(corp:/div:/unit: 접두)에 인코딩 → matchesOrgNodes 와
- * 단일 인터페이스로 연동(10개 화면 무수정). 범위 변경 시 범위 밖 본부/부서 선택은 자동 정리.
- */
-const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
-  const [query, setQuery] = useState('');
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const toggleCollapse = (deptKey: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(deptKey)) next.delete(deptKey);
-      else next.add(deptKey);
-      return next;
-    });
-
-  const corpVals = useMemo(
-    () => value.filter((k) => k.startsWith(ORG_FILTER_CORP)).map((k) => k.slice(ORG_FILTER_CORP.length)),
-    [value],
-  );
-  const divVals = useMemo(
-    () => value.filter((k) => k.startsWith(ORG_FILTER_DIV)).map((k) => k.slice(ORG_FILTER_DIV.length)),
-    [value],
-  );
-  const unitKeys = useMemo(
-    () => value.filter((k) => k.startsWith(ORG_FILTER_UNIT)).map((k) => k.slice(ORG_FILTER_UNIT.length)),
-    [value],
-  );
-  const corpSet = useMemo(() => new Set(corpVals), [corpVals]);
-  const divSet = useMemo(() => new Set(divVals), [divVals]);
-  const unitSet = useMemo(() => new Set(unitKeys), [unitKeys]);
-
-  const corpOptions = useMemo(() => orgOptionsForLevel(items, 'corporation', {}), [items]);
-  const divOptions = useMemo(
-    () => orgOptionsForLevel(items, 'division', corpVals.length ? { corporation: corpVals } : {}),
-    [items, corpVals],
-  );
-
-  // 부서(부/팀) 후보 — 선택한 법인·본부 범위 안으로 한정.
-  const unitNodes = useMemo(() => {
-    return orgNodes(items).filter((n) => {
-      if (n.depth < 3) return false; // 부·팀만
-      const nv = orgNodeValues(n.key);
-      if (corpVals.length > 0 && !corpSet.has(nv[0])) return false;
-      if (divVals.length > 0 && !divSet.has(nv[1])) return false;
-      return true;
-    });
-  }, [items, corpVals, divVals, corpSet, divSet]);
-  const filteredUnits = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? unitNodes.filter((n) => n.label.toLowerCase().includes(q)) : unitNodes;
-  }, [unitNodes, query]);
-
-  // 부서 트리: 부(depth3) → 팀(depth4) 그룹. (검색 중엔 평면 목록 사용)
-  const unitTree = useMemo(() => {
-    const depts = unitNodes.filter((n) => n.depth === 3);
-    const teamsByDept = new Map<string, OrgNode[]>();
-    for (const n of unitNodes) {
-      if (n.depth >= 4) {
-        const deptKey = orgNodeKey(orgNodeValues(n.key).slice(0, 3));
-        const arr = teamsByDept.get(deptKey);
-        if (arr) arr.push(n);
-        else teamsByDept.set(deptKey, [n]);
-      }
-    }
-    return { depts, teamsByDept };
-  }, [unitNodes]);
-
-  if (corpOptions.length === 0 && unitNodes.length === 0) return null;
-
-  // 범위가 바뀌면 더 이상 유효하지 않은 본부/부서 선택을 떨어낸다.
-  const prune = (next: string[]): string[] => {
-    const c = next.filter((k) => k.startsWith(ORG_FILTER_CORP)).map((k) => k.slice(ORG_FILTER_CORP.length));
-    const cSet = new Set(c);
-    const validDiv = new Set(orgOptionsForLevel(items, 'division', c.length ? { corporation: c } : {}));
-    const keptDiv = next.filter((k) => k.startsWith(ORG_FILTER_DIV) && validDiv.has(k.slice(ORG_FILTER_DIV.length)));
-    const dSet = new Set(keptDiv.map((k) => k.slice(ORG_FILTER_DIV.length)));
-    const keptUnit = next.filter((k) => {
-      if (!k.startsWith(ORG_FILTER_UNIT)) return false;
-      const nv = orgNodeValues(k.slice(ORG_FILTER_UNIT.length));
-      if (c.length > 0 && !cSet.has(nv[0])) return false;
-      if (dSet.size > 0 && !dSet.has(nv[1])) return false;
-      return true;
-    });
-    return [...next.filter((k) => k.startsWith(ORG_FILTER_CORP)), ...keptDiv, ...keptUnit];
-  };
-
-  const toggle = (key: string) => {
-    const next = value.includes(key) ? value.filter((k) => k !== key) : [...value, key];
-    onChange(prune(next));
-  };
-  const clearAll = () => onChange([]);
-  const hasAny = value.length > 0;
-
-  const unitRow = (node: OrgNode, indent: number) => {
-    const key = ORG_FILTER_UNIT + node.key;
-    const on = unitSet.has(node.key);
-    return (
-      <label key={node.key} style={checkRowStyle(on, indent)}>
-        <Checkbox checked={on} onCheckedChange={() => toggle(key)} />
-        <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600, color: 'var(--fg)' }}>
-            {node.leaf}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{node.label}</span>
-        </span>
-      </label>
-    );
-  };
-
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      {/* 법인 다중체크 */}
-      {corpOptions.length > 0 && (
-        <CheckDropdown label={ORG_LEVEL_LABELS.corporation} count={corpVals.length}>
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-            {corpOptions.map((opt) => {
-              const key = ORG_FILTER_CORP + opt;
-              const on = corpSet.has(opt);
-              return (
-                <label key={opt} style={checkRowStyle(on)}>
-                  <Checkbox checked={on} onCheckedChange={() => toggle(key)} />
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600 }}>{opt}</span>
-                </label>
-              );
-            })}
-          </div>
-        </CheckDropdown>
-      )}
-
-      {/* 본부 다중체크 (법인 선택에 따라 후보 변동) */}
-      {divOptions.length > 0 && (
-        <CheckDropdown label={ORG_LEVEL_LABELS.division} count={divVals.length} width={160}>
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-            {divOptions.map((opt) => {
-              const key = ORG_FILTER_DIV + opt;
-              const on = divSet.has(opt);
-              return (
-                <label key={opt} style={checkRowStyle(on)}>
-                  <Checkbox checked={on} onCheckedChange={() => toggle(key)} />
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600 }}>{opt}</span>
-                </label>
-              );
-            })}
-          </div>
-        </CheckDropdown>
-      )}
-
-      {/* 부서 필터: 체크박스 다중선택 (범위 안 부/팀) */}
-      {unitNodes.length > 0 && (
-        <CheckDropdown label="부서 필터" count={unitKeys.length} width={130}>
+            <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>▾</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" style={{ width: 360, padding: 8 }}>
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="부서명 검색…"
+            placeholder="검색 (예: OK 인사 — 띄어쓰기로 여러 단어)"
             style={{ height: 34, marginBottom: 8 }}
           />
-          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {query.trim() ? (
-              filteredUnits.length === 0 ? (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={selectAll}
+              style={{
+                flex: 1,
+                height: 30,
+                borderRadius: 7,
+                border: '1px solid var(--ok-orange-100)',
+                background: 'var(--ok-orange-50)',
+                color: 'var(--ok-brown)',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {terms.length > 0 ? '검색결과 전체선택' : '전체 선택'}
+            </button>
+            <button
+              type="button"
+              onClick={clearAll}
+              disabled={selected.size === 0}
+              style={{
+                flex: 1,
+                height: 30,
+                borderRadius: 7,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-card)',
+                color: 'var(--fg-muted)',
+                fontSize: 'var(--fs-sm)',
+                fontWeight: 600,
+                cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+                opacity: selected.size === 0 ? 0.6 : 1,
+              }}
+            >
+              전체 해제
+            </button>
+          </div>
+
+          <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {terms.length > 0 ? (
+              matches.length === 0 ? (
                 <div style={{ padding: '12px 8px', color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-                  일치하는 부서가 없습니다.
+                  일치하는 조직이 없습니다.
                 </div>
               ) : (
-                filteredUnits.map((node) => unitRow(node, (node.depth - 3) * 14))
-              )
-            ) : unitTree.depts.length === 0 ? (
-              <div style={{ padding: '12px 8px', color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-                해당 범위에 부서가 없습니다.
-              </div>
-            ) : (
-              unitTree.depts.map((dept) => {
-                const teams = unitTree.teamsByDept.get(dept.key) ?? [];
-                const isCollapsed = collapsed.has(dept.key);
-                const dKey = ORG_FILTER_UNIT + dept.key;
-                const dOn = unitSet.has(dept.key);
-                return (
-                  <div key={dept.key}>
-                    <div style={{ ...checkRowStyle(dOn), gap: 4 }}>
-                      {teams.length > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => toggleCollapse(dept.key)}
-                          aria-label={isCollapsed ? '펼치기' : '접기'}
-                          style={{
-                            width: 18,
-                            height: 18,
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            color: 'var(--fg-muted)',
-                            fontSize: 11,
-                            flexShrink: 0,
-                          }}
+                matches.map((node) => {
+                  const on = selected.has(node.key);
+                  return (
+                    <label key={node.key} style={rowStyle(on, 1)}>
+                      <Checkbox checked={on} onCheckedChange={() => toggle(node.key)} />
+                      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span
+                          style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600, color: 'var(--fg)' }}
                         >
-                          {isCollapsed ? '▸' : '▾'}
-                        </button>
-                      ) : (
-                        <span style={{ width: 18, flexShrink: 0 }} />
-                      )}
-                      <Checkbox checked={dOn} onCheckedChange={() => toggle(dKey)} />
-                      <span style={{ fontSize: 'var(--fs-sm)', fontWeight: dOn ? 700 : 600, color: 'var(--fg)' }}>
-                        {dept.leaf}
-                        {teams.length > 0 && (
-                          <span style={{ color: 'var(--fg-muted)', fontWeight: 600 }}> ({teams.length})</span>
-                        )}
+                          {node.leaf}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{node.label}</span>
                       </span>
-                    </div>
-                    {!isCollapsed && teams.map((team) => unitRow(team, 24))}
-                  </div>
-                );
-              })
+                    </label>
+                  );
+                })
+              )
+            ) : (
+              roots.map(renderNode)
             )}
           </div>
-        </CheckDropdown>
-      )}
+        </PopoverContent>
+      </Popover>
 
-      {hasAny && (
+      {selected.size > 0 && (
         <button
           type="button"
           onClick={clearAll}
@@ -337,7 +272,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             cursor: 'pointer',
           }}
         >
-          초기화
+          초기화 ({selected.size})
         </button>
       )}
     </div>
