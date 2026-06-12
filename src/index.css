@@ -456,6 +456,16 @@
 .animate-ai-shine { animation: ai-shine 1.3s ease-in-out infinite; }
 .animate-ai-emoji-up { animation: ai-emoji-up 1.3s ease-in-out infinite; }
 
+/* 사용자관리 테이블 — 컬럼이 많아 행을 조밀하게. 공용 TableCell(p-4)·TableHead(h-12)를
+   언레이어드 규칙으로 오버라이드(언레이어드 > @layer 라 Tailwind 유틸리티보다 우선). */
+.sd-users-table th,
+.sd-users-table td {
+  padding: 7px 10px;
+}
+.sd-users-table th {
+  height: 38px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

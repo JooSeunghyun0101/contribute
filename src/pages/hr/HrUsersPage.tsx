@@ -74,7 +74,7 @@ const statusLabel = (status?: EvaluationStatus | null) => {
   if (status === 'completed') return '완료';
   if (status === 'locked') return '잠금';
   if (status === 'draft' || status === 'in-progress') return '작성 중';
-  return '평가 없음';
+  return '없음';
 };
 
 const statusTone = (status?: EvaluationStatus | null) => {
@@ -1326,7 +1326,7 @@ const HrUsersPage = () => {
           ) : error ? (
             <div style={{ padding: 20, color: 'var(--danger)' }}>{error}</div>
           ) : (
-            <Table>
+            <Table className="sd-users-table">
               <TableHeader style={{ background: 'var(--bg-muted)' }}>
                 <TableRow>
                   <TableHead style={{ width: 40 }}>
@@ -1342,7 +1342,7 @@ const HrUsersPage = () => {
                   </TableHead>
                   <TableHead style={{ width: 96 }}>사번</TableHead>
                   <TableHead style={{ width: 130 }}>이름</TableHead>
-                  <TableHead style={{ width: 100 }}>직급</TableHead>
+                  <TableHead style={{ width: 110, whiteSpace: 'nowrap' }}>직책</TableHead>
                   <TableHead style={{ width: 80, whiteSpace: 'nowrap' }}>법인</TableHead>
                   <TableHead style={{ width: 140, whiteSpace: 'nowrap' }}>본부</TableHead>
                   <TableHead style={{ width: 140, whiteSpace: 'nowrap' }}>부</TableHead>
@@ -1476,7 +1476,7 @@ const HrUsersPage = () => {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>
                         {isEditing && editForm ? (
                           <input
                             className="sd-input"
@@ -1617,6 +1617,8 @@ const HrUsersPage = () => {
                                   border: `1px solid ${ROLE_BORDER[role] ?? 'var(--border)'}`,
                                   fontSize: 'var(--fs-sm)',
                                   fontWeight: 600,
+                                  whiteSpace: 'nowrap',
+                                  flexShrink: 0,
                                 }}
                               >
                                 {roleLabel(role as UserRole)}
@@ -1628,7 +1630,7 @@ const HrUsersPage = () => {
                       <TableCell style={{ color: isEditing ? 'var(--fg)' : 'var(--fg-muted)' }}>
                         {evaluatorName}
                       </TableCell>
-                      <TableCell>
+                      <TableCell style={{ whiteSpace: 'nowrap' }}>
                         <Pill tone={statusTone(currentStatus)}>
                           {statusLabel(currentStatus)}
                         </Pill>
