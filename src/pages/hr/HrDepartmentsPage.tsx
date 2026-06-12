@@ -73,6 +73,8 @@ const HrDepartmentsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const deptParam = searchParams.get('dept');
   const consumedDeptParam = useRef(false);
+  const orgParam = searchParams.get('org');
+  const consumedOrgParam = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   // 대시보드에서 ?dept=로 들어온 부서 필터(레코드 단위, 그룹핑과 무관). 칩으로 해제 가능.
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
@@ -175,6 +177,23 @@ const HrDepartmentsPage = () => {
       setSearchParams(next, { replace: true });
     }
   }, [deptParam, records, searchParams, setSearchParams]);
+
+  // 대시보드 '전체 보기'·부서 바 클릭에서 ?org=<노드키 JSON> 으로 들어오면 조직 필터로 적용(1회).
+  useEffect(() => {
+    if (!orgParam || consumedOrgParam.current) return;
+    consumedOrgParam.current = true;
+    try {
+      const parsed: unknown = JSON.parse(orgParam);
+      if (Array.isArray(parsed)) {
+        setOrgNodeKeys(parsed.filter((k): k is string => typeof k === 'string'));
+      }
+    } catch {
+      /* 잘못된 파라미터 무시 */
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('org');
+    setSearchParams(next, { replace: true });
+  }, [orgParam, searchParams, setSearchParams]);
 
   const openDepartmentRecords = openDepartment
     ? (recordsByDepartment.get(openDepartment) ?? []).slice().sort((a, b) => {

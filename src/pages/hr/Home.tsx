@@ -25,8 +25,21 @@ import {
   type DeptSort,
 } from '@/components/Dashboard/HrDashboardCharts';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
-import { matchesOrgNodes } from '@/lib/orgHierarchy';
+import {
+  getOrgValue,
+  matchesOrgNodes,
+  orgCompactPath,
+  orgNodeKey,
+  orgNodeValues,
+  type OrgLevel,
+} from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+
+// 부서별 그룹핑은 '실제 조직' 기준 — 동명 부서(예: OK 인사팀 vs OKH 인사팀)를
+// 합치지 않도록 법인›본부›부 경로로 정규화한다. 표시는 말단(부) 이름.
+const DEPT_LEVELS: readonly OrgLevel[] = ['corporation', 'division', 'department'];
+const deptPathOf = (emp: { org_corporation?: string | null; org_division?: string | null; org_department?: string | null; org_team?: string | null }) =>
+  DEPT_LEVELS.map((lv) => getOrgValue(emp, lv)).filter(Boolean);
 
 const MONTH_LABELS = [
   '1월',
@@ -135,26 +148,50 @@ const HrHome = () => {
     const prevRate = validPoints.at(-2)?.value ?? 0;
     const completionDelta = lastRate - prevRate;
 
-    const departments = Object.values(
+    const rawDepts = Object.values(
       records.reduce<
         Record<
           string,
-          { name: string; total: number; completed: number; achieved: number; totalProgress: number }
+          {
+            id: string;
+            name: string;
+            total: number;
+            completed: number;
+            achieved: number;
+            totalProgress: number;
+            navKeys: Set<string>;
+          }
         >
       >((acc, r) => {
-        const key = r.employee.department || '미지정';
-        if (!acc[key]) acc[key] = { name: key, total: 0, completed: 0, achieved: 0, totalProgress: 0 };
-        acc[key].total += 1;
-        if (r.status === 'completed') {
-          acc[key].completed += 1;
-          if (r.achieved) acc[key].achieved += 1;
+        const path = deptPathOf(r.employee);
+        const id = path.length ? orgNodeKey(path) : '미지정';
+        const name = path.length ? path[path.length - 1] : r.employee.department || '미지정';
+        if (!acc[id]) {
+          acc[id] = { id, name, total: 0, completed: 0, achieved: 0, totalProgress: 0, navKeys: new Set([id]) };
         }
-        acc[key].totalProgress += r.progress;
+        acc[id].total += 1;
+        if (r.status === 'completed') {
+          acc[id].completed += 1;
+          if (r.achieved) acc[id].achieved += 1;
+        }
+        acc[id].totalProgress += r.progress;
+        // 클릭 시 정확매칭 필터가 되도록 각 인원의 '말단 단위' 노드키도 모은다(부+하위 팀 모두).
+        acc[id].navKeys.add(orgNodeKey(orgCompactPath(r.employee)));
         return acc;
       }, {}),
-    )
+    );
+    // 동명 부서(여러 조직)는 상위 경로를 라벨에 붙여 구분. 유일하면 말단 이름만.
+    const nameCounts = new Map<string, number>();
+    for (const d of rawDepts) nameCounts.set(d.name, (nameCounts.get(d.name) ?? 0) + 1);
+    const departments = rawDepts
       .map((d) => ({
-        ...d,
+        id: d.id,
+        name: d.name,
+        label: (nameCounts.get(d.name) ?? 0) > 1 ? orgNodeValues(d.id).join(' › ') : d.name,
+        total: d.total,
+        completed: d.completed,
+        achieved: d.achieved,
+        navKeys: [...d.navKeys],
         rate: d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0,
         achievementRate: d.total > 0 ? Math.round((d.achieved / d.total) * 100) : 0,
         avgProgress: d.total > 0 ? Math.round(d.totalProgress / d.total) : 0,
@@ -449,7 +486,13 @@ const HrHome = () => {
                   <button
                     className="sd-btn sd-btn-ghost sd-btn-sm"
                     style={{ color: 'var(--ok-orange)' }}
-                    onClick={() => navigate('/hr/departments')}
+                    onClick={() =>
+                      navigate(
+                        orgFilter.length
+                          ? `/hr/departments?org=${encodeURIComponent(JSON.stringify(orgFilter))}`
+                          : '/hr/departments',
+                      )
+                    }
                   >
                     전체 보기 →
                   </button>
@@ -457,7 +500,8 @@ const HrHome = () => {
               >
                 <DeptHeadcountList
                   data={summary.departments.map((d) => ({
-                    name: d.name,
+                    id: d.id,
+                    name: d.label,
                     total: d.total,
                     achieved: d.achieved,
                     missed: Math.max(0, d.completed - d.achieved),
@@ -467,7 +511,12 @@ const HrHome = () => {
                   sort={deptSort}
                   onSortChange={setDeptSort}
                   rowsVisible={5}
-                  onSelect={(name) => navigate(`/hr/departments?dept=${encodeURIComponent(name)}`)}
+                  onSelect={(id) => {
+                    const dept = summary.departments.find((d) => d.id === id);
+                    navigate(
+                      `/hr/departments?org=${encodeURIComponent(JSON.stringify(dept ? dept.navKeys : []))}`,
+                    );
+                  }}
                 />
               </ChartCard>
             </section>

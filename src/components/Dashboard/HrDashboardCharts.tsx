@@ -182,6 +182,8 @@ export const ScoreDistChart = ({ data, onSelect }: { data: ScoreDatum[]; onSelec
 };
 
 export type DeptHeadcountDatum = {
+  /** 클릭 시 onSelect 로 넘길 식별자(조직 정규화 키 등). 없으면 name 사용. */
+  id?: string;
   name: string;
   total: number;
   achieved: number;
@@ -267,9 +269,9 @@ export const DeptHeadcountList = ({
             const denom = d.total || 1;
             return (
               <button
-                key={d.name}
+                key={d.id ?? d.name}
                 type="button"
-                onClick={() => onSelect?.(d.name)}
+                onClick={() => onSelect?.(d.id ?? d.name)}
                 style={{
                   textAlign: 'left',
                   background: 'transparent',
