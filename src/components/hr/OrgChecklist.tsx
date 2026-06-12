@@ -167,9 +167,11 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     const isOpen = expanded.has(node.key);
     const state = checkStateOf(node.key);
     const on = state !== false;
+    // 색·배지 기준: 이 부서 자체(직속 인원) 포함 여부. 하위만 일부 선택된 '미포함 부서'는 색 없음.
+    const selfIn = selected.has(node.key);
     return (
       <div key={node.key}>
-        <div style={rowStyle(on, node.depth)}>
+        <div style={rowStyle(selfIn, node.depth)}>
           {kids.length > 0 ? (
             <button
               type="button"
@@ -216,6 +218,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             {kids.length > 0 && (
               <span style={{ color: 'var(--fg-muted)', fontWeight: 600 }}> ({kids.length})</span>
             )}
+            {selfIn && state === 'indeterminate' && <span style={selfBadgeStyle}>직속 포함</span>}
           </button>
         </div>
         {isOpen && kids.map(renderNode)}
@@ -228,9 +231,10 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   const renderSelectedNode = (node: OrgNode): ReactNode => {
     const kids = (childrenOf.get(node.key) ?? []).filter((k) => displaySet.has(k.key));
     const state = checkStateOf(node.key);
+    const selfIn = selected.has(node.key);
     return (
       <div key={node.key}>
-        <div style={rowStyle(false, node.depth)}>
+        <div style={rowStyle(selfIn, node.depth)}>
           <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
           <span
             style={{
@@ -245,6 +249,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
             }}
           >
             {node.leaf}
+            {selfIn && state === 'indeterminate' && <span style={selfBadgeStyle}>직속 포함</span>}
           </span>
         </div>
         {kids.map(renderSelectedNode)}
@@ -287,7 +292,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
                   const state = checkStateOf(node.key);
                   const on = state !== false;
                   return (
-                    <label key={node.key} style={rowStyle(on, 1)}>
+                    <label key={node.key} style={rowStyle(selected.has(node.key), 1)}>
                       <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
                       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600, color: 'var(--fg)' }}>
@@ -379,6 +384,17 @@ const emptyStyle: CSSProperties = {
   padding: '12px 8px',
   color: 'var(--fg-muted)',
   fontSize: 'var(--fs-sm)',
+};
+
+const selfBadgeStyle: CSSProperties = {
+  marginLeft: 6,
+  padding: '0 6px',
+  borderRadius: 6,
+  background: 'var(--ok-orange-100)',
+  color: 'var(--ok-brown)',
+  fontSize: 10,
+  fontWeight: 800,
+  whiteSpace: 'nowrap',
 };
 
 const smallPrimaryBtn: CSSProperties = {
