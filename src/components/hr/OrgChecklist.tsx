@@ -110,33 +110,30 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
 
   if (nodes.length === 0) return null;
 
-  // 노드 체크/해제 — 캐스케이드(하위 전체) + 상위 정합.
+  // 노드 체크/해제 — 자신+하위만(캐스케이드 다운). 상위는 건드리지 않는다:
+  // 부(部)는 직속 인원도 가진 단위라, 하위 팀 하나를 해제해도 부와 그 직속 인원은 남아야 한다.
+  // 부분선택 표시는 하위 집계(checkStateOf)로 한다.
   const applyCheck = (nodeKey: string, check: boolean) => {
     const set = new Set(value);
-    const sub = subtreeOf.get(nodeKey) ?? [nodeKey];
-    const vals = orgNodeValues(nodeKey);
-    if (check) {
-      for (const k of sub) set.add(k);
-      // 상위: 모든 자식이 선택되면 상위도 체크(아니면 중단).
-      for (let i = vals.length - 1; i >= 1; i--) {
-        const anc = orgNodeKey(vals.slice(0, i));
-        const kids = childrenOf.get(anc) ?? [];
-        if (kids.length > 0 && kids.every((k) => set.has(k.key))) set.add(anc);
-        else break;
-      }
-    } else {
-      for (const k of sub) set.delete(k);
-      // 상위는 더 이상 '전부 선택'이 아니므로 해제.
-      for (let i = 1; i < vals.length; i++) set.delete(orgNodeKey(vals.slice(0, i)));
+    for (const k of subtreeOf.get(nodeKey) ?? [nodeKey]) {
+      if (check) set.add(k);
+      else set.delete(k);
     }
     onChange([...set]);
   };
 
-  const toggleNode = (node: OrgNode) => {
-    const willCheck = !selected.has(node.key);
-    applyCheck(node.key, willCheck);
+  // 노드의 체크 상태: 하위(자신 포함) 전부 선택=true, 일부=indeterminate, 없음=false.
+  const checkStateOf = (nodeKey: string): boolean | 'indeterminate' => {
+    const sub = subtreeOf.get(nodeKey) ?? [nodeKey];
+    let n = 0;
+    for (const k of sub) if (selected.has(k)) n += 1;
+    return n === 0 ? false : n === sub.length ? true : 'indeterminate';
+  };
+
+  const setNode = (node: OrgNode, check: boolean) => {
+    applyCheck(node.key, check);
     // 체크 시 자신+조상을 펼쳐, 검색에서 고른 것도 검색어를 지운 전체 트리에서 바로 보이게.
-    if (willCheck)
+    if (check)
       setExpanded((prev) => {
         const next = new Set(prev).add(node.key);
         let pk = parentKeyOf(node.key);
@@ -168,7 +165,8 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   const renderNode = (node: OrgNode): ReactNode => {
     const kids = childrenOf.get(node.key) ?? [];
     const isOpen = expanded.has(node.key);
-    const on = selected.has(node.key);
+    const state = checkStateOf(node.key);
+    const on = state !== false;
     return (
       <div key={node.key}>
         <div style={rowStyle(on, node.depth)}>
@@ -194,10 +192,10 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
           ) : (
             <span style={{ width: 22, flexShrink: 0 }} />
           )}
-          <Checkbox checked={on} onCheckedChange={() => toggleNode(node)} />
+          <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
           <button
             type="button"
-            onClick={() => (kids.length > 0 ? toggleExpand(node.key) : toggleNode(node))}
+            onClick={() => (kids.length > 0 ? toggleExpand(node.key) : setNode(node, state !== true))}
             style={{
               flex: 1,
               minWidth: 0,
@@ -229,22 +227,18 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   // 구조용 조상은 흐리게 라벨만.
   const renderSelectedNode = (node: OrgNode): ReactNode => {
     const kids = (childrenOf.get(node.key) ?? []).filter((k) => displaySet.has(k.key));
-    const isSel = selected.has(node.key);
+    const state = checkStateOf(node.key);
     return (
       <div key={node.key}>
         <div style={rowStyle(false, node.depth)}>
-          {isSel ? (
-            <Checkbox checked onCheckedChange={() => applyCheck(node.key, false)} />
-          ) : (
-            <span style={{ width: 16, flexShrink: 0 }} />
-          )}
+          <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
           <span
             style={{
               flex: 1,
               minWidth: 0,
               fontSize: 'var(--fs-sm)',
-              fontWeight: isSel ? 700 : 600,
-              color: isSel ? 'var(--fg)' : 'var(--fg-muted)',
+              fontWeight: state === true ? 700 : 600,
+              color: state === false ? 'var(--fg-muted)' : 'var(--fg)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -265,7 +259,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
         <PopoverTrigger asChild>
           <button type="button" style={triggerStyle}>
             조직 필터
-            {selected.size > 0 && <span style={badgeStyle}>{selected.size}</span>}
+            {topMost.length > 0 && <span style={badgeStyle}>{topMost.length}</span>}
             <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>▾</span>
           </button>
         </PopoverTrigger>
@@ -290,10 +284,11 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
                 <div style={emptyStyle}>일치하는 조직이 없습니다.</div>
               ) : (
                 matches.map((node) => {
-                  const on = selected.has(node.key);
+                  const state = checkStateOf(node.key);
+                  const on = state !== false;
                   return (
                     <label key={node.key} style={rowStyle(on, 1)}>
-                      <Checkbox checked={on} onCheckedChange={() => toggleNode(node)} />
+                      <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
                       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600, color: 'var(--fg)' }}>
                           {node.leaf}
