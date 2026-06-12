@@ -82,7 +82,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     });
   }, [nodes, terms]);
 
-  // 선택목록(상위만): value 노드 중 부모가 선택 안 된 최상위들.
+  // 선택목록(상위만): value 노드 중 부모가 선택 안 된 최상위들. (트리거 카운트용)
   const topMost = useMemo(
     () =>
       nodes.filter((n) => {
@@ -92,6 +92,21 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
       }),
     [nodes, selected],
   );
+
+  // 선택필터 트리에 표시할 노드: 선택된 노드 + 그 조상(구조용). 조상이 선택 안 됐어도
+  // 트리 모양을 위해 포함(부분 해제로 부모만 빠진 경우 등).
+  const displaySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const key of selected) {
+      s.add(key);
+      let pk = parentKeyOf(key);
+      while (pk) {
+        s.add(pk);
+        pk = parentKeyOf(pk);
+      }
+    }
+    return s;
+  }, [selected]);
 
   if (nodes.length === 0) return null;
 
@@ -120,7 +135,17 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   const toggleNode = (node: OrgNode) => {
     const willCheck = !selected.has(node.key);
     applyCheck(node.key, willCheck);
-    if (willCheck) setExpanded((prev) => new Set(prev).add(node.key)); // 체크 시 하위가 보이게 펼침
+    // 체크 시 자신+조상을 펼쳐, 검색에서 고른 것도 검색어를 지운 전체 트리에서 바로 보이게.
+    if (willCheck)
+      setExpanded((prev) => {
+        const next = new Set(prev).add(node.key);
+        let pk = parentKeyOf(node.key);
+        while (pk) {
+          next.add(pk);
+          pk = parentKeyOf(pk);
+        }
+        return next;
+      });
   };
   const toggleExpand = (key: string) =>
     setExpanded((prev) => {
@@ -200,6 +225,39 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     );
   };
 
+  // 선택필터 트리 — displaySet 안의 노드만, 항상 펼친 채. 선택 노드는 체크박스(해제 가능),
+  // 구조용 조상은 흐리게 라벨만.
+  const renderSelectedNode = (node: OrgNode): ReactNode => {
+    const kids = (childrenOf.get(node.key) ?? []).filter((k) => displaySet.has(k.key));
+    const isSel = selected.has(node.key);
+    return (
+      <div key={node.key}>
+        <div style={rowStyle(false, node.depth)}>
+          {isSel ? (
+            <Checkbox checked onCheckedChange={() => applyCheck(node.key, false)} />
+          ) : (
+            <span style={{ width: 16, flexShrink: 0 }} />
+          )}
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 'var(--fs-sm)',
+              fontWeight: isSel ? 700 : 600,
+              color: isSel ? 'var(--fg)' : 'var(--fg-muted)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {node.leaf}
+          </span>
+        </div>
+        {kids.map(renderSelectedNode)}
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       {/* 조직 필터 트리 */}
@@ -265,52 +323,26 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
           <PopoverContent align="start" style={{ width: 320, padding: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}>선택한 조직</span>
-              <button type="button" onClick={clearAll} style={smallBtn(false)}>
+              <button
+                type="button"
+                onClick={clearAll}
+                style={{
+                  height: 26,
+                  padding: '0 10px',
+                  borderRadius: 7,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--fg-muted)',
+                  fontSize: 'var(--fs-xs)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
                 모두 해제
               </button>
             </div>
-            <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {topMost.map((node) => (
-                <div
-                  key={node.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    background: 'var(--ok-orange-50)',
-                  }}
-                >
-                  <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--ok-brown)' }}>
-                      {node.leaf}
-                    </span>
-                    {node.depth > 1 && (
-                      <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>{node.label}</span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => applyCheck(node.key, false)}
-                    title="이 항목 해제"
-                    style={{
-                      flexShrink: 0,
-                      width: 22,
-                      height: 22,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--ok-brown)',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                      fontWeight: 800,
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+            <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {roots.filter((r) => displaySet.has(r.key)).map(renderSelectedNode)}
             </div>
           </PopoverContent>
         </Popover>
