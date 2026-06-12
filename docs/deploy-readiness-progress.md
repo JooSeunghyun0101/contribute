@@ -148,7 +148,7 @@
 
 > tsc/build로 회귀를 못 잡거나 평가 점수 정합성이 걸린 항목. 사용자가 화면·수치를 직접 보며 확인해야 안전하므로 무인 루프 대상에서 제외. 상세는 아래 보류 섹션 참조.
 
-- [ ] **매트릭스 user_id 범위 검증** — 평가 기준표(매트릭스)가 현재 개인별(`employeeId`)로 저장됨. 전사 공통 의도면 `user_id='system'`으로 변경 필요. ❓확인: 매트릭스는 전사 공통인가 개인별인가? (E-1a follow-up)
+- [x] **매트릭스 user_id 범위 검증** — **사용자 결정(2026-06-12): 전사 공통.** 점검 중 추가 버그 발견: 코드 공유 ID가 `'company'`인데 서버 가드 `requireSettingsRead`는 `'system'`만 전 직원 읽기 허용 → 비HR의 기준표 읽기가 403으로 조용히 디폴트 폴백(HR이 바꿔도 직원에게 미전파). 수정: `COMPANY_MATRIX_SETTING_USER_ID`를 `'system'`으로 통일(FAQ와 동일 규칙) + saveMatrix 개인별 dual-write 제거. settings 테이블 0행 확인 → 데이터 이전 불필요. 잔여: HR 저장 → 비HR 계정에서 동일 기준표 보이는지 화면 확인.
 - [ ] **날짜/숫자 공용 포매터 적용**(F-4 ④) — `src/lib/format.ts` 만들고 표시 사이트 적용. locale/timezone·천단위 시각 회귀를 눈으로 확인.
 - [ ] **raw table→shadcn / 내장 모달·native select 정리** — UI 회귀를 자동검증 불가. 해당 화면 보며 확인.
 - [ ] **D-1/D-2 서버 집계(N+1)·React Query 전환** — task 쿼리 재작성이 평가 점수를 조용히 틀리게 할 위험. 점수 정합성 직접 확인.
@@ -220,3 +220,4 @@
 - 2026-06-10 F-2: 죽은 코드 스윕 — importer 0 grep 재확인(살아있는 코드 import 0, 죽은 모듈끼리만 참조) 후 **20개 파일 git rm**(구형 대시보드·TaskManagement·Gemini/DatabaseTest·HRDashboard 고아 의존·useEvaluationData/Unified·gemini·NotificationContext비DB·테스트 4종). tsc·build EXIT 0(회귀 0). 죽은 서비스 함수는 F-3 eslint 후 정리. database/supabase/dbConnectTest는 참조 있어 존치.
 - 2026-06-10 F-3: 품질 게이트 — package.json `typecheck` 스크립트 추가, eslint no-explicit-any·no-unused-vars warn 복원, **tsconfig noImplicitAny:true 도입(tsc 에러 0 확인)**. typecheck·build EXIT 0. context 메모이즈·전체 strict는 보류. **Phase F 거의 완료**(F-1 색상·F-2 죽은코드·F-3 게이트; 남은 F-4 문서).
 - 2026-06-10 F-4: 문서 마감 — ① BACKEND_FRONTEND_OVERVIEW.md 포트 4000→5000(2곳) ② README Supabase 잔재 정정(기술스택 Database→PostgreSQL/pg+Backend행 신설+AI 프록시 명시, env VITE_SUPABASE_*→DATABASE_URL+AI_API_KEY, "strict 모드"거짓→noImplicitAny 사실, 참조링크 보강, 잔여 VITE_SUPABASE grep 0건) ③ .env.example은 B-1·S-4서 기정리(재확인). ④ 날짜/숫자 포매터는 시각 회귀 위험으로 보류 분리. typecheck·build EXIT 0. **Phase F 완료 → 활성 `[ ]` 항목 0건(루프 종료 조건 도달).**
+- 2026-06-12 매트릭스 전사 공통 확정(사용자 결정) + 공유 ID 버그 수정 — `COMPANY_MATRIX_SETTING_USER_ID` 'company'→'system' 통일(서버 가드가 'system'만 전 직원 읽기 허용이라 비HR 기준표 읽기 403→디폴트 폴백이던 버그 해소), saveMatrix 개인 dual-write 제거. settings 0행 확인=데이터 이전 불필요. 보완 일괄: 죽은 Fira Code @import 제거(프로덕션 CSS서 이미 drop·빌드 경고·내부망 CDN 잔재), db_mig/README.md 운영 이식 체크리스트 신설(스키마 18·1회성 9·샘플 5 분류+확인쿼리), CLAUDE.md Supabase 잔재 정정. typecheck·build EXIT 0. 잔여 눈확인: HR 매트릭스 저장→비HR 계정 동일 기준표 표시.

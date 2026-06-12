@@ -219,7 +219,9 @@ export const getGrowthLevelExpectation = (level?: number | null): GrowthLevelExp
 export const EVALUATION_MATRIX_SETTING_TYPE = 'evaluation_matrix';
 export const SCORE_EXPECTATIONS_SETTING_TYPE = 'contribution_score_expectations';
 export const GROWTH_LEVEL_EXPECTATIONS_SETTING_TYPE = 'growth_level_expectations';
-export const COMPANY_MATRIX_SETTING_USER_ID = 'company';
+// 전사 공통 기준표의 공유 user_id. 서버 settings 가드는 'system'만 전 직원 읽기를
+// 허용하고(쓰기는 HR), 그 외 user_id는 본인/HR 전용이라 다른 값이면 비HR 읽기가 403이 된다.
+export const COMPANY_MATRIX_SETTING_USER_ID = 'system';
 
 export const cloneDefaultScoreExpectations = (): Record<ContributionScoreLevel, ScoreExpectation> => ({
   4: { ...CONTRIBUTION_SCORE_EXPECTATIONS[4] },

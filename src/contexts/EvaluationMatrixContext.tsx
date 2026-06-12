@@ -51,18 +51,12 @@ export const EvaluationMatrixProvider: React.FC<{ children: React.ReactNode }> =
 
     setIsLoading(true);
     try {
-      const [companySetting, userSetting] = await Promise.all([
-        settingService
-          .getUserSetting(COMPANY_MATRIX_SETTING_USER_ID, EVALUATION_MATRIX_SETTING_TYPE)
-          .catch(() => null),
-        settingService
-          .getUserSetting(user.employeeId, EVALUATION_MATRIX_SETTING_TYPE)
-          .catch(() => null),
-      ]);
+      const companySetting = await settingService
+        .getUserSetting(COMPANY_MATRIX_SETTING_USER_ID, EVALUATION_MATRIX_SETTING_TYPE)
+        .catch(() => null);
 
       const nextMatrix =
         normalizeEvaluationMatrix(companySetting?.setting_data) ??
-        normalizeEvaluationMatrix(userSetting?.setting_data) ??
         readCachedMatrix() ??
         cloneDefaultMatrix();
 
@@ -117,12 +111,8 @@ export const EvaluationMatrixProvider: React.FC<{ children: React.ReactNode }> =
         EVALUATION_MATRIX_SETTING_TYPE,
         normalized,
       );
-
-      if (user?.employeeId && user.employeeId !== COMPANY_MATRIX_SETTING_USER_ID) {
-        await settingService.saveSetting(user.employeeId, EVALUATION_MATRIX_SETTING_TYPE, normalized);
-      }
     },
-    [user?.employeeId],
+    [],
   );
 
   const value = useMemo(
