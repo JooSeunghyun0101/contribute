@@ -93,10 +93,13 @@ export const useFormerTeamDashboardRecords = (
   );
 
 // 직전연도(또는 임의 기간) 비교용 레코드 로딩. 주어진 직원들의 특정 기간 평가를 불러온다.
+// bulk: HR 전사 화면(직원 ~수백 명)에서만 true — 직전연도 레코드도 벌크 2회로 모아 N+1·429 제거.
+// 벌크 엔드포인트는 requireHr이므로 평가자/피평가자 화면(소수 인원)은 false로 두면 개별 경로로 안전 폴백.
 export const usePriorYearRecords = (
   employees: Employee[],
   priorPeriodId: string | null,
   evaluatorId: string | null = null,
+  bulk = false,
 ): EmployeeEvaluationRecord[] => {
   const [records, setRecords] = useState<EmployeeEvaluationRecord[]>([]);
   const key = employees.map((e) => e.employee_id).sort().join(',');
@@ -106,7 +109,7 @@ export const usePriorYearRecords = (
       return;
     }
     let cancelled = false;
-    loadEmployeeEvaluationRecords(employees, { periodId: priorPeriodId, evaluatorId })
+    loadEmployeeEvaluationRecords(employees, { periodId: priorPeriodId, evaluatorId, bulk })
       .then((r) => {
         if (!cancelled) setRecords(r);
       })
@@ -117,7 +120,7 @@ export const usePriorYearRecords = (
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, priorPeriodId, evaluatorId]);
+  }, [key, priorPeriodId, evaluatorId, bulk]);
   return records;
 };
 

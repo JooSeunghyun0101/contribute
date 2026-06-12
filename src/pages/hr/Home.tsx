@@ -284,7 +284,7 @@ const HrHome = () => {
     [periods, priorYear],
   );
   const priorEmployees = useMemo(() => records.map((r) => r.employee), [records]);
-  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
+  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId, null, true);
   const priorScoreTrend = useMemo(() => {
     const members = priorRecords
       .filter((r) => matchesOrgNodes(r.employee, orgFilter))

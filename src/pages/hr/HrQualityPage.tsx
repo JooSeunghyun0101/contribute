@@ -712,7 +712,7 @@ const HrQualityPage = () => {
   );
   // 현재 기간 점검 대상 직원들의 직전연도 평가만 1배치로 로드(추가 1인 조회 없음).
   const priorEmployees = useMemo(() => records.map((r) => r.employee), [records]);
-  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
+  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId, null, true);
 
   // 직전연도도 동일 evaluatee 롤 + 같은 org 필터를 적용해 비교 모집단을 맞춘다.
   const priorTargetRecords = useMemo(
