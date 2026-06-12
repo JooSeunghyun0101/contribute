@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -107,6 +107,18 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     }
     return s;
   }, [selected]);
+
+  // 드롭다운을 열 때, 적용된 필터가 보이도록 선택 노드와 그 조상 가지를 펼친다(열 때 1회).
+  // 이후 접기/펼치기는 사용자 제어. (선택은 collapsed 깊은 곳에 있어도 value 로 유지됨)
+  useEffect(() => {
+    if (!open) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const key of displaySet) next.add(key);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (nodes.length === 0) return null;
 
