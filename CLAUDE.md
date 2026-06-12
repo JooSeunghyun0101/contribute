@@ -32,8 +32,8 @@ HR 운영 규칙(daily 로그 하네스, DRM, 스킬 라우팅, 보이스 톤 �
 | UI | Tailwind CSS + shadcn/ui |
 | State | React Context API + React Query |
 | Routing | React Router DOM |
-| Backend | `server.js` (Express) + Supabase (PostgreSQL) |
-| AI | OpenAI API (피드백 생성·검증) |
+| Backend | `server.js` (Express) + PostgreSQL (pg 풀) |
+| AI | OpenAI 호환 프록시 `/api/ai/chat` (임시 GitHub Models → 내부망 이식 후 GPT-OSS, env 교체만) |
 | Infra | Docker, docker-compose |
 
 주요 디렉터리:
@@ -41,7 +41,7 @@ HR 운영 규칙(daily 로그 하네스, DRM, 스킬 라우팅, 보이스 톤 �
 - `src/components/` 공통·도메인 컴포넌트 (Dashboard, Evaluation, Layout, Notification, Settings, ui)
 - `src/lib/services/` DB 서비스 레이어
 - `src/contexts/` React Context
-- `db_mig/`, `db_structure/` Supabase 마이그레이션과 스키마
+- `db_mig/`, `db_structure/` PostgreSQL 마이그레이션과 스키마 스냅샷 (적용 절차는 `db_mig/README.md`)
 
 ---
 
@@ -59,8 +59,8 @@ HR 운영 규칙(daily 로그 하네스, DRM, 스킬 라우팅, 보이스 톤 �
 - 레퍼런스의 `tokens.css` CSS 변수 네이밍은 `tailwind.config.ts` 또는 `src/index.css`로 매핑.
 
 ### 데이터
-- Supabase 쿼리는 `src/lib/services/` 서비스 레이어를 경유. 컴포넌트에서 직접 호출 지양.
-- DB 스키마 변경은 `db_mig/`에 새 마이그레이션 추가 → Supabase CLI로 적용.
+- DB 접근은 `src/lib/services/` 서비스 레이어(apiFetch → `server.js` API)를 경유. 컴포넌트에서 직접 호출 지양.
+- DB 스키마 변경은 `db_mig/`에 새 마이그레이션 추가 → psql로 **그 자리에서 즉시 적용**(`db_mig/README.md` 참조). 파일만 만들고 적용하지 않으면 해당 기능이 런타임 500으로 깨진다.
 - `.env`에 민감정보 저장. `database_connect_information.yml`은 참조용이므로 커밋 주의.
 
 ### 테스트·빌드
