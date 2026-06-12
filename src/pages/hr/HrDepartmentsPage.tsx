@@ -122,26 +122,29 @@ const HrDepartmentsPage = () => {
   );
 
   // 선택한 집계 단위의 조직 값으로 그룹 키 + 그 키가 실제 속한 레벨을 만든다.
-  // 선택 레벨이 비어 있으면 더 하위 레벨로 내려가며 폴백(상위로 조회해도 미지정이면 하위 조직으로 묶임).
-  // 그래도 없으면 레거시 department(팀급으로 간주) → '미지정'.
+  // 그룹 키 = 선택 레벨까지의 압축 조직경로(빈 레벨은 건너뜀)를 " › "로 이은 문자열.
+  // 전사현황 부서 바(deptPathOf)와 동일 규칙이라, 바 클릭 시 ?open 키가 이 키와 정확히 일치한다.
+  // 동명이부서(예: OK 인사팀 vs OKH 인사팀)는 상위경로가 달라 키가 갈린다.
+  // 팀이 비어 선택 레벨보다 얕게 묶이면(예: 팀단위 보기인데 팀이 없는 부 직속) 압축경로 말단(부)으로 묶인다.
+  // level = 압축경로 말단 레벨(구멍이 있으면 선택 레벨보다 얕을 수 있음). 아무 조직도 없으면 레거시 department → '미지정'.
   const groupStartIdx = ORG_LEVELS.indexOf(groupLevel);
   const resolveGroup = (
     record: EmployeeEvaluationRecord,
   ): { key: string; level: OrgLevel | null; label: string } => {
-    for (let i = groupStartIdx; i < ORG_LEVELS.length; i += 1) {
+    const path: string[] = [];
+    let deepest: OrgLevel | null = null;
+    for (let i = 0; i <= groupStartIdx; i += 1) {
       const value = getOrgValue(record.employee, ORG_LEVELS[i]);
       if (value) {
-        // 상위 경로로 한정한 key — 동명이부서(예: OK 인사팀 vs OKH 인사팀)를 분리한다.
-        // 표시는 label(말단 조직명), 그룹핑·조회는 key(전체 경로)로 분리.
-        const ancestors = ORG_LEVELS.slice(0, i)
-          .map((lv) => getOrgValue(record.employee, lv))
-          .filter(Boolean);
-        const key = [...ancestors, value].join(' › ');
-        return { key, level: ORG_LEVELS[i], label: value };
+        path.push(value);
+        deepest = ORG_LEVELS[i];
       }
     }
+    if (path.length > 0) {
+      return { key: path.join(' › '), level: deepest, label: path[path.length - 1] };
+    }
     if (record.employee.department) {
-      return { key: record.employee.department, level: 'team', label: record.employee.department };
+      return { key: record.employee.department, level: null, label: record.employee.department };
     }
     return { key: '미지정', level: null, label: '미지정' };
   };
