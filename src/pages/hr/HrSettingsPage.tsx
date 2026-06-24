@@ -273,10 +273,13 @@ const HrSettingsPage = () => {
                       gap: 10,
                     }}
                   >
-                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>대상자 일괄삭제</div>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
+                      대상자 일괄삭제 <span style={{ color: 'var(--danger, #B91C1C)' }}>(전체 · 모든 평가기간)</span>
+                    </div>
                     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-                      admin 외 모든 직원 + 그들에게 딸린 <b>평가·과업·피드백·이력·임포트 데이터</b>를 완전히 제거합니다.
-                      평가기간·시스템 설정은 유지됩니다.
+                      <b>모든 평가기간</b>의 admin 외 전 직원 + 딸린 <b>평가·과업·피드백·이력·임포트</b>를 완전히 제거합니다.
+                      <b>처음부터 다시 세팅</b>할 때만 쓰세요. 특정 기간만 비우려면 아래 <b>‘평가기간별 초기화’</b>를 사용합니다.
+                      (평가기간·시스템 설정·admin 은 유지)
                     </div>
                     <button
                       className="sd-btn sd-btn-sm"
@@ -306,10 +309,12 @@ const HrSettingsPage = () => {
                       gap: 10,
                     }}
                   >
-                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>매칭정보 일괄삭제</div>
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
+                      매칭정보 일괄삭제 <span style={{ color: 'var(--danger, #B91C1C)' }}>(모든 평가기간)</span>
+                    </div>
                     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
-                      대상자 프로필은 유지하되 <b>평가자 배정·평가건·과업·피드백·이력·매칭 임포트 데이터</b>를 모두 제거합니다.
-                      매칭 엑셀을 다시 올리기 전 깨끗한 상태로 되돌릴 때 사용합니다.
+                      대상자 프로필은 유지하되 <b>모든 평가기간</b>의 <b>평가자 배정·평가·과업·피드백·이력·매칭 임포트</b>를 제거합니다.
+                      특정 기간 매칭만 되돌리려면 아래 <b>‘평가기간별 초기화’</b>를 사용합니다.
                     </div>
                     <button
                       className="sd-btn sd-btn-sm"
