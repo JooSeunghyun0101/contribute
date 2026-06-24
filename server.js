@@ -3727,14 +3727,23 @@ const reconcileEmployeeMatchingStages = async (
     releasedEvaluators: [],
   };
 
-  // 이 평가기간(periodYear)에 발효된 발령만으로 이 기간의 평가/이력을 만든다.
-  // 미래 연도 발령(예: 2025 업로드 중 들어온 2026-02 발령)은 그 기간(2026)에서 처리해야
-  // 하며, 이 기간 평가로 끼워넣지 않는다. 단, 직원의 '현재 평가자'(글로벌 최신)는
-  // 전체 발령으로 계산하므로 원본(allStages)을 보존한다.
+  // 발령을 연도별로 정확히 귀속한다(연도 혼재 파일이 직전연도 발령을 당해 기간 이력으로
+  // 잘못 적재해 '이전 담당'에 노출되던 문제 방지):
+  //  - allStages : 원본(이전평가자 carry-forward 링크 계산용)
+  //  - carryStages: 이 기간까지(<= periodYear) — '현재 평가자'(기간 시작 시점 담당) 계산용
+  //  - stages     : 이 기간 연도(=== periodYear)에 발효된 발령만 — 이 기간의 평가/이력 생성용
+  const stageYearOf = (s) => (s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN);
+  const allStages = stages;
+  const carryStages = Number.isFinite(periodYear)
+    ? allStages.filter((s) => {
+        const y = stageYearOf(s);
+        return !Number.isFinite(y) || y <= periodYear;
+      })
+    : allStages;
   if (Number.isFinite(periodYear)) {
-    stages = stages.filter((s) => {
-      const y = s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN;
-      return !Number.isFinite(y) || y <= periodYear;
+    stages = allStages.filter((s) => {
+      const y = stageYearOf(s);
+      return !Number.isFinite(y) || y === periodYear;
     });
   }
 
@@ -3835,7 +3844,10 @@ const reconcileEmployeeMatchingStages = async (
   for (let si = 0; si < stages.length; si += 1) {
     if (stageMatched[si]) continue;
     const fs = stages[si];
-    const prevStage = stages.slice(0, si).reverse().find((s) => s.evaluatorId);
+    // 이전 평가자 링크는 carry-forward 포함(직전연도 마지막 평가자까지) — 당해 연도 첫
+    // 발령의 '이전 평가자'가 직전연도 담당으로 올바르게 이어지게 한다.
+    const prevStage =
+      allStages.filter((s) => s.evaluatorId && s.startDate < fs.startDate).slice(-1)[0] ?? null;
     const evaluation = await createDraftEvaluationForEmployeeAssignment(client, employee, periodId);
     const hist = await insertEvaluatorAssignmentHistory(client, {
       employeeId,
@@ -3896,7 +3908,9 @@ const reconcileEmployeeMatchingStages = async (
   // 현재 평가자 = 이 평가기간까지(로드된) 발령 중 마지막 단계의 평가자.
   // 파일에 미래 연도 발령이 있어도 그 기간이 로드되기 전엔 현재 평가자로 삼지 않는다
   // (그래야 이 기간 실제 담당 평가자 보드에 피평가자가 보인다). prev 링크 일관화.
-  const orderedStages = stages.filter((s) => s.evaluatorId);
+  // 현재 평가자는 이 기간까지(carry-forward) 발령 중 마지막 — 당해 연도 발령이 없으면
+  // 직전연도 담당이 그대로 이어진다(현재평가자가 null 로 끊기지 않게).
+  const orderedStages = carryStages.filter((s) => s.evaluatorId);
   const lastStage = orderedStages.length ? orderedStages[orderedStages.length - 1] : null;
   await client.query(`UPDATE employees SET evaluator_id=$2, updated_at=NOW() WHERE employee_id=$1`, [
     employeeId,
