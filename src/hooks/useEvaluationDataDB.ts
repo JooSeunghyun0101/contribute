@@ -460,6 +460,13 @@ export const useEvaluationDataDB = (
           // 이후의 후임 평가가 과거 이력으로 섞여 보이던 문제. 이전(선임) 평가자 이력은 유지.
           const previousEvaluations = evaluations.filter((item) => {
             if (!item.id || item.id === evaluation.id) return false;
+            // 같은 평가기간(전보)만 '이전 평가'로 노출 — 직전연도 등 다른 기간 평가가
+            // 섞여 "이전 평가자"로 잘못 보이지 않게 한다(기간 격리). 서버 기간필터에만
+            // 의존하지 않고 클라이언트에서도 명시적으로 같은 기간을 강제.
+            const samePeriod = item.evaluation_period_id
+              ? item.evaluation_period_id === evaluation.evaluation_period_id
+              : item.evaluation_year === evaluation.evaluation_year;
+            if (!samePeriod) return false;
             const itemAt = assignedAt(item as { evaluator_assigned_at?: string | null });
             if (currentAssignedAt != null && itemAt != null && itemAt > currentAssignedAt) return false;
             return true;
