@@ -5709,6 +5709,9 @@ const CONTRIB_SCOPES = new Set(['의존적', '독립적', '상호적', '전략�
 const contribScope = (v) => { const s = String(v ?? '').replace(/\s+/g, '').replace(/기여$/, '').trim(); return CONTRIB_SCOPES.has(s) ? s : null; };
 const contribMethod = (v) => { const m = String(v ?? '').trim(); return CONTRIB_METHODS.has(m) ? m : null; };
 const contribScoreNorm = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 1 ? Math.round(n) : null; };
+// 가중치는 정수 컬럼(tasks.weight). 소수(33.3 등)·범위초과 값을 그대로 넣으면 파라미터 INSERT가
+// 'invalid input syntax for type integer'/'out of range'로 500. 반올림+클램프로 방어한다.
+const contribWeight = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100000, n)) : 0; };
 const contribSabun = (v) => String(v ?? '').replace(/^[A-Za-z]+/, '').trim();
 
 function groupContribRows(rows) {
@@ -5727,7 +5730,7 @@ function groupContribRows(rows) {
     if (!grp.deptCode && String(r.deptCode ?? '').trim()) grp.deptCode = String(r.deptCode).trim();
     grp.tasks.push({
       title: String(r.title ?? '').trim() || '(과업)',
-      weight: Number(r.weight) || 0,
+      weight: contribWeight(r.weight),
       score: contribScoreNorm(r.score),
       method: contribMethod(r.method),
       scope: contribScope(r.scope),
