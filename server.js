@@ -5725,8 +5725,19 @@ const contribScoreNorm = (v) => { const n = Number(v); return Number.isFinite(n)
 // 가중치는 정수 컬럼(tasks.weight). 소수(33.3 등)·범위초과 값을 그대로 넣으면 파라미터 INSERT가
 // 'invalid input syntax for type integer'/'out of range'로 500. 반올림+클램프로 방어한다.
 const contribWeight = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100000, n)) : 0; };
-// 과업 수행기간(시작일/종료일): 'YYYYMMDD'/'YYYY-MM-DD'/ISO → 'YYYY-MM-DD'. 유효치 아니면 null.
-const contribDate = (v) => { const m = String(v ?? '').trim().match(/^(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/); if (!m) return null; const mo = +m[2], d = +m[3]; if (mo < 1 || mo > 12 || d < 1 || d > 31) return null; return `${m[1]}-${m[2]}-${m[3]}`; };
+// 과업 수행기간(시작일/종료일): 'YYYYMMDD'/'YYYY-MM-DD'/ISO → 'YYYY-MM-DD'.
+// 실제 유효한 날짜만 통과(엑셀에 25251231·20250229(비윤년)·99990909 같은 오타가 있어
+// 느슨하게 두면 date 컬럼 INSERT가 실패→업로드 전체 500). 연도 2000~2100 + 월별 실제 일수 검증.
+const contribDate = (v) => {
+  const m = String(v ?? '').trim().match(/^(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1) return null;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const dim = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (d > dim[mo - 1]) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+};
 const contribSabun = (v) => String(v ?? '').replace(/^[A-Za-z]+/, '').trim();
 
 function groupContribRows(rows) {
