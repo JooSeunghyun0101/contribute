@@ -21,12 +21,13 @@ import type {
   TaskEvaluationEntry,
 } from '@/types';
 
-// 공통 평가대상자 양식(업로드/다운로드 동일). 부서명·직책·평가그룹은 제거:
-// 부서명(표시명)은 매칭 업로드의 부서명에서 채운다. 직책은 사용 안 함.
+// 공통 평가대상자 양식(업로드/다운로드 동일). 부서명·평가그룹은 제거:
+// 부서명(표시명)은 매칭 업로드의 부서명에서 채운다.
 const PROFILE_SUMMARY_HEADERS = [
   '사번',
   '성명',
   '성장레벨(직급)',
+  '직책',
   '권한1',
   '권한2',
   '권한3',
@@ -378,6 +379,7 @@ const buildProfileSummaryRows = (
       employee.employee_id,
       employee.name,
       getGrowthLevelCell(employee),
+      employee.position ?? '',
       roles[0] ?? '',
       roles[1] ?? '',
       roles[2] ?? '',
