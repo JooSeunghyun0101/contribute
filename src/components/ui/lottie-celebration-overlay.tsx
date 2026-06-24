@@ -86,7 +86,10 @@ type Item = { id: number; data: string };
 
 export const CelebrationOverlay = ({ trigger }: CelebrationOverlayProps) => {
   const [items, setItems] = useState<Item[]>([]);
-  const lastIdRef = useRef<number | null>(null);
+  // 마운트 시점의 trigger 는 '이미 본 것'으로 간주한다. 평가기간 변경 등으로 오버레이가
+  // 리마운트돼도, 직전 클릭의 옛 trigger(여전히 non-null)가 다시 발동되지 않게 막는다.
+  // → trigger.id 가 마운트 이후 실제로 바뀔 때(=달성 글자 클릭)만 컨페티가 나온다.
+  const lastIdRef = useRef<number | null>(trigger?.id ?? null);
 
   // 첫 달성 전에 베이스를 미리 받아둔다(첫 클릭 지연 방지).
   useEffect(() => {
