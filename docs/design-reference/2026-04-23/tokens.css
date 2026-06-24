@@ -1,0 +1,440 @@
+/* ============================================================
+   OK금융그룹 기여도평가시스템 — Solar Dusk 디자인 토큰
+   ============================================================ */
+
+/* --- Freesentation Font --- */
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-4Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-5Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-6SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-7Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-8ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('fonts/Freesentation-9Black.ttf') format('truetype');
+  font-weight: 900;
+  font-display: swap;
+}
+
+:root {
+  /* ============================================================
+     SOLAR DUSK PALETTE
+     - Warm terracotta/coral primary (solar)
+     - Deep plum-navy anchor (dusk)
+     - Soft cream/blush surfaces
+     - Muted saturation, sauna-esque warmth
+     ============================================================ */
+
+  /* Primary — Solar (warm terracotta, less saturated than pure orange) */
+  --ok-orange: #D9623C;          /* Solar Terracotta */
+  --ok-orange-600: #BE4E2C;      /* Deeper burn */
+  --ok-orange-700: #963A1F;      /* Ember */
+  --ok-orange-50:  #FAEEE6;      /* Cream coral */
+  --ok-orange-100: #F3DACB;      /* Peach mist */
+  --ok-orange-200: #E6B59A;      /* Blush */
+
+  /* Anchor — Dusk (deep warm plum-navy) */
+  --ok-brown: #3D2E44;           /* Dusk plum */
+  --ok-brown-700: #271C2F;       /* Deep twilight */
+
+  /* Accent — Sun glow (muted amber) */
+  --ok-yellow: #D99A4E;          /* Honey sun */
+  --ok-yellow-300: #E8BC82;      /* Soft gold */
+  --ok-yellow-50: #F7ECD8;       /* Pale butter */
+
+  /* Background — soft warm cream */
+  --ok-bg-gray: #E8DFD4;
+  --ok-bg-gray-50: #F4EDE3;
+
+  /* Neutrals — Dusk-warmed (plum undertone) */
+  --n-0: #FFFFFF;
+  --n-25: #FAF6F0;               /* Warm cream */
+  --n-50: #F4EDE3;               /* Soft parchment */
+  --n-100: #E8DFD1;              /* Muted sand */
+  --n-200: #D1C5B4;              /* Dusty tan */
+  --n-300: #A69A8A;              /* Warm taupe */
+  --n-400: #7D7266;              /* Smoke olive */
+  --n-500: #5C5249;              /* Dusk bark */
+  --n-600: #433A34;              /* Deep coffee */
+  --n-700: #2E2721;              /* Ink plum */
+  --n-800: #1F1A17;              /* Night soil */
+  --n-900: #12100E;              /* Abyss */
+
+  /* Semantic — muted dusk harmony */
+  --success: #5F7A4A;            /* Moss */
+  --success-bg: #EEF2E6;
+  --warning: #A66828;            /* Burnt honey */
+  --warning-bg: #F7ECD8;
+  --danger:  #A83B2A;            /* Red clay */
+  --danger-bg: #F5DED5;
+  --info:    #4A5A7A;            /* Dusk indigo */
+  --info-bg: #E3E6EE;
+
+  /* Shadows (warm plum tint) */
+  --sh-sm: 0 1px 2px rgba(39, 28, 47, 0.06), 0 1px 1px rgba(39,28,47,0.04);
+  --sh-md: 0 4px 10px rgba(39, 28, 47, 0.08), 0 2px 4px rgba(39,28,47,0.04);
+  --sh-lg: 0 12px 28px rgba(39, 28, 47, 0.14), 0 4px 10px rgba(39,28,47,0.07);
+  --sh-focus: 0 0 0 4px rgba(217, 98, 60, 0.22);
+
+  /* Radii */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* Typography scale */
+  --fs-display: 40px;
+  --fs-h1: 28px;
+  --fs-h2: 22px;
+  --fs-h3: 18px;
+  --fs-h4: 16px;
+  --fs-body: 14px;
+  --fs-sm: 13px;
+  --fs-xs: 12px;
+  --fs-micro: 11px;
+
+  --font-sans: 'Freesentation', -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* Layout */
+  --sidebar-w: 240px;
+  --sidebar-w-collapsed: 68px;
+  --topbar-h: 60px;
+
+  /* Surface aliases */
+  --bg-app: var(--n-25);
+  --bg-card: var(--n-0);
+  --bg-muted: var(--n-50);
+  --bg-subtle: var(--ok-bg-gray-50);
+  --fg: var(--n-800);
+  --fg-muted: var(--n-500);
+  --fg-subtle: var(--n-400);
+  --border: var(--n-100);
+  --border-strong: var(--n-200);
+  --border-brand: var(--ok-orange);
+}
+
+/* Dark mode — Solar Dusk after nightfall */
+:root[data-theme="dark"] {
+  /* Primary stays warm but brighter for legibility on dark */
+  --ok-orange: #E87A52;
+  --ok-orange-600: #D9623C;
+  --ok-orange-700: #BE4E2C;
+  --ok-orange-50:  #3A2822;
+  --ok-orange-100: #4A3028;
+  --ok-orange-200: #6B4334;
+
+  --ok-brown: #B8A3C4;
+  --ok-brown-700: #9383A0;
+
+  --ok-yellow: #E8BC82;
+  --ok-yellow-300: #F2D1A5;
+  --ok-yellow-50: #3A2E22;
+
+  --ok-bg-gray: #2A2129;
+  --ok-bg-gray-50: #241C23;
+
+  /* Surfaces — deep plum-navy night */
+  --bg-app: #1A1320;             /* Midnight dusk */
+  --bg-card: #241A2B;            /* Plum card */
+  --bg-muted: #2E2335;           /* Raised plum */
+  --bg-subtle: #372A40;          /* Hover plum */
+
+  --fg: #F4EDE3;
+  --fg-muted: #B8ABBE;
+  --fg-subtle: #7D7085;
+
+  --border: #3A2D44;
+  --border-strong: #4E3D58;
+
+  /* Neutral overrides for dark cards */
+  --n-0: #241A2B;
+  --n-25: #1A1320;
+  --n-50: #2E2335;
+  --n-100: #372A40;
+  --n-200: #4E3D58;
+  --n-300: #6E5F7A;
+  --n-400: #8D7D97;
+  --n-500: #B8ABBE;
+  --n-600: #D4CADC;
+
+  /* Semantic — tuned for dark bg */
+  --success: #A3C087;
+  --success-bg: #2A3325;
+  --warning: #E8BC82;
+  --warning-bg: #3A2E22;
+  --danger: #E88777;
+  --danger-bg: #3A2420;
+  --info: #9BAACB;
+  --info-bg: #242B3A;
+
+  --sh-sm: 0 1px 2px rgba(0,0,0,0.35);
+  --sh-md: 0 4px 12px rgba(0,0,0,0.45);
+  --sh-lg: 0 16px 40px rgba(0,0,0,0.6);
+  --sh-focus: 0 0 0 4px rgba(232, 122, 82, 0.28);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--fg);
+  background: var(--bg-app);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 0, "ss01";
+  letter-spacing: -0.005em;
+}
+
+h1,h2,h3,h4,h5 { margin: 0; letter-spacing: -0.02em; }
+h1 { font-size: var(--fs-h1); font-weight: 800; }
+h2 { font-size: var(--fs-h2); font-weight: 700; }
+h3 { font-size: var(--fs-h3); font-weight: 700; }
+h4 { font-size: var(--fs-h4); font-weight: 600; }
+
+p  { margin: 0; }
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+
+.tnum { font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); }
+
+/* ============================================================
+   Brand primitives
+   ============================================================ */
+
+.ok-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.brand-lockup .brand-mark {
+  width: 30px;
+  height: 30px;
+  background: var(--ok-orange);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.brand-lockup .brand-mark::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  right: 6px;
+  height: 5px;
+  border-radius: 9px 9px 0 0;
+  border: 2px solid var(--ok-yellow);
+  border-bottom: none;
+  box-sizing: border-box;
+}
+.brand-lockup .brand-mark::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 9px;
+  background: var(--n-0);
+  border-radius: 1px;
+  box-shadow: 0 12px 0 -1px var(--n-0);
+}
+
+/* ============================================================
+   Common components
+   ============================================================ */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 20px;
+}
+.card-lg { padding: 24px; border-radius: var(--r-lg); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  transition: background-color 160ms, color 160ms, box-shadow 160ms, border-color 160ms;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--ok-orange);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--ok-orange-600); }
+.btn-primary:active { background: var(--ok-orange-700); }
+.btn-outline {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--fg);
+}
+.btn-outline:hover { border-color: var(--ok-orange); color: var(--ok-orange); }
+.btn-ghost {
+  color: var(--fg-muted);
+}
+.btn-ghost:hover { background: var(--bg-muted); color: var(--fg); }
+.btn-sm { padding: 6px 12px; font-size: var(--fs-sm); }
+.btn-xs { padding: 4px 10px; font-size: var(--fs-xs); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  background: var(--n-50);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+.chip-orange {
+  background: var(--ok-orange-50);
+  color: var(--ok-orange-700);
+  border-color: transparent;
+}
+.chip-success { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.chip-warning { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.chip-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.chip-info { background: var(--info-bg); color: var(--info); border-color: transparent; }
+
+.label-mini {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.divider { height: 1px; background: var(--border); }
+
+/* Input */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.input, .textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-body);
+  outline: none;
+  transition: border-color 140ms, box-shadow 140ms;
+}
+.input:focus, .textarea:focus {
+  border-color: var(--ok-orange);
+  box-shadow: var(--sh-focus);
+}
+.textarea { resize: vertical; min-height: 80px; }
+
+/* Progress bar */
+.bar {
+  height: 6px;
+  background: var(--n-100);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  position: relative;
+}
+.bar > .fill {
+  height: 100%;
+  background: var(--ok-orange);
+  border-radius: var(--r-pill);
+  transition: width 300ms;
+}
+
+/* Avatar */
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ok-orange) 0%, var(--ok-yellow) 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.avatar.lg { width: 44px; height: 44px; font-size: 15px; }
+.avatar.sm { width: 24px; height: 24px; font-size: 10px; }
+
+/* Sparkle/dot */
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok-orange); display: inline-block; }
+
+/* Utility */
+.flex { display: flex; }
+.grid { display: grid; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; } .gap-5 { gap: 20px; } .gap-6 { gap: 24px; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.justify-between { justify-content: space-between; }
+.flex-1 { flex: 1; }
+.min-w-0 { min-width: 0; }
+.fg-muted { color: var(--fg-muted); }
+.fg-subtle { color: var(--fg-subtle); }
+.fg-brand { color: var(--ok-orange); }
+.text-sm { font-size: var(--fs-sm); }
+.text-xs { font-size: var(--fs-xs); }
+.text-micro { font-size: var(--fs-micro); }
+.fw-6 { font-weight: 600; }
+.fw-7 { font-weight: 700; }
+.fw-8 { font-weight: 800; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

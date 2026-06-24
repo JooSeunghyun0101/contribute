@@ -1,0 +1,41 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+.mcp.json
+database_connect_information.yml
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# One-shot seeding/migration scripts kept locally
+scripts/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+
+# oh-my-claudecode local runtime state (sessions, checkpoints, mission state)
+.omc/
+
+# DB backup dumps (local only)
+*.dump

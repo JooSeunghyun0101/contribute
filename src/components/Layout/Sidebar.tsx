@@ -1,0 +1,256 @@
+import { NavLink, useLocation } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import type { ComponentType, SVGProps } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import type { UserRole } from '@/types';
+import {
+  CountdownCard,
+  IconHome,
+  IconTarget,
+  IconCalendar,
+  IconMsg,
+  IconGrid,
+  IconChart,
+  IconUsers,
+  IconSettings,
+  IconSparkle,
+  IconArrowRight,
+  IconCheck,
+  IconBell,
+  IconFile,
+} from '@/components/brand';
+
+type IconComp = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
+
+type MenuItem = {
+  to: string;
+  label: string;
+  icon: IconComp;
+  end?: boolean;
+  group?: string;
+};
+
+const menus: Record<UserRole, MenuItem[]> = {
+  evaluatee: [
+    { to: '/my', label: '내 대시보드', icon: IconHome, end: true },
+    { to: '/my/tasks', label: '내 과업', icon: IconTarget },
+    { to: '/my/schedule', label: '과업 일정', icon: IconCalendar },
+    { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
+    { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
+  ],
+  evaluator: [
+    { to: '/team', label: '팀 통계', icon: IconChart, end: true },
+    { to: '/team/board', label: '평가 보드', icon: IconGrid },
+    { to: '/team/members', label: '담당 팀원', icon: IconUsers },
+    { to: '/team/schedule', label: '전체 일정', icon: IconCalendar },
+    { to: '/team/feedback', label: '피드백 내역', icon: IconMsg },
+    { to: '/team/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
+    { to: '/team/ai', label: 'AI 도움말', icon: IconSparkle },
+  ],
+  hr: [
+    { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
+    { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/insights', label: '평가 인사이트', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
+    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
+    { to: '/hr/audit-logs', label: '감사 로그', icon: IconFile, group: '운영' },
+    { to: '/hr/reminders', label: '독려·리마인드', icon: IconBell, group: '운영' },
+    { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },
+    { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
+    { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
+    { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },
+    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정' },
+  ],
+};
+
+const COLLAPSED_STORAGE_KEY = 'sidebar-collapsed-groups';
+
+const readCollapsed = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((g): g is string => typeof g === 'string') : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const matchesItem = (pathname: string, item: MenuItem) =>
+  item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`);
+
+export const Sidebar = () => {
+  const { user } = useAuth();
+  const location = useLocation();
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+
+  const list = user ? menus[user.role] ?? menus.evaluatee : [];
+  const hasGroups = list.some((item) => item.group);
+
+  // 그룹 순서를 보존하며 묶는다.
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const map = new Map<string, MenuItem[]>();
+    for (const item of list) {
+      const key = item.group ?? '';
+      if (!map.has(key)) {
+        map.set(key, []);
+        order.push(key);
+      }
+      map.get(key)!.push(item);
+    }
+    return order.map((group) => ({ group, items: map.get(group)! }));
+  }, [list]);
+
+  // 현재 경로가 속한 그룹(가장 길게 일치하는 항목 기준).
+  const activeGroup = useMemo(() => {
+    let best: { len: number; group: string } | null = null;
+    for (const item of list) {
+      if (matchesItem(location.pathname, item) && (!best || item.to.length > best.len)) {
+        best = { len: item.to.length, group: item.group ?? '' };
+      }
+    }
+    return best?.group;
+  }, [list, location.pathname]);
+
+  // 활성 항목이 든 그룹은 자동으로 펼친다(접혀 있어도 풀어 현재 위치가 보이게).
+  useEffect(() => {
+    if (!activeGroup) return;
+    setCollapsed((prev) => {
+      if (!prev.has(activeGroup)) return prev;
+      const next = new Set(prev);
+      next.delete(activeGroup);
+      return next;
+    });
+  }, [activeGroup]);
+
+  if (!user) return null;
+
+  const toggleGroup = (group: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      try {
+        localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        /* 저장 실패는 무시 */
+      }
+      return next;
+    });
+  };
+
+  const renderLink = (item: MenuItem) => {
+    const Icon = item.icon;
+    return (
+      <NavLink key={item.to} to={item.to} end={item.end} className="sd-sidebar-link">
+        {({ isActive }) => (
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 11,
+              padding: '10px 12px',
+              borderRadius: 8,
+              fontSize: 'var(--fs-body)',
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? 'var(--ok-orange)' : 'var(--fg)',
+              background: isActive ? 'var(--ok-orange-50)' : 'transparent',
+              textAlign: 'left',
+              position: 'relative',
+              transition: 'background-color 160ms, color 160ms',
+            }}
+          >
+            {isActive && (
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 6,
+                  bottom: 6,
+                  width: 3,
+                  background: 'var(--ok-orange)',
+                  borderRadius: 2,
+                }}
+              />
+            )}
+            <Icon size={18} />
+            <span>{item.label}</span>
+          </span>
+        )}
+      </NavLink>
+    );
+  };
+
+  return (
+    <aside
+      style={{
+        width: 'var(--sidebar-w)',
+        flexShrink: 0,
+        background: 'var(--bg-card)',
+        borderRight: '1px solid var(--border)',
+        padding: '16px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+      }}
+    >
+      {!hasGroups && (
+        <div className="sd-label-mini" style={{ padding: '6px 10px 10px' }}>
+          MENU
+        </div>
+      )}
+
+      {hasGroups
+        ? groups.map(({ group, items }) => {
+            const isCollapsed = collapsed.has(group);
+            return (
+              <Fragment key={group}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group)}
+                  aria-expanded={!isCollapsed}
+                  title={isCollapsed ? `${group} 펼치기` : `${group} 접기`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    padding: '14px 10px 7px',
+                    marginTop: 2,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 'var(--fs-sm)',
+                      fontWeight: 800,
+                      color: 'var(--fg-muted)',
+                      letterSpacing: '0.01em',
+                    }}
+                  >
+                    {group}
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      color: 'var(--fg-subtle)',
+                      transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                      transition: 'transform 160ms',
+                      flexShrink: 0,
+                    }}
+                  />
+                </button>
+                {!isCollapsed && items.map(renderLink)}
+              </Fragment>
+            );
+          })
+        : list.map(renderLink)}
+
+      <CountdownCard />
+    </aside>
+  );
+};

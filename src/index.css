@@ -1,0 +1,508 @@
+/* Pretendard 자체 호스팅(public/fonts) — 내부망에서 외부 CDN 차단 시 폰트 폴백 방지 (SIL OFL 1.1) */
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: local('Pretendard Variable'), url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Solar Dusk prompt tokens + legacy alias mapping
+   ============================================================ */
+:root {
+  --card: #F8F4EE;
+  --ring: #B45309;
+  --input: #E4D9BC;
+  --muted: #F1E9DA;
+  --accent: #F2DABA;
+  --border: #E4D9BC;
+  --radius: 0.3rem;
+  --chart-1: #B45309;
+  --chart-2: #78716C;
+  --chart-3: #A16207;
+  --chart-4: #78716C;
+  --chart-5: #CA8A04;
+  --popover: #F8F4EE;
+  --primary: #B45309;
+  --sidebar: #F1E9DA;
+  --font-mono: 'Fira Code', ui-monospace, monospace;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+  --secondary: #E4C090;
+  --background: #FDFBF7;
+  --font-serif: 'Pretendard Variable', Pretendard, serif;
+  --foreground: #4A3B33;
+  --destructive: #991B1B;
+  --shadow-blur: 3px;
+  --shadow-color: hsl(28 18% 25%);
+  --sidebar-ring: #B45309;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0.18;
+  --sidebar-accent: #A16207;
+  --sidebar-border: #E4D9BC;
+  --card-foreground: #4A3B33;
+  --shadow-offset-x: 0px;
+  --shadow-offset-y: 2px;
+  --sidebar-primary: #B45309;
+  --muted-foreground: #78716C;
+  --accent-foreground: #57534E;
+  --popover-foreground: #4A3B33;
+  --primary-foreground: #FFFFFF;
+  --sidebar-foreground: #4A3B33;
+  --secondary-foreground: #57534E;
+  --destructive-foreground: #FFFFFF;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-primary-foreground: #FFFFFF;
+
+  /* Legacy aliases used by current Solar Dusk components */
+  --ok-orange: var(--primary);
+  /* 브랜드 강조 오렌지(로고·그래픽·대형 점수 숫자 등 large-text/비텍스트 전용).
+     본문 텍스트·버튼 등 AA 대비가 필요한 곳은 --ok-orange(#B45309)를 쓴다. (G-2 역할 분리) */
+  --ok-orange-brand: #F55000;
+  --ok-orange-600: var(--sidebar-accent);
+  --ok-orange-700: #92400E;
+  --ok-orange-50: #FBF0DE;
+  --ok-orange-100: var(--accent);
+  --ok-orange-200: var(--secondary);
+
+  --ok-brown: var(--foreground);
+  --ok-brown-700: #32261F;
+
+  --ok-yellow: var(--secondary);
+  --ok-yellow-300: var(--accent);
+  --ok-yellow-50: var(--muted);
+
+  --ok-bg-gray: var(--sidebar);
+  --ok-bg-gray-50: var(--background);
+
+  --n-0: #FFFFFF;
+  --n-25: var(--background);
+  --n-50: var(--card);
+  --n-100: var(--muted);
+  --n-200: var(--border);
+  --n-300: #D2C1A4;
+  --n-400: #A69A8C;
+  --n-500: var(--muted-foreground);
+  --n-600: #64554B;
+  --n-700: #5A483E;
+  --n-800: var(--foreground);
+  --n-900: #2F241E;
+
+  --success: #8A6B3D;
+  --success-bg: #F5ECDD;
+  --warning: var(--chart-5);
+  --warning-bg: #FBF2D9;
+  --danger: var(--destructive);
+  --danger-bg: #FCE9E9;
+  --info: var(--chart-2);
+  --info-bg: #F3F0EC;
+
+  --sh-sm: 0 1px 2px hsl(28 18% 25% / 0.08), 0 1px 1px hsl(28 18% 25% / 0.06);
+  --sh-md: 0 2px 8px hsl(28 18% 25% / 0.12), 0 1px 2px hsl(28 18% 25% / 0.08);
+  --sh-lg: 0 10px 26px hsl(28 18% 25% / 0.18), 0 4px 10px hsl(28 18% 25% / 0.1);
+  --sh-focus: 0 0 0 4px hsl(33 91% 35% / 0.18);
+
+  --r-xs: calc(var(--radius) - 0.05rem);
+  --r-sm: var(--radius);
+  --r-md: calc(var(--radius) + 0.15rem);
+  --r-lg: calc(var(--radius) + 0.4rem);
+  --r-xl: calc(var(--radius) + 0.7rem);
+  --r-pill: 999px;
+
+  /* Responsive type scale: clamp(min, min + vw, max).
+     - Each step grows ~3px from min viewport (~360px) to ~1920px,
+       providing graceful scaling without breaking the rhythm.
+     - Use --fs-* in components instead of raw px values so the entire
+       app responds to viewport changes uniformly. */
+  --fs-2xs:    clamp(9px,  9px  + 0.08vw, 11px);
+  --fs-micro:  clamp(10px, 10px + 0.10vw, 12px);
+  --fs-xs:     clamp(11px, 11px + 0.12vw, 13px);
+  --fs-sm:     clamp(12px, 12px + 0.13vw, 14px);
+  --fs-body:   clamp(13px, 13px + 0.15vw, 15px);
+  --fs-lg:     clamp(14px, 14px + 0.18vw, 17px);
+  --fs-h4:     clamp(15px, 15px + 0.22vw, 18px);
+  --fs-h3:     clamp(17px, 17px + 0.28vw, 21px);
+  --fs-h2:     clamp(20px, 20px + 0.35vw, 26px);
+  --fs-h1:     clamp(24px, 24px + 0.50vw, 34px);
+  --fs-display: clamp(30px, 30px + 0.80vw, 48px);
+
+  --sidebar-w: 240px;
+  --sidebar-w-collapsed: 68px;
+  --topbar-h: 60px;
+
+  --bg-app: var(--background);
+  --bg-card: var(--card);
+  --bg-muted: var(--muted);
+  --bg-subtle: #F7F0E6;
+  --bg-soft: #F6EFE3;
+  --fg: var(--foreground);
+  --fg-muted: var(--muted-foreground);
+  --fg-subtle: #9B8C7E;
+  --border-strong: var(--input);
+  --border-brand: var(--primary);
+
+  /* 미평가/0점 셀 — 다크/라이트 양쪽에서 카드 배경 대비로 보이게 */
+  --score-unrated-bg: #D6D1C5;
+  --score-unrated-fg: #6B5C4E;
+
+  --ok-orange-hsl: 33 91% 35%;
+  --ok-dark-brown: 20 18% 25%;
+  --ok-yellow-hsl: 34 56% 73%;
+  --ok-bright-gray: 36 52% 97%;
+  --ok-gold: 44 81% 41%;
+}
+
+:root[data-theme="dark"],
+.dark {
+  --card: #292524;
+  --ring: #F97316;
+  --input: #44403C;
+  --muted: #292524;
+  --accent: #1E4252;
+  --border: #44403C;
+  --radius: 0.3rem;
+  --chart-1: #F97316;
+  --chart-2: #0EA5E9;
+  --chart-3: #EAB308;
+  --chart-4: #A8A29E;
+  --chart-5: #78716C;
+  --popover: #292524;
+  --primary: #F97316;
+  --sidebar: #292524;
+  --secondary: #57534E;
+  --background: #1C1917;
+  --foreground: #F5F5F4;
+  --destructive: #DC2626;
+  --shadow-color: hsl(0 0% 5%);
+  --sidebar-ring: #F97316;
+  --sidebar-accent: #0EA5E9;
+  --sidebar-border: #44403C;
+  --card-foreground: #F5F5F4;
+  --sidebar-primary: #F97316;
+  --muted-foreground: #A8A29E;
+  --accent-foreground: #E7E5E4;
+  --popover-foreground: #F5F5F4;
+  --primary-foreground: #FFFFFF;
+  --sidebar-foreground: #F5F5F4;
+  --secondary-foreground: #E7E5E4;
+  --destructive-foreground: #FFFFFF;
+  --sidebar-accent-foreground: #0C2A4D;
+  --sidebar-primary-foreground: #FFFFFF;
+
+  --ok-orange: var(--primary);
+  --ok-orange-brand: #F55000;
+  --ok-orange-600: #EA580C;
+  --ok-orange-700: #C2410C;
+  --ok-orange-50: #33261E;
+  --ok-orange-100: #4A3326;
+  --ok-orange-200: #6A4630;
+
+  --ok-brown: #F5F5F4;
+  --ok-brown-700: #D6D3D1;
+
+  --ok-yellow: #FDBA74;
+  --ok-yellow-300: #FED7AA;
+  --ok-yellow-50: #3A312A;
+
+  --ok-bg-gray: var(--sidebar);
+  --ok-bg-gray-50: var(--background);
+
+  --n-0: #292524;
+  --n-25: var(--background);
+  --n-50: var(--muted);
+  --n-100: var(--border);
+  --n-200: var(--secondary);
+  --n-300: var(--chart-5);
+  --n-400: var(--muted-foreground);
+  --n-500: #D6D3D1;
+  --n-600: var(--accent-foreground);
+  --n-700: var(--foreground);
+  --n-800: #FAFAF9;
+  --n-900: #FFFFFF;
+
+  --success: #D6C49F;
+  --success-bg: #3B3128;
+  --warning: #FDBA74;
+  --warning-bg: #3E2B1F;
+  --danger: var(--destructive);
+  --danger-bg: #3A1E1E;
+  --info: var(--chart-2);
+  --info-bg: #1B3340;
+
+  --sh-sm: 0 1px 2px hsl(0 0% 5% / 0.35);
+  --sh-md: 0 4px 12px hsl(0 0% 5% / 0.45);
+  --sh-lg: 0 16px 40px hsl(0 0% 5% / 0.6);
+  --sh-focus: 0 0 0 4px hsl(24 95% 53% / 0.24);
+
+  --bg-app: var(--background);
+  --bg-card: var(--card);
+  --bg-muted: var(--muted);
+  --bg-subtle: #221D1A;
+  --bg-soft: #302926;
+  --fg: var(--foreground);
+  --fg-muted: var(--muted-foreground);
+  --fg-subtle: #8D857E;
+  --border-strong: var(--input);
+  --border-brand: var(--primary);
+
+  /* 미평가/0점 셀 — 다크 모드 */
+  --score-unrated-bg: #4A4239;
+  --score-unrated-fg: #C8BEB0;
+
+  --ok-orange-hsl: 24 95% 53%;
+  --ok-dark-brown: 20 6% 14%;
+  --ok-yellow-hsl: 27 92% 75%;
+  --ok-bright-gray: 30 7% 16%;
+  --ok-gold: 46 84% 54%;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--fg);
+    background: var(--bg-app);
+    font-size: var(--fs-body);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum" 0, "ss01";
+    letter-spacing: -0.005em;
+  }
+
+  h1, h2, h3, h4, h5 { margin: 0; letter-spacing: -0.02em; }
+  h1 { font-size: var(--fs-h1); font-weight: 800; }
+  h2 { font-size: var(--fs-h2); font-weight: 700; }
+  h3 { font-size: var(--fs-h3); font-weight: 700; }
+  h4 { font-size: var(--fs-h4); font-weight: 600; }
+  p { margin: 0; }
+
+  .tnum { font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--font-mono); }
+}
+
+/* ============================================================
+   Brand primitives
+   ============================================================ */
+@layer components {
+  .sd-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 20px;
+  }
+  .sd-card-lg { padding: 24px; border-radius: var(--r-lg); }
+
+  .sd-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-body);
+    font-weight: 600;
+    transition: background-color 160ms, color 160ms, box-shadow 160ms, border-color 160ms;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .sd-btn-primary { background: var(--ok-orange); color: #fff; }
+  .sd-btn-primary:hover { background: var(--ok-orange-600); }
+  .sd-btn-primary:active { background: var(--ok-orange-700); }
+  .sd-btn-outline { border: 1px solid var(--border-strong); background: var(--bg-card); color: var(--fg); }
+  .sd-btn-outline:hover { border-color: var(--ok-orange); color: var(--ok-orange); }
+  .sd-btn-ghost { color: var(--fg-muted); }
+  .sd-btn-ghost:hover { background: var(--bg-muted); color: var(--fg); }
+  .sd-btn-sm { padding: 6px 12px; font-size: var(--fs-sm); }
+  .sd-btn-xs { padding: 4px 10px; font-size: var(--fs-xs); }
+
+  /* 키보드 접근성: 버튼·사이드바 링크 포커스 링 (입력은 .sd-input:focus에서 처리) */
+  .sd-sidebar-link { display: block; border-radius: 8px; }
+  .sd-btn:focus-visible,
+  .sd-sidebar-link:focus-visible {
+    outline: none;
+    box-shadow: var(--sh-focus);
+  }
+
+  .sd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: var(--r-pill);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    background: var(--n-50);
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+  }
+  .sd-chip-orange { background: var(--ok-orange-50); color: var(--ok-orange-700); border-color: transparent; }
+  .sd-chip-success { background: var(--success-bg); color: var(--success); border-color: transparent; }
+  .sd-chip-warning { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+  .sd-chip-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+  .sd-chip-info { background: var(--info-bg); color: var(--info); border-color: transparent; }
+
+  .sd-label-mini {
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+
+  .sd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sd-bar {
+    height: 6px;
+    background: var(--n-100);
+    border-radius: var(--r-pill);
+    overflow: hidden;
+    position: relative;
+  }
+  .sd-bar > .sd-bar-fill {
+    height: 100%;
+    background: var(--ok-orange);
+    border-radius: var(--r-pill);
+    transition: width 300ms;
+  }
+
+  .sd-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--ok-orange) 0%, var(--ok-yellow) 100%);
+    color: #fff;
+    font-weight: 700;
+    font-size: var(--fs-body);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .sd-avatar-lg { width: 44px; height: 44px; font-size: var(--fs-h4); }
+  .sd-avatar-sm { width: 24px; height: 24px; font-size: var(--fs-micro); }
+
+  .sd-input,
+  .sd-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--fs-body);
+    outline: none;
+    transition: border-color 140ms, box-shadow 140ms;
+  }
+  .sd-input:focus,
+  .sd-textarea:focus {
+    border-color: var(--ok-orange);
+    box-shadow: var(--sh-focus);
+  }
+  .sd-textarea { resize: vertical; min-height: 80px; }
+}
+
+@layer utilities {
+  .fg-muted { color: var(--fg-muted); }
+  .fg-subtle { color: var(--fg-subtle); }
+  .fg-brand { color: var(--ok-orange); }
+  .fw-6 { font-weight: 600; }
+  .fw-7 { font-weight: 700; }
+  .fw-8 { font-weight: 800; }
+}
+
+/* Legacy compatibility helpers */
+.status-achieved { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
+.status-not-achieved { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+.status-in-progress { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+.role-hr { background: var(--ok-orange); color: #fff; }
+.role-evaluator { background: var(--ok-brown); color: #fff; }
+.role-evaluatee { background: var(--ok-yellow); color: var(--ok-brown); }
+.score-1 { background: var(--bg-muted); color: var(--fg-muted); }
+.score-2 { background: var(--ok-yellow-50); color: var(--warning); }
+.score-3 { background: var(--ok-yellow); color: #fff; }
+.score-4 { background: var(--ok-orange); color: #fff; }
+
+/* AI 의견 버튼 — 로딩 동안 반복되는 shine sweep + 이모지 위로 쓸어올림.
+   tailwind.config 가 아닌 여기(원시 CSS)에 둬, config 재처리 없이도 항상 적용되게 한다. */
+@keyframes ai-shine {
+  0% { transform: translateX(-100%) skewX(-12deg); }
+  55%, 100% { transform: translateX(220%) skewX(-12deg); }
+}
+@keyframes ai-emoji-up {
+  0% { transform: translateY(0); opacity: 1; }
+  35% { transform: translateY(-130%); opacity: 0; }
+  36% { transform: translateY(130%); opacity: 0; }
+  70%, 100% { transform: translateY(0); opacity: 1; }
+}
+.animate-ai-shine { animation: ai-shine 1.3s ease-in-out infinite; }
+.animate-ai-emoji-up { animation: ai-emoji-up 1.3s ease-in-out infinite; }
+
+/* 사용자관리 테이블 — 컬럼이 많아 행을 조밀하게. 공용 TableCell(p-4)·TableHead(h-12)를
+   언레이어드 규칙으로 오버라이드(언레이어드 > @layer 라 Tailwind 유틸리티보다 우선). */
+.sd-users-table th,
+.sd-users-table td {
+  padding: 7px 10px;
+}
+.sd-users-table th {
+  height: 38px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* scrollbar 숨기기 — 캐러셀처럼 화살표 등 다른 컨트롤이 있는 영역용 */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 전역 scrollbar 얇게 — 기본 OS scrollbar 가 너무 두꺼워서 미관상 문제 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-muted);
+}
+
+/* Unicorn Studio 무료 플랜 워터마크 숨김 (로그인 히어로 배경).
+   클래스/id 없이 href 로만 식별되는 앵커라 속성 선택자로 잡고, 인라인 z-index 를 !important 로 덮는다. */
+a[href*="unicorn.studio?utm_source=public-url"] {
+  display: none !important;
+}
