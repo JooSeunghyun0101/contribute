@@ -3717,6 +3717,18 @@ const reconcileEmployeeMatchingStages = async (
     releasedEvaluators: [],
   };
 
+  // 이 평가기간(periodYear)에 발효된 발령만으로 이 기간의 평가/이력을 만든다.
+  // 미래 연도 발령(예: 2025 업로드 중 들어온 2026-02 발령)은 그 기간(2026)에서 처리해야
+  // 하며, 이 기간 평가로 끼워넣지 않는다. 단, 직원의 '현재 평가자'(글로벌 최신)는
+  // 전체 발령으로 계산하므로 원본(allStages)을 보존한다.
+  const allStages = stages;
+  if (Number.isFinite(periodYear)) {
+    stages = stages.filter((s) => {
+      const y = s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN;
+      return !Number.isFinite(y) || y <= periodYear;
+    });
+  }
+
   // ── 빈 중복 평가 정리 ─────────────────────────────────────────
   // 프로필 업로드가 "평가기간 노출용"으로 만들어둔 빈 draft 평가가 있으면
   // reconcile 들어오기 전에 제거한다. 매칭이 들어왔다는 건 이 사람의
@@ -3740,8 +3752,9 @@ const reconcileEmployeeMatchingStages = async (
     `SELECT id, evaluation_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
        FROM evaluator_assignment_history
       WHERE employee_id=$1 AND status='applied' AND change_type<>'cancel'
+        AND COALESCE(evaluation_period_id::text,'') = COALESCE($2::text,'')
       ORDER BY changed_at ASC, id ASC`,
-    [employeeId]
+    [employeeId, periodId ?? null]
   );
   const reason = `Matching reconcile: ${sourceFileName}`;
   const existingMatched = new Array(existing.length).fill(false);
@@ -3871,8 +3884,8 @@ const reconcileEmployeeMatchingStages = async (
     result.removed += 1;
   }
 
-  // 현재 평가자 = 마지막(가장 늦은 발령일) 단계의 평가자. prev 링크 일관화.
-  const orderedStages = stages.filter((s) => s.evaluatorId);
+  // 현재 평가자 = 마지막(가장 늦은 발령일) 단계의 평가자(전체 발령 기준, 글로벌 최신). prev 링크 일관화.
+  const orderedStages = allStages.filter((s) => s.evaluatorId);
   const lastStage = orderedStages.length ? orderedStages[orderedStages.length - 1] : null;
   await client.query(`UPDATE employees SET evaluator_id=$2, updated_at=NOW() WHERE employee_id=$1`, [
     employeeId,
