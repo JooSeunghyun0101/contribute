@@ -1140,18 +1140,42 @@ const HrUsersPage = () => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 시트를 찾을 수 없습니다.');
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' }) as unknown[][];
-      // 조직정보 양식: 2줄 헤더 + 데이터(행2~). col1=부서명 · col2=T-Level · col3=부서ID · col10=조직종류.
+      // 조직정보 양식: 헤더가 1~2줄이고 열 위치가 바뀔 수 있어, 하드코딩 인덱스 대신
+      // '헤더명'으로 열을 찾는다(부서명 / T-Level / 부서ID(부서코드) / 조직종류).
+      const norm = (v: unknown) => String(v ?? '').replace(/[@\s-]/g, '').toUpperCase();
+      const findCol = (keywords: string[]) => {
+        for (let i = 0; i < Math.min(3, aoa.length); i += 1) {
+          const row = aoa[i] ?? [];
+          for (let j = 0; j < row.length; j += 1) {
+            const h = norm(row[j]);
+            if (h && keywords.some((k) => h.includes(k))) return j;
+          }
+        }
+        return -1;
+      };
+      const levelCol = findCol(['TLEVEL']);
+      const codeCol = findCol(['부서ID', '부서코드', '부서아이디']);
+      const kindCol = findCol(['조직종류']);
+      let nameCol = findCol(['부서명']);
+      if (nameCol < 0) nameCol = findCol(['부서']);
+      const missing: string[] = [];
+      if (levelCol < 0) missing.push('T-Level');
+      if (codeCol < 0) missing.push('부서ID(부서코드)');
+      if (missing.length > 0) {
+        throw new Error(`조직정보 양식에서 ${missing.join(', ')} 컬럼을 찾지 못했습니다. 헤더명을 확인해 주세요.`);
+      }
+      // 헤더 1~2줄은 level 이 숫자가 아니므로 필터에서 자연히 제외된다(슬라이스 불필요).
       const rows = aoa
-        .slice(2)
         .map((r) => ({
-          name: String(r[1] ?? '').trim(),
-          level: Number(r[2]),
-          code: String(r[3] ?? '').trim(),
-          kind: String(r[10] ?? '').trim(),
+          name: String(r[nameCol] ?? '').trim(),
+          level: Number(r[levelCol]),
+          code: String(r[codeCol] ?? '').trim(),
+          kind: kindCol >= 0 ? String(r[kindCol] ?? '').trim() : '',
         }))
-        .filter((r) => r.code && Number.isFinite(r.level));
+        // T-Level 은 1부터. Number('')===0 이므로 빈 헤더행이 끼지 않도록 level>=1 로 거른다.
+        .filter((r) => r.code && Number.isFinite(r.level) && r.level >= 1);
       if (rows.length === 0) {
-        throw new Error('조직 노드를 찾지 못했습니다(부서코드·T-Level 컬럼 확인).');
+        throw new Error('조직 노드를 찾지 못했습니다(부서코드·T-Level 값이 비어 있는지 확인).');
       }
       // 바로 반영하지 않고 '어느 평가기간 기준인지' 물어본다(조직구조는 기간별로 다름).
       setPendingOrgUpload({ fileName: file.name, rows });
