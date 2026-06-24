@@ -2967,6 +2967,11 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
   }
 
   try {
+    // periodId 지정 시 해당 평가기간 내 전보(이전 담당)만 — 직전연도 이력이 2026 화면에 섞이지 않게.
+    const periodId =
+      typeof req.query.periodId === 'string' && req.query.periodId.trim()
+        ? req.query.periodId.trim()
+        : null;
     const { rows } = await pool.query(
       `
         SELECT DISTINCT e.*
@@ -2979,19 +2984,21 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
               AND h.new_evaluator_id = $1
               AND h.status = 'applied'
               AND h.change_type <> 'cancel'
+              AND ($2::text IS NULL OR h.evaluation_period_id = $2::text)
               AND EXISTS (
                 SELECT 1
                 FROM evaluator_assignment_history later
                 WHERE later.employee_id = e.employee_id
                   AND later.status = 'applied'
                   AND later.change_type <> 'cancel'
+                  AND ($2::text IS NULL OR later.evaluation_period_id = $2::text)
                   AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
                   AND later.new_evaluator_id IS DISTINCT FROM $1
               )
           )
         ORDER BY e.department, e.name
       `,
-      [req.params.evaluatorId]
+      [req.params.evaluatorId, periodId]
     );
     res.json(stripAuthFields(rows));
   } catch (err) {

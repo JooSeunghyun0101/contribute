@@ -251,9 +251,11 @@ export const employeeService = {
     }
   },
 
-  async getFormerEvaluateesByEvaluator(evaluatorId: string): Promise<Employee[]> {
+  async getFormerEvaluateesByEvaluator(evaluatorId: string, periodId?: string | null): Promise<Employee[]> {
     try {
-      return await apiFetch<Employee[]>(`/api/employees/former-evaluator/${evaluatorId}`);
+      // periodId 지정 시 해당 평가기간의 전보(이전 담당)만 — 타 연도 이력이 섞이지 않게.
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
+      return await apiFetch<Employee[]>(`/api/employees/former-evaluator/${evaluatorId}${qs}`);
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

@@ -986,7 +986,9 @@ export const useEvaluationDataDB = (
     
     return {
       exactScore: Math.round(totalWeightedScore * 100) / 100,
-      flooredScore: Math.floor(totalWeightedScore)
+      // float 누적 오차(예: 3.0 이 2.9999999…로) 때문에 Math.floor 가 한 단계 낮아져
+      // '3.0인데 미달성'이 되던 문제 방지 — 아주 작은 epsilon 을 더해 경계를 보정한다.
+      flooredScore: Math.floor(totalWeightedScore + 1e-9)
     };
   };
 
