@@ -3721,7 +3721,6 @@ const reconcileEmployeeMatchingStages = async (
   // 미래 연도 발령(예: 2025 업로드 중 들어온 2026-02 발령)은 그 기간(2026)에서 처리해야
   // 하며, 이 기간 평가로 끼워넣지 않는다. 단, 직원의 '현재 평가자'(글로벌 최신)는
   // 전체 발령으로 계산하므로 원본(allStages)을 보존한다.
-  const allStages = stages;
   if (Number.isFinite(periodYear)) {
     stages = stages.filter((s) => {
       const y = s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN;
@@ -3884,8 +3883,10 @@ const reconcileEmployeeMatchingStages = async (
     result.removed += 1;
   }
 
-  // 현재 평가자 = 마지막(가장 늦은 발령일) 단계의 평가자(전체 발령 기준, 글로벌 최신). prev 링크 일관화.
-  const orderedStages = allStages.filter((s) => s.evaluatorId);
+  // 현재 평가자 = 이 평가기간까지(로드된) 발령 중 마지막 단계의 평가자.
+  // 파일에 미래 연도 발령이 있어도 그 기간이 로드되기 전엔 현재 평가자로 삼지 않는다
+  // (그래야 이 기간 실제 담당 평가자 보드에 피평가자가 보인다). prev 링크 일관화.
+  const orderedStages = stages.filter((s) => s.evaluatorId);
   const lastStage = orderedStages.length ? orderedStages[orderedStages.length - 1] : null;
   await client.query(`UPDATE employees SET evaluator_id=$2, updated_at=NOW() WHERE employee_id=$1`, [
     employeeId,
