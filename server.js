@@ -5269,6 +5269,77 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
   }
 });
 
+// 평가기간별 초기화: 선택한 평가기간(evaluation_period_id)에 묶인 데이터만 비운다.
+// 삭제 대상: 그 기간의 평가·과업·평가엔트리·피드백·최종평가·알림·평가자배정이력·
+//            평가자변경요청·매칭/대상자 임포트(배치+행)·조직정보(org_structure).
+// 보존: 직원 명부(employees)·다른 평가기간·평가기간 설정·시스템 설정·감사로그.
+// (직원은 기간 공유 자원이라 유지한다. 직원까지 지우려면 '대상자 일괄삭제'를 쓴다.)
+app.post('/api/admin/reset/period', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const actorId = req.session.employeeId;
+  const periodId = String(req.body?.evaluation_period_id ?? '').trim();
+  if (!periodId) return res.status(400).json({ error: 'evaluation_period_id 가 필요합니다.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: periodRows } = await client.query(
+      'SELECT code FROM evaluation_periods WHERE id = $1',
+      [periodId]
+    );
+    if (periodRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '평가기간을 찾을 수 없습니다.' });
+    }
+    const periodCode = periodRows[0].code;
+    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록.
+    await client.query(
+      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_period', $1, $2)`,
+      [actorId, `평가기간 초기화: ${periodCode} (actor: ${actorId})`]
+    );
+    const inPeriodEvals = '(SELECT id FROM evaluations WHERE evaluation_period_id = $1)';
+    // 1) 평가/과업의 자식부터 (FK 역순)
+    await client.query(`DELETE FROM feedback_history WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM task_evaluation_entries WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM final_assessment WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM notifications WHERE related_evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query('DELETE FROM tasks WHERE evaluation_period_id = $1', [periodId]);
+    // 2) 배정이력 — 평가의 참조를 먼저 끊고 삭제
+    await client.query('UPDATE evaluations SET assignment_history_id = NULL WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM evaluator_assignment_history WHERE evaluation_period_id = $1', [periodId]);
+    // 3) 평가 본체 + 변경요청
+    const evalDel = await client.query('DELETE FROM evaluations WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM evaluator_change_requests WHERE evaluation_period_id = $1', [periodId]);
+    // 4) 임포트 — employees의 배치 참조를 끊고 행→배치 순으로 삭제
+    await client.query(
+      'UPDATE employees SET last_matching_batch_id = NULL WHERE last_matching_batch_id IN (SELECT id FROM matching_import_batches WHERE evaluation_period_id = $1)',
+      [periodId]
+    );
+    await client.query(
+      'UPDATE employees SET last_profile_batch_id = NULL WHERE last_profile_batch_id IN (SELECT id FROM employee_profile_import_batches WHERE evaluation_period_id = $1)',
+      [periodId]
+    );
+    await client.query('DELETE FROM matching_import_rows WHERE batch_id IN (SELECT id FROM matching_import_batches WHERE evaluation_period_id = $1)', [periodId]);
+    await client.query('DELETE FROM employee_profile_import_rows WHERE batch_id IN (SELECT id FROM employee_profile_import_batches WHERE evaluation_period_id = $1)', [periodId]);
+    await client.query('DELETE FROM matching_import_batches WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM employee_profile_import_batches WHERE evaluation_period_id = $1', [periodId]);
+    // 5) 그 기간의 조직정보
+    await client.query('DELETE FROM org_structure WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      period_code: periodCode,
+      deleted_evaluations: evalDel.rowCount,
+      message: `'${periodCode}' 평가기간의 평가·과업·매칭·조직정보를 삭제했습니다. 직원 명부는 유지됩니다.`,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error in reset/period:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Get evaluation by employee ID (latest)
 app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsParam('employeeId'), async (req, res) => {
   if (!isDbAvailable) {

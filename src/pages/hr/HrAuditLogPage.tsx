@@ -30,6 +30,7 @@ const ACTION_LABELS: Record<string, string> = {
   password_reset_direct: '비번초기화(직접)',
   reset_employees: '직원 초기화',
   reset_matching: '매칭 초기화',
+  reset_period: '평가기간 초기화',
 };
 
 const FIELD_LABELS: Record<string, string> = {

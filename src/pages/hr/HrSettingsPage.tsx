@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import PageHeader from '@/components/Layout/PageHeader';
@@ -9,7 +9,7 @@ import PasswordResetManager from '@/components/hr/PasswordResetManager';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { employeeService } from '@/lib/services';
+import { employeeService, evaluationPeriodService } from '@/lib/services';
 import { downloadEvaluatorQnaLogsWorkbook } from '@/utils/hrDataExport';
 
 // 위험 영역(DB 일괄삭제)은 명시적으로 켰을 때만 노출한다.
@@ -27,8 +27,29 @@ const HrSettingsPage = () => {
   const defaultTab = ['notifications', 'account', 'prompts', 'advanced'].includes(tabParam ?? '')
     ? (tabParam as string)
     : 'notifications';
-  const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching'>(null);
+  const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching' | 'period'>(null);
   const [downloadingQna, setDownloadingQna] = useState(false);
+  const [resetPeriods, setResetPeriods] = useState<Array<{ id: string; code: string; name: string; status: string }>>([]);
+  const [resetPeriodId, setResetPeriodId] = useState<string>('');
+
+  useEffect(() => {
+    if (!DANGER_ZONE_ENABLED) return;
+    let alive = true;
+    evaluationPeriodService
+      .getPeriods()
+      .then((list) => {
+        if (!alive) return;
+        const mapped = list.map((p) => ({ id: p.id, code: p.code, name: p.name, status: String(p.status) }));
+        setResetPeriods(mapped);
+        setResetPeriodId((cur) => cur || mapped[0]?.id || '');
+      })
+      .catch(() => {
+        /* 위험영역 전용 — 조회 실패 시 조용히 빈 목록 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const handleDownloadQnaLogs = async () => {
     setDownloadingQna(true);
@@ -102,6 +123,45 @@ const HrSettingsPage = () => {
       console.error('매칭정보 일괄삭제 실패:', error);
       toast({
         title: '매칭정보 일괄삭제 실패',
+        description: '서버와 통신 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setResettingKind(null);
+    }
+  };
+
+  const handleResetPeriod = async () => {
+    const period = resetPeriods.find((p) => p.id === resetPeriodId);
+    if (!period) {
+      toast({ title: '평가기간을 선택하세요.', variant: 'destructive' });
+      return;
+    }
+    const ok = await confirm({
+      title: `평가기간 초기화 — ${period.name}`,
+      description:
+        `'${period.name}'(${period.code}) 평가기간의 평가·과업·피드백·매칭·조직정보를 영구 삭제합니다. ` +
+        '직원 명부와 다른 평가기간은 유지됩니다. 되돌릴 수 없습니다. 계속하려면 "RESET"을 입력하세요.',
+      variant: 'danger',
+      requireTypedConfirmation: 'RESET',
+      confirmText: '이 평가기간 초기화',
+    });
+    if (!ok) return;
+    setResettingKind('period');
+    try {
+      const result = await employeeService.resetPeriod({
+        evaluation_period_id: period.id,
+        actor_id: actorId,
+      });
+      await reload();
+      toast({
+        title: '평가기간 초기화 완료',
+        description: `${result.message} (평가 ${result.deleted_evaluations}건 삭제)`,
+      });
+    } catch (error) {
+      console.error('평가기간 초기화 실패:', error);
+      toast({
+        title: '평가기간 초기화 실패',
         description: '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
@@ -264,6 +324,60 @@ const HrSettingsPage = () => {
                       }}
                     >
                       {resettingKind === 'matching' ? '삭제 중…' : '매칭정보 일괄삭제'}
+                    </button>
+                  </div>
+
+                  {/* 평가기간별 초기화 */}
+                  <div
+                    style={{
+                      padding: 18,
+                      borderRadius: 10,
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>평가기간별 초기화</div>
+                    <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
+                      선택한 평가기간의 <b>평가·과업·피드백·매칭·조직정보</b>만 삭제합니다.
+                      직원 명부와 <b>다른 평가기간은 유지</b>됩니다.
+                    </div>
+                    <select
+                      value={resetPeriodId}
+                      onChange={(e) => setResetPeriodId(e.target.value)}
+                      disabled={resettingKind !== null || resetPeriods.length === 0}
+                      style={{
+                        alignSelf: 'flex-start',
+                        minWidth: 220,
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-input, #fff)',
+                        color: 'var(--fg, inherit)',
+                      }}
+                    >
+                      {resetPeriods.length === 0 && <option value="">불러오는 중…</option>}
+                      {resetPeriods.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.status})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="sd-btn sd-btn-sm"
+                      disabled={resettingKind !== null || !resetPeriodId}
+                      onClick={handleResetPeriod}
+                      style={{
+                        alignSelf: 'flex-start',
+                        background: 'var(--danger, #B91C1C)',
+                        color: '#fff',
+                        border: 'none',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {resettingKind === 'period' ? '삭제 중…' : '이 평가기간 초기화'}
                     </button>
                   </div>
                 </div>

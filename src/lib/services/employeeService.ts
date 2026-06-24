@@ -532,6 +532,27 @@ export const employeeService = {
     }
   },
 
+  // 평가기간별 초기화: 선택한 평가기간에 묶인 평가·과업·매칭·조직정보만 삭제. 직원 명부는 유지.
+  async resetPeriod(payload: {
+    evaluation_period_id: string;
+    actor_id?: string | null;
+  }): Promise<{ ok: boolean; period_code: string; deleted_evaluations: number; message: string }> {
+    try {
+      return await apiFetch<{
+        ok: boolean;
+        period_code: string;
+        deleted_evaluations: number;
+        message: string;
+      }>('/api/admin/reset/period', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 임의의 applied 변경 이력을 "정정" — 원본을 cancelled 처리하고
   // supersedes_history_id 로 원본을 가리키는 새 change 행을 만든다.
   // 대상이 현재 반영된 배정일 때만 employee.evaluator_id + 하위 데이터가 함께 정합화된다.
