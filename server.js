@@ -382,18 +382,17 @@ const normalizeMatchingImportRow = (row = {}, index = 0) => {
 };
 
 const compareMatchingImportRows = (a, b) => {
-  // 매칭파일에서 가장 큰 소속순번 = 가장 최근 투어 = 현재 상태
-  // (과거 투어는 빈 end_date, 현재 투어는 평가기간 만료일이 채워져 있어
-  //  end_date 유무로는 현재를 식별할 수 없음)
+  // 같은 직원의 발령 이력 여러 행 중 '가장 마지막 근무시작일' 행을 현재 상태로 본다.
+  // (부서코드·평가자 등 현재값의 출처. 날짜가 같으면 소속순번 큰 쪽, 그다음 평가자 있는 쪽.)
   const score = (row) => ({
-    sequence: Number(row.org_sequence) || 0,
     startTime: row.work_start_date ? Date.parse(row.work_start_date) || 0 : 0,
+    sequence: Number(row.org_sequence) || 0,
     hasEvaluator: row.evaluator_id ? 1 : 0,
   });
   const left = score(a);
   const right = score(b);
-  if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   if (left.startTime !== right.startTime) return left.startTime - right.startTime;
+  if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   return left.hasEvaluator - right.hasEvaluator;
 };
 
@@ -3399,7 +3398,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             name = EXCLUDED.name,
             position = EXCLUDED.position,
             department = EXCLUDED.department,
-            department_id = EXCLUDED.department_id,
+            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
             growth_level = EXCLUDED.growth_level,
             available_roles = CASE
               WHEN $16::boolean THEN (
@@ -3431,10 +3430,10 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             job_role = EXCLUDED.job_role,
             target_status = EXCLUDED.target_status,
             last_profile_batch_id = EXCLUDED.last_profile_batch_id,
-            org_corporation = EXCLUDED.org_corporation,
-            org_division = EXCLUDED.org_division,
-            org_department = EXCLUDED.org_department,
-            org_team = EXCLUDED.org_team,
+            org_corporation = COALESCE(EXCLUDED.org_corporation, employees.org_corporation),
+            org_division = COALESCE(EXCLUDED.org_division, employees.org_division),
+            org_department = COALESCE(EXCLUDED.org_department, employees.org_department),
+            org_team = COALESCE(EXCLUDED.org_team, employees.org_team),
             updated_at = NOW()
         `,
         [
@@ -4108,6 +4107,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
           VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
+            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
             available_roles = (
               SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
               FROM (
@@ -4123,10 +4123,10 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             confirmer_id = EXCLUDED.confirmer_id,
             confirmer_name = EXCLUDED.confirmer_name,
             last_matching_batch_id = EXCLUDED.last_matching_batch_id,
-            org_corporation = EXCLUDED.org_corporation,
-            org_division = EXCLUDED.org_division,
-            org_department = EXCLUDED.org_department,
-            org_team = EXCLUDED.org_team,
+            org_corporation = COALESCE(EXCLUDED.org_corporation, employees.org_corporation),
+            org_division = COALESCE(EXCLUDED.org_division, employees.org_division),
+            org_department = COALESCE(EXCLUDED.org_department, employees.org_department),
+            org_team = COALESCE(EXCLUDED.org_team, employees.org_team),
             updated_at = NOW()
           RETURNING *
         `,
