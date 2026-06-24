@@ -3746,6 +3746,15 @@ const reconcileEmployeeMatchingStages = async (
       return !Number.isFinite(y) || y === periodYear;
     });
   }
+  // 당해 연도 발령이 없는 사람도 이 기간 평가가 있어야 한다(직전연도 담당 이월).
+  // 당해 발령이 없으면 이월 담당으로 기간 시작 시점 단계 1건을 시드한다 — carry-only
+  // 인원이 2026 평가에서 누락되지 않게(빈 draft 삭제 후 신규 미생성 회귀 방지).
+  if (Number.isFinite(periodYear) && stages.length === 0) {
+    const carry = carryStages.filter((s) => s.evaluatorId).slice(-1)[0];
+    if (carry?.evaluatorId) {
+      stages = [{ startDate: `${periodYear}-01-01`, evaluatorId: carry.evaluatorId }];
+    }
+  }
 
   // ── 빈 중복 평가 정리 ─────────────────────────────────────────
   // 프로필 업로드가 "평가기간 노출용"으로 만들어둔 빈 draft 평가가 있으면
