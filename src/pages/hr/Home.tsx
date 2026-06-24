@@ -743,7 +743,7 @@ const DashboardMemberModal = ({
                 <TableRow>
                   <TableHead>사번</TableHead>
                   <TableHead>이름</TableHead>
-                  <TableHead>직급</TableHead>
+                  <TableHead>직책</TableHead>
                   <TableHead>부서</TableHead>
                   <TableHead>레벨</TableHead>
                   <TableHead>평가자</TableHead>

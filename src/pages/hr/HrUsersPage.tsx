@@ -610,7 +610,7 @@ const HrUsersPage = () => {
     if (!name || !position || !department) {
       toast({
         title: '사용자 정보를 저장할 수 없습니다.',
-        description: '이름, 직급, 부서는 비워둘 수 없습니다.',
+        description: '이름, 직책, 부서는 비워둘 수 없습니다.',
         variant: 'destructive',
       });
       return;

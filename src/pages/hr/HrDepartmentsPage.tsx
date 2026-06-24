@@ -1061,7 +1061,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                 <TableRow>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>사번</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>이름</TableHead>
-                  <TableHead style={{ whiteSpace: 'nowrap' }}>직급</TableHead>
+                  <TableHead style={{ whiteSpace: 'nowrap' }}>직책</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>법인</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>본부</TableHead>
                   <TableHead style={{ whiteSpace: 'nowrap' }}>부</TableHead>

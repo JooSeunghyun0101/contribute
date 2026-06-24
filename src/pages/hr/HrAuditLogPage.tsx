@@ -46,7 +46,7 @@ const FIELD_LABELS: Record<string, string> = {
   evaluator_id: '평가자',
   available_roles: '역할',
   name: '이름',
-  position: '직위',
+  position: '직책',
   job_role: '직무',
   on_leave: '휴직',
   title: '제목',
