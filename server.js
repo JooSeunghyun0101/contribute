@@ -2978,7 +2978,7 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
       `
         SELECT DISTINCT e.*
         FROM employees e
-        LEFT JOIN evaluation_periods p ON p.id = $2::text
+        LEFT JOIN evaluation_periods p ON p.id::text = $2::text
         WHERE e.evaluator_id IS DISTINCT FROM $1
           AND EXISTS (
             SELECT 1
