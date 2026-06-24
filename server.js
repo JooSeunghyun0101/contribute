@@ -2972,10 +2972,13 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
       typeof req.query.periodId === 'string' && req.query.periodId.trim()
         ? req.query.periodId.trim()
         : null;
+    // 기간 판정은 changed_at 연도로 한다(evaluation_period_id 태그가 발령 업로드에서
+    // 직전연도 발령을 당해 기간으로 잘못 적재한 케이스가 있어 신뢰 불가). $2 없으면 전 기간.
     const { rows } = await pool.query(
       `
         SELECT DISTINCT e.*
         FROM employees e
+        LEFT JOIN evaluation_periods p ON p.id = $2::text
         WHERE e.evaluator_id IS DISTINCT FROM $1
           AND EXISTS (
             SELECT 1
@@ -2984,14 +2987,14 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
               AND h.new_evaluator_id = $1
               AND h.status = 'applied'
               AND h.change_type <> 'cancel'
-              AND ($2::text IS NULL OR h.evaluation_period_id = $2::text)
+              AND ($2::text IS NULL OR EXTRACT(YEAR FROM h.changed_at) = p.evaluation_year)
               AND EXISTS (
                 SELECT 1
                 FROM evaluator_assignment_history later
                 WHERE later.employee_id = e.employee_id
                   AND later.status = 'applied'
                   AND later.change_type <> 'cancel'
-                  AND ($2::text IS NULL OR later.evaluation_period_id = $2::text)
+                  AND ($2::text IS NULL OR EXTRACT(YEAR FROM later.changed_at) = p.evaluation_year)
                   AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
                   AND later.new_evaluator_id IS DISTINCT FROM $1
               )
