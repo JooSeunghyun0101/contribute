@@ -191,7 +191,7 @@ const parseRolesFromCells = (...cells: unknown[]): UserRole[] => {
 // 프로필(대상자) 시트 식별 — 헤더명 기준(컬럼 추가에도 견고).
 const hasProfileSummaryHeaders = (sheetRows: unknown[][]) => {
   const idx = buildColIndex(sheetRows[0] ?? []);
-  return ['사번', '성명', '부서명', '직무', '권한1'].every((h) => h in idx);
+  return ['사번', '성명', '직무', '권한1'].every((h) => h in idx);
 };
 const hasProfileDetailHeaders = (sheetRows: unknown[][]) => {
   const idx = buildColIndex(sheetRows[0] ?? []);

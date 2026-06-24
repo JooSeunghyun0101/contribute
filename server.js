@@ -3396,8 +3396,8 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
-            position = EXCLUDED.position,
-            department = EXCLUDED.department,
+            position = COALESCE(NULLIF(EXCLUDED.position, '미등록'), employees.position),
+            department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
             growth_level = EXCLUDED.growth_level,
             available_roles = CASE
@@ -4122,6 +4122,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
             department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             available_roles = (
               SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
               FROM (
