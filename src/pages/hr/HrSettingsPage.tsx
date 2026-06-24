@@ -344,41 +344,49 @@ const HrSettingsPage = () => {
                       선택한 평가기간의 <b>평가·과업·피드백·매칭·조직정보</b>만 삭제합니다.
                       직원 명부와 <b>다른 평가기간은 유지</b>됩니다.
                     </div>
-                    <select
-                      value={resetPeriodId}
-                      onChange={(e) => setResetPeriodId(e.target.value)}
-                      disabled={resettingKind !== null || resetPeriods.length === 0}
+                    <div
                       style={{
-                        alignSelf: 'flex-start',
-                        minWidth: 220,
-                        padding: '6px 10px',
-                        borderRadius: 8,
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg-input, #fff)',
-                        color: 'var(--fg, inherit)',
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {resetPeriods.length === 0 && <option value="">불러오는 중…</option>}
-                      {resetPeriods.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.status})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className="sd-btn sd-btn-sm"
-                      disabled={resettingKind !== null || !resetPeriodId}
-                      onClick={handleResetPeriod}
-                      style={{
-                        alignSelf: 'flex-start',
-                        background: 'var(--danger, #B91C1C)',
-                        color: '#fff',
-                        border: 'none',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {resettingKind === 'period' ? '삭제 중…' : '이 평가기간 초기화'}
-                    </button>
+                      <button
+                        className="sd-btn sd-btn-sm"
+                        disabled={resettingKind !== null || !resetPeriodId}
+                        onClick={handleResetPeriod}
+                        style={{
+                          background: 'var(--danger, #B91C1C)',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {resettingKind === 'period' ? '삭제 중…' : '이 평가기간 초기화'}
+                      </button>
+                      <select
+                        value={resetPeriodId}
+                        onChange={(e) => setResetPeriodId(e.target.value)}
+                        disabled={resettingKind !== null || resetPeriods.length === 0}
+                        style={{
+                          minWidth: 180,
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          background: 'var(--bg-input, #fff)',
+                          color: 'var(--fg, inherit)',
+                        }}
+                      >
+                        {resetPeriods.length === 0 && <option value="">불러오는 중…</option>}
+                        {resetPeriods.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.status})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </section>
