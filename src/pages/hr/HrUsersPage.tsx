@@ -4,7 +4,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import MatchingIntegrityBanner from '@/components/hr/MatchingIntegrityBanner';
 import { IconSearch } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
-import { employeeService, evaluationService, type OrgStructureImport } from '@/lib/services';
+import { employeeService, evaluationService, evaluationPeriodService, type OrgStructureImport } from '@/lib/services';
 import type {
   EmployeeProfileImportRowInput,
   MatchingImportRowInput,
@@ -335,7 +335,7 @@ const HrUsersPage = () => {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const { periods, selectedPeriodId } = useEvaluationPeriod();
+  const { periods, selectedPeriodId, reloadPeriods } = useEvaluationPeriod();
   const navigate = useNavigate();
   const actorId = user?.employeeId ?? user?.id ?? null;
 
@@ -1082,6 +1082,44 @@ const HrUsersPage = () => {
   };
 
   // 조직정보 엑셀(T-Level 트리) 업로드 → 부서코드→상위조직(법인/본부/부/팀) 파생 + employees.org_* 자동 매칭.
+  // 업로드 전 가드: 업로드 대상(selectedPeriodId)을 '단일 활성 평가기간'으로 만든다.
+  // 다른 기간이 함께 active 면(둘 다 열림 = create_default 트리거가 엉뚱한 기간에 평가 생성)
+  // 그 기간들을 마감(closed)하고 대상 기간을 활성화한 뒤 진행. 사용자에게 사전 고지·동의를 받는다.
+  const ensureUploadPeriod = useCallback(async (): Promise<boolean> => {
+    const target = periods.find((p) => p.id === selectedPeriodId);
+    if (!target) {
+      toast({ title: '평가기간을 먼저 선택하세요.', variant: 'destructive' });
+      return false;
+    }
+    const otherActive = periods.filter((p) => p.id !== target.id && p.status === 'active');
+    const alreadyOk = otherActive.length === 0 && target.status === 'active' && target.is_default === true;
+    if (alreadyOk) return true;
+    const otherNames = otherActive.map((p) => p.name).join(', ');
+    const ok = await confirm({
+      title: '평가기간 정리 후 업로드',
+      description:
+        `정확한 적재를 위해 업로드 대상 '${target.name}'을(를) 현재(활성) 평가기간으로 설정합니다.` +
+        (otherActive.length ? ` 함께 열려 있는 '${otherNames}'은(는) 마감(closed) 처리됩니다.` : '') +
+        ' 평가기간이 둘 이상 열려 있으면 평가가 엉뚱한 기간에 생성될 수 있어 막는 절차입니다.',
+      confirmText: '마감하고 업로드',
+    });
+    if (!ok) return false;
+    try {
+      for (const p of otherActive) await evaluationPeriodService.closePeriod(p.id);
+      await evaluationPeriodService.activatePeriod(target.id);
+      await reloadPeriods();
+      toast({
+        title: `'${target.name}'을(를) 현재 평가기간으로 설정했습니다.`,
+        description: otherActive.length ? `${otherNames} → 마감 처리됨` : undefined,
+      });
+      return true;
+    } catch (error) {
+      console.error('업로드 전 평가기간 정리 실패:', error);
+      toast({ title: '평가기간 정리 실패', description: '다시 시도해 주세요.', variant: 'destructive' });
+      return false;
+    }
+  }, [periods, selectedPeriodId, confirm, toast, reloadPeriods]);
+
   const importOrgStructureFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1094,6 +1132,7 @@ const HrUsersPage = () => {
       });
       return;
     }
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingOrg(true);
     try {
       const XLSX = await import('xlsx');
@@ -1144,7 +1183,7 @@ const HrUsersPage = () => {
         : '';
       const empNote = r.is_default_period
         ? ` · 직원 ${r.employees_updated}명 상위조직 갱신`
-        : ' · (과거 기간이라 현재 직원 org는 유지)';
+        : ' · (현재 기간이 아니라 직원 org는 유지)';
       toast({
         title: '조직정보 업로드가 완료되었습니다.',
         description: `${r.period_name} · 부서 ${r.node_count}개${empNote}${warn}`,
@@ -1215,6 +1254,7 @@ const HrUsersPage = () => {
       });
       return;
     }
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingContribution(true);
     try {
       const XLSX = await import('xlsx');
@@ -1347,6 +1387,7 @@ const HrUsersPage = () => {
       return;
     }
 
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingProfiles(true);
     try {
       const XLSX = await import('xlsx');
@@ -1401,6 +1442,7 @@ const HrUsersPage = () => {
       return;
     }
 
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingMatching(true);
     try {
       const XLSX = await import('xlsx');
@@ -1650,8 +1692,8 @@ const HrUsersPage = () => {
             className="sd-card"
             style={{ padding: '12px 16px', background: 'var(--ok-orange-50)', color: 'var(--ok-brown)', fontSize: 'var(--fs-sm)', fontWeight: 600 }}
           >
-            현재 평가기간이 아닌 과거 기간을 보고 있습니다. 표시·검색·필터는 이 기간 기준이며,
-            <strong> 조직(법인/본부/부/팀) 인라인 편집은 현재 기간에서만</strong> 가능합니다(과거 기간 조직은 조직정보 업로드로 관리).
+            현재(기본) 평가기간이 아닌 다른 기간을 보고 있습니다. 표시·검색·필터는 이 기간 기준이며,
+            <strong> 조직(법인/본부/부/팀) 인라인 편집은 현재(기본) 기간에서만</strong> 가능합니다(다른 기간 조직은 조직정보 업로드로 관리).
           </div>
         )}
 
@@ -2028,7 +2070,7 @@ const HrUsersPage = () => {
                 ))}
               </select>
               <p style={{ fontSize: 12, color: 'var(--fg-subtle, #888)', margin: 0 }}>
-                활성(기본) 평가기간이면 직원의 현재 상위조직도 함께 갱신됩니다. 과거 기간이면 그 기간 스냅샷만 저장합니다.
+                활성(기본) 평가기간이면 직원의 현재 상위조직도 함께 갱신됩니다. 그 외 기간이면 그 기간 스냅샷만 저장합니다.
               </p>
             </div>
             <DialogFooter>
