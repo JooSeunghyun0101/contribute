@@ -269,6 +269,15 @@ type PendingUpload =
 type ContribPreview = Awaited<ReturnType<typeof employeeService.previewContributionRows>>;
 type ContribRow = Parameters<typeof employeeService.previewContributionRows>[0]['rows'][number];
 
+// 엑셀 날짜셀(Date 또는 'YYYYMMDD'/'YYYY-MM-DD' 문자열)을 'YYYY-MM-DD' 로 정규화.
+const toYmd = (v: unknown): string => {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  const m = String(v ?? '').trim().match(/(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+};
+
 const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1317,6 +1326,8 @@ const HrUsersPage = () => {
           scope: String(col(r, '기여범위') ?? '').trim(),
           description: String(col(r, '설명1') ?? '').trim(),
           remark: String(col(r, '비고') ?? '').trim(),
+          startDate: toYmd(col(r, '시작일')),
+          endDate: toYmd(col(r, '종료일')),
         }))
         .filter((r) => r.sabun);
       if (rows.length === 0) throw new Error('기여도 데이터 행이 없습니다.');

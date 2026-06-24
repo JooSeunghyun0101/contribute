@@ -197,6 +197,8 @@ export interface ContributionImportRow {
   scope?: string;
   description?: string;
   remark?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface ContributionPreviewResult {
