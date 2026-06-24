@@ -1286,15 +1286,24 @@ const HrUsersPage = () => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 시트를 찾을 수 없습니다.');
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' }) as unknown[][];
-      const header = (aoa[0] ?? []).map((h) => String(h).replace(/\s+/g, ' ').trim());
-      const ix: Record<string, number> = {};
-      header.forEach((h, i) => { if (!(h in ix)) ix[h] = i; });
-      if (!('사번' in ix) || !('TASK' in ix)) {
-        throw new Error('기여도 양식이 아닙니다(사번·TASK 헤더 필요).');
+      // 헤더 행 자동 탐지: 상단 몇 줄 중 '사번'과 'TASK'를 모두 가진 행을 헤더로 본다
+      // (제목행이 위에 있어도 견고). 못 찾으면 첫 행 헤더를 에러에 표시해 원인 파악을 돕는다.
+      const normH = (h: unknown) => String(h ?? '').replace(/\s+/g, ' ').trim();
+      let headerRowIdx = -1;
+      for (let i = 0; i < Math.min(6, aoa.length); i += 1) {
+        const hs = (aoa[i] ?? []).map(normH);
+        if (hs.includes('사번') && hs.includes('TASK')) { headerRowIdx = i; break; }
       }
+      if (headerRowIdx < 0) {
+        const found = (aoa[0] ?? []).map(normH).filter(Boolean).slice(0, 24).join(', ');
+        throw new Error(`기여도 양식이 아닙니다(사번·TASK 헤더 필요). 첫 행 헤더: ${found || '(빈 행)'}`);
+      }
+      const header = (aoa[headerRowIdx] ?? []).map(normH);
+      const ix: Record<string, number> = Object.create(null);
+      header.forEach((h, i) => { if (h && !(h in ix)) ix[h] = i; });
       const col = (r: unknown[], n: string) => (ix[n] != null ? r[ix[n]] : '');
       const rows: ContribRow[] = aoa
-        .slice(1)
+        .slice(headerRowIdx + 1)
         .filter((r) => !/PL/i.test(String(col(r, '평가기준명'))))
         .map((r) => ({
           sabun: String(col(r, '사번') ?? '').trim(),
