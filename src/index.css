@@ -132,6 +132,12 @@
   --sidebar-w: 240px;
   --sidebar-w-collapsed: 68px;
   --topbar-h: 60px;
+  /* 본문 최소 너비 바닥 — 창이 이보다 좁아지면 본문(<main>)이 가로 스크롤로 빠져
+     데스크톱 비율을 유지한다. 고정 그리드(repeat(N,…))가 으스러져 글자가 줄바뀜·넘침으로
+     깨지는 것을 페이지 수정 없이 일괄 방지한다. 사이드바(240px)와 합쳐 약 1526px이므로
+     그보다 좁아지면(=조금만 확대해도) 곧바로 가로 스크롤이 생긴다.
+     스크롤 시점을 더 당기려면 이 값을 키우고(예: 1366), 늦추려면 줄이면(예: 1024) 된다. */
+  --content-min-w: 1280px;
 
   --bg-app: var(--background);
   --bg-card: var(--card);
@@ -280,6 +286,16 @@
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "tnum" 0, "ss01";
     letter-spacing: -0.005em;
+    /* 한글은 어절(공백) 단위로만 줄바꿈하고(keep-all), 긴 영문/URL·사번 등 끊을 곳 없는
+       문자열은 강제로 끊어(break-word) 컨테이너를 밀어내지 않게 한다. 상용 한국어 사이트 표준. */
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  /* 미디어 요소가 부모 폭을 넘겨 가로 오버플로를 만들지 않게 한다(아이콘 svg는 제외 — 고정 크기 유지). */
+  img, video, canvas {
+    max-width: 100%;
+    height: auto;
   }
 
   h1, h2, h3, h4, h5 { margin: 0; letter-spacing: -0.02em; }
