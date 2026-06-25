@@ -308,8 +308,9 @@ const Evaluation = () => {
 
   useEffect(() => {
     if (groupKeys.length === 0) {
-      setExpandedGroupKeys([]);
-      setSelectedTaskByGroup({});
+      // 이미 비어 있으면 같은 참조를 반환해 불필요한 재렌더(→ 무한 루프 위험)를 막는다.
+      setExpandedGroupKeys((prev) => (prev.length === 0 ? prev : []));
+      setSelectedTaskByGroup((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
 
@@ -421,6 +422,16 @@ const Evaluation = () => {
   const onTemporarySaveClick = async () => {
     // completed 상태: 평가 단계를 evaluating으로 되돌려 평가자가 다시 수정 가능하게
     if (evaluationStatus === 'completed') {
+      // 마감된 평가기간은 되돌려도 편집이 막혀 'evaluating'인데 입력 불가한 stuck 상태가 된다.
+      // canReopenCompleted 와 동일하게 기간 편집 가능 여부를 먼저 막는다(핸들러 누락 보정).
+      if (!isPeriodEditable) {
+        toast({
+          title: '평가기간이 마감되어 되돌릴 수 없습니다.',
+          description: periodEditMessage ?? '마감된 평가기간의 평가는 수정할 수 없습니다.',
+          variant: 'destructive',
+        });
+        return;
+      }
       if (!canEditEvaluation) {
         toast({
           title: '평가를 수정할 수 없습니다.',
@@ -556,12 +567,16 @@ const Evaluation = () => {
                 disabled={
                   isDraftSaving ||
                   (evaluationStatus === 'completed'
-                    ? !canEditEvaluation
+                    ? !canEditEvaluation || !isPeriodEditable
                     : !canEvaluate || !hasDrafts)
                 }
                 title={
                   evaluationStatus === 'completed'
-                    ? '평가 단계를 임시저장 단계로 되돌려 점수/피드백을 수정할 수 있게 합니다.'
+                    ? !isPeriodEditable
+                      ? periodEditMessage ?? '마감된 평가기간이라 되돌릴 수 없습니다.'
+                      : !canEditEvaluation
+                        ? evaluatorAccessMessage ?? '권한이 없습니다.'
+                        : '평가 단계를 임시저장 단계로 되돌려 점수/피드백을 수정할 수 있게 합니다.'
                     : !canEvaluate
                       ? evaluatorEditMessage ?? undefined
                       : !hasDrafts

@@ -4,19 +4,16 @@ type Props = {
   title: ReactNode;
   subtitle?: string;
   actions?: ReactNode;
-  /** 검색·필터 등 페이지 레벨 컨트롤. 제목과 함께 상단에 고정(sticky)되어 스크롤해도 유지된다. */
+  /** 검색·필터 등 페이지 레벨 컨트롤. 제목 아래에 함께 표시된다. */
   filters?: ReactNode;
 };
 
-// 모든 페이지 공통 헤더 — 상단에 고정(sticky)되어 스크롤해도 제목·필터가 유지된다.
-// 스크롤 컨테이너는 AppLayout 의 <main overflow-y-auto> 이며, 그 최상단(TopBar 아래)에 붙는다.
+// 모든 페이지 공통 헤더 — 제목·필터를 표시한다.
+// 고정(sticky)하지 않는다: 콘텐츠와 함께 스크롤되어 본문 영역을 더 넓게 쓴다.
 export const PageHeader = ({ title, subtitle, actions, filters }: Props) => (
   <div
     data-sticky-header=""
     style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 30,
       background: 'var(--bg-app)',
       borderBottom: '1px solid var(--border)',
     }}

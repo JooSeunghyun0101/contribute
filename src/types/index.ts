@@ -21,6 +21,8 @@ export interface User {
   growthLevel: number;
   evaluatorId?: string;
   availableRoles?: UserRole[];
+  /** HR이 지정한 'AI 과업 50% 규칙' 면제 여부. true 면 성과보고 제출 시 비중 검사 생략. */
+  aiRuleExempt?: boolean;
 }
 
 // 직원 관련 타입
@@ -42,6 +44,8 @@ export interface Employee {
   org_sequence?: string | null;
   work_start_date?: string | null;
   work_end_date?: string | null;
+  /** HR이 지정한 'AI 과업 50% 규칙' 면제 여부. */
+  ai_rule_exempt?: boolean | null;
   evaluation_type?: string | null;
   matching_result?: string | null;
   confirmer_id?: string | null;
@@ -197,6 +201,8 @@ export interface Task {
   feedback_date: string | null;
   evaluator_name: string | null;
   deleted_at: string | null;
+  /** 피평가자가 'AI 과업'으로 표시한 과업 여부(AI 과업 50% 규칙 집계 대상). */
+  is_ai_task?: boolean | null;
 }
 
 export interface TaskEvaluationEntry {
@@ -216,6 +222,11 @@ export interface TaskEvaluationEntry {
   cancelled_at?: string | null;
   cancelled_by?: string | null;
   cancel_reason?: string | null;
+  // 저장 시점 1차 AI 검수 결과(항목당 최신 1건). flagged=false 면 '이상없음', summary/type 는 flagged 일 때만 채워짐.
+  ai_flagged?: boolean | null;
+  ai_summary?: string | null;
+  ai_type?: string | null;
+  ai_reviewed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

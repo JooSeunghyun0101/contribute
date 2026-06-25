@@ -18,9 +18,16 @@ import {
   feedbackService,
   notificationService,
   taskEvaluationEntryService,
+  aiContentService,
 } from '@/lib/services';
 import { getMatrixScore, getScoreGapBucket } from '@/lib/evaluationMatrix';
-import { reviewEvaluationFeedbacks } from '@/lib/gptOss';
+import {
+  reviewEvaluationFeedbacks,
+  generateComprehensiveGrowthSuggestion,
+  generateFeedbackSummaryForEvaluator,
+  generateFeedbackSummaryForEvaluatee,
+  generateFeedbackKeywords,
+} from '@/lib/gptOss';
 
 // 피드백 텍스트 해시 — AI 검수 결과가 어떤 피드백에 대한 것인지 기록(변경 추적용).
 const hashText = (text: string): string => {
@@ -141,6 +148,10 @@ const mapTaskEvaluationEntry = (entry: DbTaskEvaluationEntry): TaskEvaluationEnt
   cancelledAt: entry.cancelled_at,
   cancelledBy: entry.cancelled_by,
   cancelReason: entry.cancel_reason,
+  aiFlagged: entry.ai_flagged ?? null,
+  aiSummary: entry.ai_summary ?? null,
+  aiType: entry.ai_type ?? null,
+  aiReviewedAt: entry.ai_reviewed_at ?? null,
   createdAt: entry.created_at,
   updatedAt: entry.updated_at,
 });
@@ -682,6 +693,7 @@ export const useEvaluationDataDB = (
             title: task.title,
             description: task.description || '',
             weight: task.weight,
+            isAiTask: task.is_ai_task ?? false,
             startDate: task.start_date || undefined,
             endDate: task.end_date || undefined,
             contributionMethod:
@@ -847,9 +859,15 @@ export const useEvaluationDataDB = (
     }
   };
 
-  const getTaskWithDraft = (task: Task) => applyTaskDraft(task, taskDrafts[task.id]);
+  const getTaskWithDraft = useCallback(
+    (task: Task) => applyTaskDraft(task, taskDrafts[task.id]),
+    [taskDrafts],
+  );
 
-  const hasTaskDraft = (taskId: string) => Boolean(sanitizeTaskDraft(taskDrafts[taskId]));
+  const hasTaskDraft = useCallback(
+    (taskId: string) => Boolean(sanitizeTaskDraft(taskDrafts[taskId])),
+    [taskDrafts],
+  );
 
   const getTasksWithDrafts = () => {
     if (!evaluationData) return [];
@@ -1111,7 +1129,10 @@ export const useEvaluationDataDB = (
             ''
           ).trim();
 
-          if (!currentFeedback || currentFeedback === previousFeedback) {
+          // 변경됐거나, '아직 한 번도 검수되지 않은'(ai_reviewed_at 없음) 피드백은 검수 대상에 포함한다.
+          // → 저장됐는데 검수 안 된 항목이 '통과'인지 '미저장'인지 구별 안 되던 문제 해소(저장 후 항상 판정).
+          const neverReviewed = !currentEntry?.ai_reviewed_at;
+          if (!currentFeedback || (currentFeedback === previousFeedback && !neverReviewed)) {
             return null;
           }
 
@@ -1361,6 +1382,111 @@ export const useEvaluationDataDB = (
       });
 
       await loadEvaluationData();
+
+      // 저장 시점 자동 AI 생성(영속) — 조회 시 재호출 없이 그대로 표시(토큰 절약·표현 일관).
+      // ⚠ 반드시 화면 리로드(loadEvaluationData) '이후'에, '순차(직렬)'로 호출한다(동시연결 점유 방지).
+      //   그리고 'isComplete(모든 과업 채점 = 완료 저장)' 일 때만 돌린다 — 중간(작성중) 저장마다 3콜씩
+      //   나가면 GitHub Models 무료티어 분당 한도를 쳐 429가 잦아진다. 완료 저장에서만 생성해 호출을 최소화.
+      if (user.role === 'evaluator' && isComplete) {
+        const evaluateeId = employeeId;
+        const periodId = selectedPeriodId ?? null;
+        const evaluateeName = evaluationData?.evaluateeName || '';
+        const tasksSnapshot = tasksToSave;
+        const anyTaskChanged = changedTasks.length > 0;       // 점수/방식/범위/피드백 등 무엇이든 변경됨
+        const anyFeedbackChanged = changedFeedbackItems.length > 0;
+        void (async () => {
+          if (!periodId || !evaluateeId) return;
+
+          // ① 종합 성장 제안 — '과업에 변경이 있을 때만' 재생성(불필요한 토큰 소모 방지). 점수가 하나라도 있어야 생성.
+          if (anyTaskChanged && tasksSnapshot.some((t) => t.score != null)) {
+            try {
+              const growth = await generateComprehensiveGrowthSuggestion({
+                tasks: tasksSnapshot.map((t) => ({
+                  taskTitle: t.title || '제목 없음',
+                  startDate: t.startDate,
+                  endDate: t.endDate,
+                  weight: t.weight,
+                  score: t.score,
+                  contributionMethod: t.contributionMethod,
+                  contributionScope: t.contributionScope,
+                  feedback: t.feedback,
+                })),
+                growthLevel,
+              });
+              if (growth && !growth.startsWith('⚠')) {
+                await aiContentService.put('evaluatee_growth_suggestion', `${evaluateeId}:${periodId}`, growth);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+
+          // ② 평가자 피드백 요약 — '피드백이 바뀐 경우만' 재생성.
+          const writtenInputs = anyFeedbackChanged
+            ? tasksSnapshot
+                .filter((t) => (t.feedback || '').trim())
+                .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }))
+            : [];
+          if (writtenInputs.length > 0) {
+            try {
+              const summary = await generateFeedbackSummaryForEvaluator(evaluateeName, writtenInputs);
+              if (summary && !summary.startsWith('⚠')) {
+                await aiContentService.put(
+                  'evaluator_feedback_summary',
+                  `${evaluatorId}:${evaluateeId}:${periodId}`,
+                  summary,
+                );
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+
+          // ③ 피평가자 피드백 요약 — '피드백이 바뀐 경우만' 재생성.
+          const receivedInputs = anyFeedbackChanged
+            ? tasksSnapshot
+                .filter((t) => (t.feedback || '').trim())
+                .map((t) => ({
+                  taskTitle: t.title,
+                  content: (t.feedback || '').trim(),
+                  score: t.score ?? null,
+                  evaluatorName: user.name,
+                }))
+            : [];
+          if (receivedInputs.length > 0) {
+            try {
+              const summary = await generateFeedbackSummaryForEvaluatee(receivedInputs);
+              if (summary && !summary.startsWith('⚠')) {
+                await aiContentService.put('evaluatee_feedback_summary', `${evaluateeId}:${periodId}`, summary);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+
+          // ④ AI 키워드 — 피드백 기반 핵심 키워드(인물검색 인덱스 겸용). 1콜로 평가자/피평가자 양쪽 scope 에 저장.
+          if (anyFeedbackChanged) {
+            const keywordInputs = tasksSnapshot
+              .filter((t) => (t.feedback || '').trim())
+              .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }));
+            if (keywordInputs.length > 0) {
+              try {
+                const keywords = await generateFeedbackKeywords(keywordInputs);
+                if (keywords && !keywords.startsWith('⚠') && keywords.trim()) {
+                  await aiContentService.put(
+                    'evaluator_feedback_keywords',
+                    `${evaluatorId}:${evaluateeId}:${periodId}`,
+                    keywords,
+                  );
+                  await aiContentService.put('evaluatee_feedback_keywords', `${evaluateeId}:${periodId}`, keywords);
+                }
+              } catch {
+                /* best-effort */
+              }
+            }
+          }
+        })();
+      }
 
        // Evaluator role no longer stores data in localStorage; server updates are handled above.
       return true;

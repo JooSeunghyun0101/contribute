@@ -100,6 +100,11 @@
   --info: var(--chart-2);
   --info-bg: #F3F0EC;
 
+  /* AI 기능 강조(파랑) — AiOpinionButton(blue-600/700)과 동일 계열. AI 출력 영역 제목·포인트 통일용. */
+  --ai-accent: #1E40AF;        /* AI 제목·강조 — 어두운 파랑(blue-800) */
+  --ai-accent-bg: #EEF4FE;
+  --ai-shine-color: #8B5CF6;   /* AI 영역 테두리 샤인(보라) — 제목 파랑과 별개의 은은한 포인트 */
+
   --sh-sm: 0 1px 2px hsl(28 18% 25% / 0.08), 0 1px 1px hsl(28 18% 25% / 0.06);
   --sh-md: 0 2px 8px hsl(28 18% 25% / 0.12), 0 1px 2px hsl(28 18% 25% / 0.08);
   --sh-lg: 0 10px 26px hsl(28 18% 25% / 0.18), 0 4px 10px hsl(28 18% 25% / 0.1);
@@ -237,6 +242,10 @@
   --danger-bg: #3A1E1E;
   --info: var(--chart-2);
   --info-bg: #1B3340;
+
+  --ai-accent: #60A5FA;
+  --ai-accent-bg: #1E293B;
+  --ai-shine-color: #A78BFA;
 
   --sh-sm: 0 1px 2px hsl(0 0% 5% / 0.35);
   --sh-md: 0 4px 12px hsl(0 0% 5% / 0.45);
@@ -469,6 +478,63 @@
 }
 .animate-ai-shine { animation: ai-shine 1.3s ease-in-out infinite; }
 .animate-ai-emoji-up { animation: ai-emoji-up 1.3s ease-in-out infinite; }
+
+/* AI 영역 테두리 동적 샤인 — 파랑(--ai-accent) 광점이 테두리를 따라 한 바퀴 돈다.
+   순수 CSS(모듈 불필요). @property 로 각도를 애니메이션(미지원 브라우저는 정적 테두리로 graceful degrade).
+   pseudo(::after) + mask 로 '테두리 1px 링'에만 그라데이션을 그린다. */
+@property --ai-shine-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes ai-shine-rotate {
+  to { --ai-shine-angle: 360deg; }
+}
+/* 색을 보라(기준)↔파랑↔빨강 계열로만 천천히 왕복 — 초록·노랑(hue 60~150)은 건너뛰도록 범위 제한. */
+@keyframes ai-shine-hue {
+  0%   { filter: hue-rotate(-40deg); }   /* 파랑 쪽 */
+  50%  { filter: hue-rotate(105deg); }   /* 빨강 쪽 (보라는 그 중간) */
+  100% { filter: hue-rotate(-40deg); }
+}
+.ai-shine-border { position: relative; }
+.ai-shine-border::before,
+.ai-shine-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  animation: ai-shine-rotate 7s linear infinite, ai-shine-hue 11s ease-in-out infinite;
+  opacity: 0.7;
+  pointer-events: none;
+}
+/* 광점 2개 — 서로 180° 반대쪽에서 같은 속도로 회전. */
+.ai-shine-border::after {
+  background: conic-gradient(
+    from var(--ai-shine-angle),
+    transparent 0%,
+    transparent 82%,
+    var(--ai-shine-color) 93%,
+    transparent 100%
+  );
+}
+.ai-shine-border::before {
+  background: conic-gradient(
+    from calc(var(--ai-shine-angle) + 180deg),
+    transparent 0%,
+    transparent 82%,
+    var(--ai-shine-color) 93%,
+    transparent 100%
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-shine-border::before,
+  .ai-shine-border::after { animation: none; }
+}
 
 /* 사용자관리 테이블 — 컬럼이 많아 행을 조밀하게. 공용 TableCell(p-4)·TableHead(h-12)를
    언레이어드 규칙으로 오버라이드(언레이어드 > @layer 라 Tailwind 유틸리티보다 우선). */

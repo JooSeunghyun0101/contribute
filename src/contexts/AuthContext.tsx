@@ -44,6 +44,7 @@ const buildUser = (employee: Employee, preferredRole?: UserRole): User => {
     // 성장 레벨은 0 또는 undefined일 경우 1로 기본값을 설정
     growthLevel: employee.growth_level && employee.growth_level > 0 ? employee.growth_level : 1,
     evaluatorId: employee.evaluator_id || undefined,
+    aiRuleExempt: employee.ai_rule_exempt ?? false,
     availableRoles,
     role,
   };

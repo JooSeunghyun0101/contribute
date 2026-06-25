@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { UserRole } from '@/types';
 import {
   CountdownCard,
@@ -52,10 +53,11 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
     { to: '/hr/insights', label: '평가 인사이트', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
     { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
     { to: '/hr/audit-logs', label: '감사 로그', icon: IconFile, group: '운영' },
-    { to: '/hr/reminders', label: '독려·리마인드', icon: IconBell, group: '운영' },
+    { to: '/hr/reminders', label: '리마인드·AI검수', icon: IconBell, group: '운영' },
     { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
@@ -83,6 +85,30 @@ export const Sidebar = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+
+  // 좌하단 평가기간 카드 — 하드코딩이 아니라 '현재 선택한 평가기간'을 그대로 반영한다.
+  const { selectedPeriod } = useEvaluationPeriod();
+  const countdownProps = useMemo(() => {
+    if (!selectedPeriod) return { cycle: '평가 기간', remaining: '불러오는 중…', progress: 0 };
+    const cycle = `${selectedPeriod.evaluation_year} 연간`;
+    const fmtDate = (value: string | null) => {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    };
+    if (selectedPeriod.status === 'closed') return { cycle, remaining: '마감됨', progress: 100 };
+    if (selectedPeriod.status === 'locked') return { cycle, remaining: '잠금됨', progress: 100 };
+    if (selectedPeriod.status === 'draft') return { cycle, remaining: '작성 전', progress: 0 };
+    // active — 시작~종료 기준 진행률.
+    const end = fmtDate(selectedPeriod.ends_on);
+    const startMs = selectedPeriod.starts_on ? new Date(selectedPeriod.starts_on).getTime() : NaN;
+    const endMs = selectedPeriod.ends_on ? new Date(selectedPeriod.ends_on).getTime() : NaN;
+    let progress = 0;
+    if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs) {
+      progress = Math.max(0, Math.min(100, Math.round(((Date.now() - startMs) / (endMs - startMs)) * 100)));
+    }
+    return { cycle, remaining: end ? `~ ${end}` : '진행 중', progress };
+  }, [selectedPeriod]);
 
   const list = user ? menus[user.role] ?? menus.evaluatee : [];
   const hasGroups = list.some((item) => item.group);
@@ -250,7 +276,7 @@ export const Sidebar = () => {
           })
         : list.map(renderLink)}
 
-      <CountdownCard />
+      <CountdownCard {...countdownProps} />
     </aside>
   );
 };

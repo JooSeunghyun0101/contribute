@@ -18,7 +18,7 @@ import {
   type EvaluatorTaskView,
 } from '@/components/Evaluation/EvaluatorReview';
 import type { Task as DbTask, TaskEvaluationEntry as DbEntry } from '@/types';
-import type { Task } from '@/types/evaluation';
+import type { Task, TaskEvaluationEntry } from '@/types/evaluation';
 
 const STATUS_LABEL: Record<string, string> = {
   'not-started': '시작 전',
@@ -179,7 +179,29 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
                 feedbackDate: latest ? latest.feedback_date ?? undefined : dbt.feedback_date ?? undefined,
                 evaluatorName: latest ? latest.evaluator_name ?? undefined : dbt.evaluator_name ?? undefined,
               };
-              return { task, displayTask: task, score: resolveTaskScore(task, matrix), hasDraft: false };
+              // 저장 시점 AI 검수 결과(ai_*)를 camelCase entry 로 매핑해 검수 카드에 그대로 전달한다.
+              // 이게 없으면 HR 열람에서 '검수 완료' 항목도 '아직 검수 전'으로 잘못 표시된다.
+              const entry: TaskEvaluationEntry | null = latest
+                ? {
+                    id: latest.id,
+                    taskUuid: latest.task_uuid,
+                    taskId: dbt.task_id,
+                    evaluationId: ev.id,
+                    evaluatorId: latest.evaluator_id ?? ev.evaluator_id ?? '',
+                    evaluatorName: latest.evaluator_name ?? ev.evaluator_name ?? '',
+                    status: (latest.status as 'active' | 'cancelled' | undefined) ?? 'active',
+                    contributionMethod: latest.contribution_method ?? null,
+                    contributionScope: latest.contribution_scope ?? null,
+                    score: latest.score ?? null,
+                    feedback: latest.feedback ?? null,
+                    feedbackDate: latest.feedback_date ?? null,
+                    aiFlagged: latest.ai_flagged ?? null,
+                    aiSummary: latest.ai_summary ?? null,
+                    aiType: latest.ai_type ?? null,
+                    aiReviewedAt: latest.ai_reviewed_at ?? null,
+                  }
+                : null;
+              return { task, displayTask: task, score: resolveTaskScore(task, matrix), hasDraft: false, entry };
             });
             const summary = toScoreSummary(views);
             const isCurrent = idx === 0; // 엔드포인트가 현재(최신 배정/draft) 평가를 먼저 정렬해 반환.

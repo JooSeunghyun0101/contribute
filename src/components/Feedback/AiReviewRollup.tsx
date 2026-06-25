@@ -13,10 +13,14 @@ const canonType = (raw: string | null): string => {
   if (!t) return '기타';
   if (/복붙|복사|유사|중복|동일|표절|베낌|붙여넣/.test(t)) return '복붙';
   if (/논조|어조|톤|점수|갭|모순|불일치|정합|일치|칭찬|질책/.test(t)) return '논조';
-  if (/성의|불성실|영혼|무관|무의미|의미\s*없|관련\s*없|반복|자모/.test(t)) return '성의';
+  if (/성의|성실|영혼|무관|무의미|의미\s*없|관련\s*없|반복|자모/.test(t)) return '성의';
   if (/구체|추상|모호|일반론|두루뭉/.test(t)) return '구체성';
   return '기타';
 };
+
+// 표시용 공식 라벨 — 저장값(구어체: 성의·복붙·논조)은 그대로 두고 화면에만 공식 표기로 매핑.
+const TYPE_LABEL: Record<string, string> = { 구체성: '구체성', 성의: '성실성', 복붙: '중복성', 논조: '정합성' };
+const typeLabel = (t: string): string => TYPE_LABEL[t] ?? t;
 
 // 유형별 칩 색.
 const typeTone = (type: string | null): 'warning' | 'orange' | 'info' | 'neutral' => {
@@ -178,7 +182,7 @@ export const AiReviewRollup = () => {
                         <TableRow>
                           <TableHead style={{ whiteSpace: 'nowrap' }}>평가자</TableHead>
                           {cols.map((c) => (
-                            <TableHead key={c} style={{ textAlign: 'center' }}>{c}</TableHead>
+                            <TableHead key={c} style={{ textAlign: 'center' }}>{typeLabel(c)}</TableHead>
                           ))}
                           <TableHead style={{ textAlign: 'center' }}>합계</TableHead>
                         </TableRow>
@@ -227,7 +231,7 @@ export const AiReviewRollup = () => {
                                   <TableCell colSpan={colCount} style={{ padding: 0, background: 'var(--bg-subtle)' }}>
                                     <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                                       <span style={{ fontWeight: 800 }}>
-                                        {r.ev} · {selected!.type}{' '}
+                                        {r.ev} · {typeLabel(selected!.type)}{' '}
                                         <span style={{ color: 'var(--fg-muted)', fontWeight: 600 }}>{detail.length}건</span>
                                       </span>
                                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -266,7 +270,7 @@ export const AiReviewRollup = () => {
                                         >
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span style={{ fontWeight: 800 }}>{it.evaluatee_name}</span>
-                                            {it.ai_type && <Pill tone={typeTone(it.ai_type)}>{canonType(it.ai_type)}</Pill>}
+                                            {it.ai_type && <Pill tone={typeTone(it.ai_type)}>{typeLabel(canonType(it.ai_type))}</Pill>}
                                             {it.task_title && <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>· {it.task_title}</span>}
                                           </div>
                                           {it.ai_summary && (

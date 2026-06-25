@@ -32,35 +32,8 @@ const DEFAULT_PROMPTS: PromptTemplate[] = [
 평가자가 기여방식과 기여범위를 판단할 수 있도록 행동 중심으로 작성하세요.`,
   },
   {
-    key: 'feedback_improvement',
-    description: '평가 피드백 문장 교정',
-    content: `당신은 문서 교정 전문가입니다.
-주어진 피드백의 의미와 사실관계는 유지하고 맞춤법, 띄어쓰기, 문장 흐름만 다듬으세요.
-새로운 평가 내용이나 점수 해석을 추가하지 말고 500자 이내로 답변하세요.`,
-  },
-  {
-    key: 'ai_feedback_chat',
-    description: '평가 화면 AI 대화형 피드백 지원',
-    content: `당신은 평가자가 피드백을 구체화하도록 돕는 AI 어시스턴트입니다.
-질문에 간결하게 답하고, 과업 맥락과 평가 기준에 맞는 표현을 제안하세요.
-답변은 300자 이내로 유지하세요.`,
-  },
-  {
-    key: 'feedback_generic_review',
-    description: '단일 피드백의 구체성 및 성의 검수',
-    content: `다음 피드백이 성과평가에 적합한지 판단하세요.
-구체적 행동, 성과, 영향, 개선 방향이 부족하면 GENERIC: 사유 형식으로 답하세요.
-적절하면 GOOD: 적절한 피드백입니다 형식으로 답하세요.`,
-  },
-  {
-    key: 'feedback_similarity_review',
-    description: '신규 피드백과 기존 피드백의 유사도 검수',
-    content: `신규 피드백과 기존 피드백 목록을 비교해 복사, 붙여넣기, 단어만 바꾼 유사 피드백인지 판단하세요.
-문제가 있으면 DUPLICATE: 사유 형식으로 답하고, 문제없으면 OK: 적절한 피드백입니다 형식으로 답하세요.`,
-  },
-  {
     key: 'evaluation_feedback_review',
-    description: '평가 저장 시 변경 피드백 일괄 AI 검수(구체성·성의·복붙·점수논조)',
+    description: '평가 저장 시 변경 피드백 일괄 AI 검수(구체성·성실성·중복성·정합성)',
     content: `평가 저장 전, 평가자가 작성한(변경된) 피드백을 검수합니다.
 각 항목은 {taskId, taskTitle, feedback, score, gapBucket}을 가집니다.
 gapBucket 의미 — exceed: 기대 초과(점수 높음), meet: 기대 충족, near: 근접(일부 보완 필요), below: 미달(점수 낮음).
@@ -68,32 +41,15 @@ gapBucket 의미 — exceed: 기대 초과(점수 높음), meet: 기대 충족, 
 아래 4가지 중 하나라도 해당하면 그 항목만 문제로 표시하세요.
 1) 구체성 부족: 구체적 행동·산출물·수치·사례가 하나도 없이 일반론만 있는 경우.
    (예: "열심히 했음", "잘 수행함", "기대에 부응함" → 문제 / "정산 자동화로 마감 2일 단축" → 통과)
-2) 의미 없는 표현: 과업과 무관하거나 평가 정보가 없는 문구. 인사말, 자모·반복문자(ㅇㅇ, ㅋㅋ), 동떨어진 내용.
-3) 복붙/과도한 유사성: 다음과 거의 동일하거나 사람·과업만 바꾼 수준 — (a) '비교용 피드백'(같은 평가자가 다른 피평가자에게 쓴 것), (b) 같은 피평가자의 다른 과업 피드백, (c) 이번에 함께 제출된 다른 변경 피드백.
-4) 점수-논조 불일치: gapBucket 의미와 피드백 논조의 방향이 반대. below인데 칭찬만이거나, exceed인데 질책만인 경우.
+2) 성실성 미흡: 과업과 무관하거나 평가 정보가 없는 문구. 인사말, 자모·반복문자(ㅇㅇ, ㅋㅋ), 동떨어진 내용 등 성의 없는 작성.
+3) 중복성: 거의 동일하거나 사람·과업만 바꾼 수준의 복붙·과도한 유사 — (a) '비교용 피드백'(같은 평가자가 다른 피평가자에게 쓴 것), (b) 같은 피평가자의 다른 과업 피드백, (c) 이번에 함께 제출된 다른 변경 피드백.
+4) 정합성 위반: gapBucket 의미와 피드백 논조의 방향이 반대(점수-논조 불일치). below인데 칭찬만이거나, exceed인데 질책만인 경우.
    점수 자체의 적정성·피드백 길이는 판단하지 마세요. 방향 일치만 봅니다.
 
-각 문제 항목은 가장 핵심적인 유형 하나로 분류하세요. 여러 유형에 걸치면 우선순위 = 복붙 > 논조 > 성의 > 구체성.
-type 값은 정확히 다음 중 하나: "구체성" | "성의" | "복붙" | "논조".
-응답 형식(문제 항목만): [{"taskId":"...","type":"복붙","summary":"한 줄 사유"}]
+각 문제 항목은 가장 핵심적인 유형 하나로 분류하세요. 여러 유형에 걸치면 우선순위 = 중복성 > 정합성 > 성실성 > 구체성.
+type 값은 정확히 다음 중 하나: "구체성" | "성실성" | "중복성" | "정합성".
+응답 형식(문제 항목만): [{"taskId":"...","type":"중복성","summary":"한 줄 사유"}]
 문제가 없으면 [] 만 답하세요. 다른 설명 문장은 쓰지 마세요.`,
-  },
-  {
-    key: 'feedback_sentiment_gap_review',
-    description: 'HR 검수: 점수-성장레벨 갭과 의견 논조의 정합성 판단 (read-only 모니터링용)',
-    content: `당신은 성과평가 의견을 검수하는 HR 분석 도우미입니다.
-절대평가 체계에서 점수는 본인 성장레벨 대비 기대수준 달성도를 뜻하며, 갭버킷이 그 의미를 요약합니다.
-- 탁월 기여(exceed): 기대수준을 명확히 초과
-- 기준 충족(meet): 기대수준을 안정적으로 충족
-- 보완 필요(near): 기대수준에 근접하나 일부 보완 필요
-- 미달성(below): 기대수준에 미치지 못함
-주어진 갭버킷의 의미와 평가의견(피드백) 논조가 서로 정합한지 판단하세요.
-- 갭버킷은 칭찬인데 의견은 강한 질책이거나, 갭버킷은 미달성인데 의견이 무조건적 칭찬이면 불일치입니다.
-- 점수 자체의 적정성이나 의견의 길이·구체성은 판단하지 마세요. 오직 '갭버킷 의미 ↔ 의견 논조'의 방향 일치만 봅니다.
-- 단정적 표현은 피하고, 검토가 필요한 정황을 중립적으로 기술하세요.
-판정 결과만 다음 형식으로 답하세요.
-- 정합: "MATCH: 점수 맥락과 의견 논조가 어울립니다"
-- 불일치: "MISMATCH: [어떤 방향으로 어긋나는지 한 문장]"`,
   },
   {
     key: 'ai_connection_test',
@@ -101,13 +57,21 @@ type 값은 정확히 다음 중 하나: "구체성" | "성의" | "복붙" | "�
     content: 'AI 연결 상태를 확인하기 위한 짧은 응답을 한국어로 작성하세요.',
   },
   {
-    key: 'growth_suggestion',
-    description: '피평가자 과업 점수·기여 맥락 기반 성장 제안',
+    key: 'growth_suggestion_comprehensive',
+    description: '피평가자 과업 전체(일정·비중·기여방식/범위·점수·피드백)를 종합한 성장 제안',
     content: `당신은 OK금융그룹 기여도평가 시스템의 피평가자 성장 코치입니다.
-주어진 과업 정보·점수·기여 맥락을 보고 다음 평가에서 한 단계 더 성장하기 위한 구체적 조언을 250자 이내로 작성하세요.
-- 잘된 점은 한두 문장으로 짧게, 보완해야 할 점과 다음 행동을 명확히 제시하세요.
-- 점수에 대한 일반론적 격려는 피하고, 기여방식(총괄/리딩/실무/지원)·기여범위(의존적/독립적/상호적/전략적)를 활용한 구체적 제안을 하세요.
-- 한국어 존댓말로 작성하고, 별표·이모지·머리표는 쓰지 마세요.`,
+주어진 '여러 과업'의 일정(기간)·비중(가중치)·기여방식·기여범위·점수·받은 피드백을 종합적으로 판단해,
+다음 평가에서 한 단계 더 성장하기 위한 구체적 조언을 400자 이내로 작성하세요.
+- 비중이 큰 과업과 점수가 낮은(보완 필요) 과업을 우선 고려하세요.
+- 기여방식(총괄/리딩/실무/지원)·기여범위(의존적/독립적/상호적/전략적)의 분포를 보고 한 단계 확장 방향을 제시하세요.
+- 받은 피드백에서 반복되는 강점·보완점을 짚고, 다음 라운드에 시도할 행동 1~2개를 제안하세요.
+- 일정상 장기/단기 과업의 균형도 참고하세요.
+- 한국어 존댓말. 일반론적 격려는 피하고 이 사람의 데이터에 근거해 구체적으로 작성하세요.
+
+반드시 아래 3개의 라벨 줄 형식으로만 출력하세요(각 1~2문장, 전체 400자 이내). 이모지·별표는 쓰지 마세요.
+강점: <반복적으로 잘한 점>
+보완: <가장 시급한 보완 포인트>
+다음 단계: <다음 평가까지 시도할 구체적 행동 1~2개>`,
   },
   {
     key: 'feedback_summary_evaluatee',
@@ -148,6 +112,49 @@ type 값은 정확히 다음 중 하나: "구체성" | "성의" | "복붙" | "�
 1. 질문이 시스템 기능과 무관하면 "기여도평가 운영과 관련된 질문에만 답변드릴 수 있습니다"라고 안내하세요.
 2. 점수·등급에 영향을 주는 의사결정은 평가자 본인이 한다는 점을 명확히 전달하세요.
 3. 모호한 질문은 추가 정보를 요청하세요.`,
+  },
+  {
+    key: 'feedback_keywords',
+    description: '피드백 이력 화면 · AI 키워드 추출(강점·보완 분류)',
+    content: `다음 피드백 목록에서 한 직원의 핵심 키워드를 '강점'과 '보완점'으로 나눠 추출하세요.
+
+[방향성 판단 — 중요]
+- 표면 단어가 아니라 문맥의 '방향'으로 분류합니다.
+- 실제로 '했다/잘한다'는 긍정 서술이면 강점, '부족/필요/미흡/아쉬움' 등 아직 못한다는 서술이면 보완으로 분류합니다.
+  (예: "AI 전파가 부족해 노력 필요" → 보완 / "AI 전파를 적극 주도" → 강점)
+
+[출력 형식]
+- 정확히 아래 두 줄로만 출력합니다.
+강점: (잘하는 점 키워드 3~6개, 쉼표로 구분)
+보완: (개선·부족·필요한 점 키워드 0~4개, 쉼표로 구분)
+- 각 키워드는 짧은 명사구. 문장·번호·설명·미사여구는 쓰지 않습니다. 보완점이 없으면 '보완: 없음'.`,
+  },
+  {
+    key: 'people_search_parse',
+    description: 'HR 인물검색 · 자연어 질의 → 검색 키워드 변환(JSON)',
+    content: `사용자가 직원을 찾기 위해 자연어로 검색했습니다. 이 질의를 평가 피드백 검색용 키워드로 변환하세요.
+
+아래 JSON만 출력하세요(코드펜스·설명 금지):
+{"keywords":["검색어1","검색어2"],"intent":"strength"}
+
+규칙:
+- keywords: 질의 의도를 포괄하는 한국어 키워드 3~8개. 동의어·유사 표현을 포함해 재현율을 높입니다(예: 협업 → "협업","협력","팀워크","소통").
+- intent: 강점을 찾으면 "strength", 약점/보완점이면 "weakness", 불명확하면 "neutral".`,
+  },
+  {
+    key: 'people_search_rank',
+    description: 'HR 인물검색 · 후보 방향성 판단 및 추천(JSON)',
+    content: `HR이 자연어 조건으로 직원을 찾습니다. 아래 후보(키워드로 1차 검색됨)의 피드백 근거를 읽고 조건에 '실제로 부합'하는 사람만 고르세요.
+
+[방향성 판단 — 매우 중요]
+- '~를 잘하는/많이 하는' 조건이면 근거가 그 행동을 실제로 '했다'는 긍정 서술이어야 합니다.
+- 근거가 '부족/필요/미흡/아쉬움' 등 아직 못한다는 서술이면 조건과 반대이므로 제외합니다.
+  예) "AI 전파를 많이 하는 사람" 검색에서 "AI 공유가 부족해 전파 노력 필요" 근거는 제외.
+- '~가 부족한/약한' 조건이면 반대로 보완·부족 서술인 사람을 고릅니다.
+- 근거가 조건과 무관하면 제외합니다.
+
+부합하는 후보의 번호(index)와 한 줄 근거를 JSON 배열로만 출력하세요(코드펜스·설명 없이). 부합하는 사람이 없으면 []:
+[{"index":0,"reason":"부합 근거 요약"}]`,
   },
 ];
 
@@ -276,84 +283,79 @@ export interface FeedbackSuggestion {
   explanation?: string;
 }
 
-/**
- * GPT‑OSS에 프롬프트를 전달하고 응답 텍스트를 반환합니다.
- */
+// 500자 제한 — 완전한 문장으로 끝맺음.
+function truncateAiText(content: string): string {
+  if (content.length <= 500) return content;
+  const truncated = content.substring(0, 500);
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('.'),
+    truncated.lastIndexOf('다.'),
+    truncated.lastIndexOf('요.'),
+    truncated.lastIndexOf('습니다.'),
+    truncated.lastIndexOf('다!'),
+    truncated.lastIndexOf('요!'),
+    truncated.lastIndexOf('습니다!'),
+  );
+  return lastSentenceEnd > 300 ? truncated.substring(0, lastSentenceEnd + 1) : `${truncated}...`;
+}
 
+/**
+ * GPT‑OSS 프록시(/api/ai/chat)에 프롬프트를 전달하고 응답 텍스트를 반환한다.
+ * 일시적 실패(레이트리밋 429 / 업스트림 일시오류 502·504 / 타임아웃·네트워크)는 백오프 후 재시도한다.
+ * 모든 종착 실패는 '⚠️…' 문자열로 반환(throw 하지 않음) — 호출부는 startsWith('⚠') 로 판별.
+ */
 async function callGptOss(
   prompt: string,
-  options: { timeoutMs?: number; fullLength?: boolean; maxTokens?: number } = {},
+  options: { timeoutMs?: number; fullLength?: boolean; maxTokens?: number; retries?: number } = {},
 ): Promise<string> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 20000);
+  const maxAttempts = (options.retries ?? 2) + 1;
+  let lastError: unknown;
 
-  try {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs ?? 60000);
+    try {
+      const response = await fetch(AI_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: options.maxTokens ?? (options.fullLength ? 2048 : 768),
+        }),
+      });
 
-    const response = await fetch(AI_CHAT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: prompt }],
-        // 출력 토큰 상한 — 런어웨이/지연 방지(서버 프록시가 max_tokens 를 그대로 전달).
-        // 보고서(fullLength)는 넉넉히, 그 외 짧은 호출은 작게.
-        max_tokens: options.maxTokens ?? (options.fullLength ? 2048 : 768),
-      }),
-    });
-
-    // 503(미설정)·429(레이트리밋)는 사용자에게 그대로 보여줄 수 있는 문구로 변환.
-    // 검수 래퍼들은 이 throw 를 catch 해 기존 skipped 경로로 처리한다.
-    if (response.status === 503) {
-      throw new Error('AI 기능이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.');
-    }
-    if (response.status === 429) {
-      throw new Error('AI 호출이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.');
-    }
-    if (!response.ok) {
-      throw new Error(`AI 오류: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message.content;
-    if (!content) {
-      throw new Error('AI 응답에서 텍스트를 찾을 수 없습니다');
-    }
-
-    // 보고서 등 긴 응답은 절단하지 않는다.
-    if (options.fullLength) {
-      return content;
-    }
-    // 500자 제한 강화 - 완전한 문장으로 끝내기
-    if (content.length > 500) {
-      const truncated = content.substring(0, 500);
-      const lastSentenceEnd = Math.max(
-        truncated.lastIndexOf('.'),
-        truncated.lastIndexOf('다.'),
-        truncated.lastIndexOf('요.'),
-        truncated.lastIndexOf('습니다.'),
-        truncated.lastIndexOf('다!'),
-        truncated.lastIndexOf('요!'),
-        truncated.lastIndexOf('습니다!')
-      );
-
-      if (lastSentenceEnd > 300) {
-        return truncated.substring(0, lastSentenceEnd + 1);
-      } else {
-        return truncated + '...';
+      if (response.status === 503) {
+        return '⚠️ AI 기능이 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.';
       }
+      // 레이트리밋(429)·업스트림 일시오류(502/504) → 재시도 대상.
+      if (response.status === 429 || response.status === 502 || response.status === 504) {
+        lastError = new Error(`retriable ${response.status}`);
+      } else if (!response.ok) {
+        return '⚠️ GPT‑OSS 호출에 실패했습니다. 관리자에게 문의해 주세요.';
+      } else {
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) return '⚠️ GPT‑OSS 응답에서 텍스트를 찾을 수 없습니다.';
+        return options.fullLength ? content : truncateAiText(content);
+      }
+    } catch (error) {
+      lastError = error; // 네트워크 / AbortError(타임아웃) → 재시도 대상.
+    } finally {
+      window.clearTimeout(timeout);
     }
 
-    return content;
-  } catch (error) {
-    console.warn('⚠️ GPT‑OSS 호출 오류:', error);
-    // Return a fallback message to avoid breaking the UI when the OSS service is unreachable or returns non‑JSON.
-    return '⚠️ GPT‑OSS 호출에 실패했습니다. 관리자에게 문의해 주세요.';
-  } finally {
-    window.clearTimeout(timeout);
+    if (attempt < maxAttempts) {
+      // 지수 백오프(700ms, 1400ms…) — 레이트리밋 창이 풀릴 시간을 준다.
+      await new Promise((resolve) => window.setTimeout(resolve, 700 * attempt));
+    }
   }
+
+  console.warn('⚠️ GPT‑OSS 호출 오류(재시도 소진):', lastError);
+  return '⚠️ GPT‑OSS 호출에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 /**
@@ -426,7 +428,7 @@ ${input.memberLines}
 1. 다음 순서의 보고서 형식으로: "## 핵심 요약", "## 강점", "## 개선 필요·리스크", "## 권고사항"
 2. 위 데이터에 근거한 사실만 기술하고, 없는 수치나 이름은 만들지 말 것
 3. 한국어 보고서 문체, 마크다운 소제목(## ) 사용, 800~1500자 내외`;
-  return await callGptOss(prompt, { fullLength: true, timeoutMs: 45000 });
+  return await callGptOss(prompt, { fullLength: true, timeoutMs: 60000 });
 }
 
 /**
@@ -464,40 +466,6 @@ export async function generateFeedbackRecommendation(
 }
 
 /**
- * 피드백 문장 교정 (문법·표현 개선)
- */
-export async function improveFeedback(
-  currentFeedback: string,
-  taskTitle: string,
-  score: number
-): Promise<string> {
-  const template = await fetchPrompt('feedback_improvement');
-  const prompt = `${template}
-
-**교정 원칙:**
-1. 내용·의미 절대 변경 금지
-2. 새로운 내용 추가 금지
-3. 기존 내용 삭제 금지
-4. 문장 순서 변경 금지
-
-**교정 범위:**
-1. 맞춤법·띄어쓰기 교정
-2. 문법 오류 수정
-3. 어색한 표현 자연스럽게 수정
-4. 경어체統一 (하십시오체)
-5. 문장 부호 정리
-6. **절대 500자를 넘지 않도록** 유지
-
-**현재 피드백:** "${currentFeedback}"
-**과업명:** ${taskTitle}
-**점수:** ${score}점
-
-위 피드백 의미를 그대로 유지하고, 오직 문법·표현만 교정해주세요. **500자 이내**로 완전한 문장으로 끝맺음해주세요.`;
-
-  return await callGptOss(prompt);
-}
-
-/**
  * 평가자 AI 질의응답 — 평가 기준/운영/피드백 작성 가이드
  */
 export type EvaluatorQnaTurn = { role: 'user' | 'assistant'; content: string };
@@ -523,70 +491,55 @@ ${question.trim()}
 
 답변:`;
 
-  return await callGptOss(prompt, { timeoutMs: 20000 });
-}
-
-/**
- * 일반적인 AI 채팅
- */
-export async function chatWithAI(
-  userMessage: string,
-  context: {
-    taskTitle: string;
-    taskDescription: string;
-    score?: number;
-    contributionMethod?: string;
-    contributionScope?: string;
-  }
-): Promise<string> {
-  const template = await fetchPrompt('ai_feedback_chat');
-  const guide = await fetchPrompt('evaluation_guide');
-  const prompt = `${template}
-
-   [평가 기준]
-   ${guide}
-   
-   **과업:** ${context.taskTitle}
-  **질문:** ${userMessage}
-  **추가 정보:** ${context.taskDescription}
-  ${context.score ? `**점수:** ${context.score}` : ''}
-  ${context.contributionMethod ? `**기여방식:** ${context.contributionMethod}` : ''}
-  ${context.contributionScope ? `**기여범위:** ${context.contributionScope}` : ''}
-   
-  친근하고 간결하게, 300자 이내로 답변해주세요.`;
-
-  return await callGptOss(prompt);
+  return await callGptOss(prompt, { timeoutMs: 60000 });
 }
 
 /**
  * 피평가자 과업 맥락 기반 성장 제안 (피평가자 화면 AI 성장 제안)
  */
-export async function generateGrowthSuggestion(input: {
+export type GrowthTaskInput = {
   taskTitle: string;
-  taskDescription?: string | null;
-  score: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  weight?: number | null;
+  score?: number | null;
   contributionMethod?: string | null;
   contributionScope?: string | null;
   feedback?: string | null;
+};
+
+/**
+ * 피평가자 과업 전체(일정·비중·기여방식/범위·점수·피드백)를 종합한 성장 제안.
+ * 평가자 저장 시 1회 생성해 영속화한다(피평가자 대시보드에서 조회만).
+ */
+export async function generateComprehensiveGrowthSuggestion(input: {
+  tasks: GrowthTaskInput[];
   growthLevel?: number | null;
 }): Promise<string> {
-  const template = await fetchPrompt('growth_suggestion');
+  if (input.tasks.length === 0) return '';
+  const template = await fetchPrompt('growth_suggestion_comprehensive');
   const guide = await fetchPrompt('evaluation_guide');
+  const lines = input.tasks
+    .map((t, i) => {
+      const period =
+        t.startDate || t.endDate ? `${t.startDate ?? '?'}~${t.endDate ?? '?'}` : '기간미정';
+      const fb = (t.feedback ?? '').trim() || '(없음)';
+      return `${i + 1}. [${t.taskTitle}] 기간 ${period} · 가중치 ${t.weight ?? '?'}% · 점수 ${
+        t.score ?? '평가전'
+      } · ${t.contributionMethod ?? '방식미정'}/${t.contributionScope ?? '범위미정'}\n   피드백: ${fb}`;
+    })
+    .join('\n');
   const prompt = `${template}
 
 [평가 기준]
 ${guide}
 
-**과업명:** ${input.taskTitle}
-**과업내용:** ${input.taskDescription || '(미기재)'}
-**기여방식:** ${input.contributionMethod || '(미기재)'}
-**기여범위:** ${input.contributionScope || '(미기재)'}
-**점수:** ${input.score == null ? '평가 전' : `${input.score}점`}
-${input.growthLevel != null ? `**피평가자 성장레벨:** Lv.${input.growthLevel}` : ''}
-${input.feedback ? `**받은 피드백:** ${input.feedback}` : ''}
+${input.growthLevel != null ? `**피평가자 성장레벨:** Lv.${input.growthLevel}\n` : ''}[과업 목록 — 일정·비중·기여방식/범위·점수·피드백]
+${lines}
 
-위 정보를 바탕으로 다음 평가에서 한 단계 성장하기 위한 제안을 250자 이내로 작성하세요.`;
-  return await callGptOss(prompt);
+위 과업 전체를 종합해, 위에서 지정한 '강점/보완/다음 단계' 라벨 줄 형식으로 400자 이내로 작성하세요.`;
+  // 프롬프트가 가장 큰 호출이라 타임아웃을 넉넉히(45s) + 재시도로 누락 방지.
+  return await callGptOss(prompt, { maxTokens: 1024, timeoutMs: 60000 });
 }
 
 /**
@@ -647,6 +600,95 @@ ${list}
 
 위 피드백을 종합한 요약을 280자 이내로 작성하세요.`;
   return await callGptOss(prompt);
+}
+
+/**
+ * 피드백에서 핵심 키워드(역량·강점·보완점·업무성향)를 추출 — AI 키워드 카드 + 인물검색 인덱스 겸용.
+ * 출력: 쉼표로 구분된 6~10개 짧은 키워드(설명·머리말 없음). 평가자/피평가자 키워드는 동일(피드백 기반)하다.
+ */
+export async function generateFeedbackKeywords(feedbacks: FeedbackForSummary[]): Promise<string> {
+  if (feedbacks.length === 0) return '';
+  const template = await fetchPrompt('feedback_keywords'); // 관리화면에서 편집 가능. 데이터(피드백 목록)는 아래에 자동 첨부.
+  const list = feedbacks
+    .slice(0, 30)
+    .map((f, i) => `${i + 1}. [${f.taskTitle}${f.score != null ? ` · ${f.score}점` : ''}] ${f.content}`)
+    .join('\n');
+  const prompt = `${template}
+
+[피드백 목록]
+${list}`;
+  return await callGptOss(prompt, { maxTokens: 256 });
+}
+
+export type PeopleSearchCriteria = { keywords: string[]; intent: 'strength' | 'weakness' | 'neutral' };
+
+/**
+ * 자연어 인물검색 질의를 평가 피드백 검색용 키워드로 변환(클라이언트에서 1회 호출).
+ * 출력 JSON: { keywords, intent }. 파싱 실패/AI 오류 시 질의 단어 분해로 폴백.
+ */
+export async function parsePeopleSearchQuery(query: string): Promise<PeopleSearchCriteria> {
+  const fallback = (): PeopleSearchCriteria => ({
+    keywords: query.split(/[\s,]+/).map((s) => s.trim()).filter((s) => s.length > 1).slice(0, 8),
+    intent: 'neutral',
+  });
+  const template = await fetchPrompt('people_search_parse'); // 관리화면 편집 가능. 질의는 아래에 자동 첨부.
+  const prompt = `${template}
+
+질의: "${query}"`;
+  const raw = await callGptOss(prompt, { maxTokens: 300, retries: 1 });
+  if (!raw || raw.startsWith('⚠')) return fallback();
+  try {
+    const m = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(m ? m[0] : raw) as { keywords?: unknown; intent?: unknown };
+    const keywords = Array.isArray(parsed.keywords)
+      ? parsed.keywords.map((k) => String(k).trim()).filter(Boolean).slice(0, 12)
+      : [];
+    if (keywords.length === 0) return fallback();
+    const intent = parsed.intent === 'strength' || parsed.intent === 'weakness' ? parsed.intent : 'neutral';
+    return { keywords, intent };
+  } catch {
+    return fallback();
+  }
+}
+
+export type PeopleSearchRank = { index: number; reason: string };
+
+/**
+ * 1차(키워드) 검색된 후보의 피드백 근거를 읽고, 질의에 '방향성까지' 실제 부합하는 사람만 골라낸다.
+ * 핵심: '잘하는 사람'을 찾는데 근거가 '부족/필요'면 반대 방향이므로 제외. 구조화(JSON index+reason) 반환.
+ */
+export async function rankPeopleSearchResults(
+  query: string,
+  candidates: Array<{ name: string; aiKeywords?: string | null; snippets?: string[]; avgScore?: number | null }>,
+): Promise<PeopleSearchRank[]> {
+  if (candidates.length === 0) return [];
+  const list = candidates
+    .slice(0, 15)
+    .map(
+      (c, i) =>
+        `[${i}] ${c.name}${c.avgScore != null ? ` (평균 ${c.avgScore}점)` : ''} | 키워드: ${
+          c.aiKeywords || '-'
+        } | 근거: ${(c.snippets ?? []).slice(0, 3).map((s) => `"${s}"`).join(' ') || '-'}`,
+    )
+    .join('\n');
+  const template = await fetchPrompt('people_search_rank'); // 관리화면 편집 가능. 조건·후보는 아래에 자동 첨부.
+  const prompt = `${template}
+
+조건: "${query}"
+
+[후보]
+${list}`;
+  const raw = await callGptOss(prompt, { maxTokens: 600 });
+  if (!raw || raw.startsWith('⚠')) return [];
+  try {
+    const m = raw.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(m ? m[0] : raw) as Array<{ index?: unknown; reason?: unknown }>;
+    return parsed
+      .map((r) => ({ index: Number(r.index), reason: String(r.reason ?? '').trim() }))
+      .filter((r) => Number.isInteger(r.index) && r.index >= 0 && r.index < candidates.length && r.reason);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -726,7 +768,7 @@ ${JSON.stringify(existingFeedbacks.slice(0, 20), null, 2)}
 
 문제가 있는 항목만 JSON 배열로 답하세요. 다른 설명 문장은 쓰지 마세요.`;
 
-    const result = await callGptOss(prompt, { timeoutMs: 15000 });
+    const result = await callGptOss(prompt, { timeoutMs: 60000 });
     // 보안(P1): AI 호출 실패 시 callGptOss 가 반환하는 경고 문자열을 데이터로 오인하지 않는다.
     if (typeof result === 'string' && result.startsWith('⚠️')) {
       return { warnings: [], skipped: true };
@@ -747,7 +789,7 @@ ${JSON.stringify(existingFeedbacks.slice(0, 20), null, 2)}
       if (!t) return undefined;
       if (/복붙|복사|유사|중복|동일|표절|베낌|붙여넣/.test(t)) return '복붙';
       if (/논조|어조|톤|점수|갭|모순|불일치|정합|일치|칭찬|질책/.test(t)) return '논조';
-      if (/성의|불성실|영혼|무관|무의미|의미\s*없|관련\s*없|반복|자모/.test(t)) return '성의';
+      if (/성의|성실|영혼|무관|무의미|의미\s*없|관련\s*없|반복|자모/.test(t)) return '성의';
       if (/구체|추상|모호|일반론|두루뭉/.test(t)) return '구체성';
       return undefined;
     };
@@ -765,344 +807,5 @@ ${JSON.stringify(existingFeedbacks.slice(0, 20), null, 2)}
   } catch (error) {
     console.warn('AI 피드백 일괄 검수 실패:', error);
     return { warnings: [], skipped: true };
-  }
-}
-
-// ---- HR 검수 모니터링 전용: 점수-성장레벨 갭 ↔ 의견 논조 정합성 (read-only, 온디맨드) ----
-// AiReviewMonitoring 컴포넌트에서 행 단위/배치 온디맨드로만 호출한다. DB 쓰기 없음.
-export type SentimentGapInput = {
-  feedback: string;
-  // 갭버킷 라벨/설명 (evaluationMatrix.SCORE_GAP_EXPECTATIONS[bucket] 에서 주입)
-  bucketLabel: string;
-  bucketDetail: string;
-  score: number;
-  growthLevel: number;
-};
-
-export async function reviewSentimentGap(
-  input: SentimentGapInput,
-): Promise<{ isMismatch: boolean; summary: string; skipped: boolean }> {
-  const feedback = input.feedback.trim();
-  if (!feedback) {
-    return { isMismatch: false, summary: '의견이 비어 있어 검수를 건너뜁니다.', skipped: true };
-  }
-
-  try {
-    const template = await fetchPrompt('feedback_sentiment_gap_review');
-    const prompt = `${template}
-
-[점수 맥락]
-- 성장레벨: ${input.growthLevel}
-- 부여 점수: ${input.score}
-- 갭버킷: ${input.bucketLabel} (${input.bucketDetail})
-
-[검수할 평가의견]
-"${feedback}"
-
-위 형식(MATCH 또는 MISMATCH)으로만 답하세요. 다른 설명 문장은 쓰지 마세요.`;
-
-    const result = await callGptOss(prompt, { timeoutMs: 15000 });
-    const trimmed = result.trim();
-    if (/^MISMATCH:/i.test(trimmed)) {
-      return {
-        isMismatch: true,
-        summary: trimmed.replace(/^MISMATCH:/i, '').trim() || '점수 맥락과 의견 논조가 어긋나 보입니다.',
-        skipped: false,
-      };
-    }
-    if (/^MATCH:/i.test(trimmed)) {
-      return {
-        isMismatch: false,
-        summary: trimmed.replace(/^MATCH:/i, '').trim() || '점수 맥락과 의견 논조가 어울립니다.',
-        skipped: false,
-      };
-    }
-    // 형식 외 응답은 보류(미스매치로 단정하지 않음)
-    return { isMismatch: false, summary: '정합성 판단 결과를 해석하지 못했습니다.', skipped: true };
-  } catch (error) {
-    console.warn('AI 정서-갭 검수 실패:', error);
-    return { isMismatch: false, summary: '검수 중 오류가 발생했습니다.', skipped: true };
-  }
-}
-
-// ---- F-C3 평가의견 복붙 탐지 전용: 경계 쌍 1:1 AI 유사도 (read-only, 온디맨드) ----
-// FeedbackDuplicateDetector 가 휴리스틱(정규화 해시·편집거리)으로 추린 '경계 쌍'에만
-// 온디맨드·배치로 호출한다. DB 쓰기 없음.
-//
-// checkSimilarFeedback 를 직접 재사용하지 않는 이유(보정 1):
-//  - checkSimilarFeedback 는 AI 호출 전 (i)빈값 (ii)무의미 (iii)비구체(내부 AI 1콜 추가)
-//    (iv)길이<30 (v)1문장&<50자 게이트가 있어, 짧지만 정당한 의견을 '길이 미달'로
-//    isDuplicate:true 처리해 근거를 오염시키고, 내부 detectGenericFeedback 가 AI 를 한 콜 더 써
-//    경계 쌍당 비용이 2배가 된다.
-//  - 여기서는 feedback_similarity_review 프롬프트만 사용하는 얇은 래퍼로, a/b 두 의견이
-//    이미 1단계 휴리스틱에서 trivial·무의미가 제외된 비-trivial 텍스트임을 전제로 1:1 비교만 한다.
-export type FeedbackPairInput = {
-  // 같은 평가자가 서로 다른 피평가자에게 작성한 두 의견 (비-trivial 전제)
-  feedbackA: string;
-  feedbackB: string;
-  evaluatorName: string;
-};
-
-export async function reviewFeedbackPairSimilarity(
-  input: FeedbackPairInput,
-): Promise<{ isSimilar: boolean; summary: string; skipped: boolean }> {
-  const a = input.feedbackA.trim();
-  const b = input.feedbackB.trim();
-  if (!a || !b) {
-    return { isSimilar: false, summary: '비교할 의견이 비어 있어 건너뜁니다.', skipped: true };
-  }
-
-  try {
-    const template = await fetchPrompt('feedback_similarity_review');
-    const prompt = `${template}
-
-평가자 "${input.evaluatorName}"가 서로 다른 두 피평가자에게 작성한 두 평가의견이 복사·붙여넣기 또는 단어 몇 개만 바꾼 사실상 동일한 의견인지 판정해주세요.
-이미 무의미·정형 단문은 사전 제외되었으니, 두 의견의 '내용 유사도'만 보고 판정하세요.
-
-**감지 기준:**
-1. 복사·붙여넣기 (95% 이상 동일)
-2. 단어 몇 개(피평가자명·과업명 등)만 바꾼 경우 (85% 이상 유사)
-
-서로 다른 피평가자라 표현 일부가 비슷한 것은 정상일 수 있으니, 사실상 같은 문장을 재사용한 경우에만 유사로 판정하세요.
-
-**의견 A:**
-"${a}"
-
-**의견 B:**
-"${b}"
-
-**응답 형식:**
-사실상 동일/재사용이면: "SIMILAR: [근거를 한 문장으로]"
-서로 다른 의견이면: "DISTINCT: 서로 다른 의견입니다"`;
-
-    const result = await callGptOss(prompt, { timeoutMs: 15000 });
-    const trimmed = result.trim();
-    if (/^SIMILAR:/i.test(trimmed)) {
-      return {
-        isSimilar: true,
-        summary: trimmed.replace(/^SIMILAR:/i, '').trim() || '두 의견이 사실상 동일/재사용으로 보입니다.',
-        skipped: false,
-      };
-    }
-    if (/^DISTINCT:/i.test(trimmed)) {
-      return {
-        isSimilar: false,
-        summary: trimmed.replace(/^DISTINCT:/i, '').trim() || '서로 다른 의견입니다.',
-        skipped: false,
-      };
-    }
-    // 형식 외 응답은 보류(유사로 단정하지 않음)
-    return { isSimilar: false, summary: '유사도 판단 결과를 해석하지 못했습니다.', skipped: true };
-  } catch (error) {
-    console.warn('AI 의견쌍 유사도 검수 실패:', error);
-    return { isSimilar: false, summary: '검수 중 오류가 발생했습니다.', skipped: true };
-  }
-}
-
-/* ---------- 기존 Gemini 파일에 포함된 유틸리티 함수들 (detectMeaninglessContent, detectGenericFeedback, checkSimilarFeedback 등) ----------
-   이 부분은 그대로 복사해도 무방합니다. 아래는 원본과 동일하게 유지됩니다. ---------- */
-
-function detectMeaninglessContent(feedback: string): { isValid: boolean; reason?: string } {
-  const text = feedback.trim();
-
-  // 1. 연속된 같은 문자 감지 (3개 이상)
-  const repeatedCharPattern = /(.)\1{2,}/g;
-  const repeatedMatches = text.match(repeatedCharPattern);
-  if (repeatedMatches && repeatedMatches.some(match => match.length >= 5)) {
-    return { isValid: false, reason: '의미없는 문자 반복이 감지되었습니다 (예: "ㅋㅋㅋㅋㅋ", ".....", "!!!!")' };
-  }
-
-  // 2. 지나친 공백 사용 감지
-  const excessiveSpaces = /\s{5,}/g;
-  if (excessiveSpaces.test(text)) {
-    return { isValid: false, reason: '문장을 늘리기 위한 과도한 공백 사용이 감지되었습니다' };
-  }
-
-  // 3. 의미없는 문자 나열 감지
-  if (text.includes('.....') || text.includes('!!!!!')) {
-    return { isValid: false, reason: '의미없는 특수문자 반복이 감지되었습니다' };
-  }
-
-  // 자음만 5개 이상 연속
-  const consonants = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
-  let consonantCount = 0;
-  for (const char of text) {
-    if (consonants.includes(char)) {
-      consonantCount++;
-      if (consonantCount >= 5) {
-        return { isValid: false, reason: '의미없는 자음 나열이 감지되었습니다' };
-      }
-    } else {
-      consonantCount = 0;
-    }
-  }
-
-  // 감정표현 반복
-  if (/ㅋ{3,}|ㅎ{3,}|ㅜ{3,}|ㅠ{3,}/.test(text)) {
-    return { isValid: false, reason: '의미없는 감정표현 반복이 감지되었습니다' };
-  }
-
-  // 단순 반복 문장 감지
-  const sentences = text.split(/[.!?]/);
-  const uniqueSentences = new Set(sentences.map(s => s.trim().toLowerCase()));
-  if (sentences.length >= 3 && uniqueSentences.size < sentences.length * 0.7) {
-    return { isValid: false, reason: '반복적인 문장으로 글자 수를 늘린 것으로 보입니다' };
-  }
-
-  // 과도한 이모지 사용
-  const commonEmojis = ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖','😺','😸','😹','😻','😼','😽','🙀','😿','😾','❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🚭','❗','❕','❓','❔','‼️','⁉️','🔅','🔆','〽️','⚠️','🚸','🔱','⚜️','🔰','♻️','✅','🈯','💹','❇️','✳️','❎','🌐','💠','Ⓜ️','🌀','💤','🏧','🚾','♿','🅿️','🈳','🈂️','🛂','🛃','🛄','🛅','🚹','🚺','🚼','🚻','🚮','🎦','📶','🈁','🔣','ℹ️','🔤','🔡','🔠','🆖','🆗','🆙','🆒','🆕','🆓','0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
-  let emojiCount = 0;
-  for (const char of text) {
-    if (commonEmojis.includes(char)) {
-      emojiCount++;
-    }
-  }
-  if (emojiCount > text.length * 0.1) {
-    return { isValid: false, reason: '과도한 이모지 사용으로 인한 의미없는 내용이 감지되었습니다' };
-  }
-
-  return { isValid: true };
-}
-
-export async function detectGenericFeedback(feedback: string): Promise<{ isGeneric: boolean; reason?: string }> {
-  const text = feedback.trim();
-
-  // 1. 기본적인 일반적 표현 패턴 검사
-  const genericPatterns = [
-    /^(좋았습니다?|잘했습니다?|수고했습니다?|고생했습니다?)\.?$/i,
-    /^(열심히\s*했습니다?|성실했습니다?|적극적이었습니다?)\.?$/i,
-    /^(계속\s*이런\s*식으로\s*해주세요|앞으로도\s*잘\s*부탁드립니다?)\.?$/i,
-    /^(만족스럽습니다?|괜찮습니다?|무난합니다?)\.?$/i,
-  ];
-
-  for (const pattern of genericPatterns) {
-    if (pattern.test(text)) {
-      return { isGeneric: true, reason: '구체적이지 않은 일반적인 표현입니다. 구체적인 성과나 개선점을 언급해주세요.' };
-    }
-  }
-
-  // 2. 길이는 충분하지만 의미 없는 반복
-  const words = text.split(/\s+/);
-  const uniqueWords = new Set(words.map(w => w.toLowerCase()));
-  if (words.length >= 10 && uniqueWords.size < words.length * 0.6) {
-    return { isGeneric: true, reason: '단어가 과도하게 반복되어 구체성이 부족합니다.' };
-  }
-
-  // 3. AI를 활용한 고급 일반성 검사
-  try {
-    const template = await fetchPrompt('feedback_generic_review');
-    const prompt = `${template}
-     
-     다음 피드백이 성과평가에 적합한 구체적이고 의미 있는 피드백인지 평가해주세요.
-     
-    **검사할 피드백:**
-    "${text}"
-     
-    **판정 기준:**
-    1. 구체적인 성과·행동 언급 여부
-    2. 개선점·향후 방향 제시 여부
-    3. 평가가 GUIDE 기준(기여방식·기여범위 등)과 연관성
-    4. 단순 격려·일반 표현에 그치지 않는가
-    5. 실질적인 도움이 되는가
-     
-    **판정 결과:**
-    - 구체적이고 적절한 피드백: "GOOD: 적절한 피드백입니다"
-    - 일반적이거나 부적절한 피드백: "GENERIC: [구체적인 이유]"
-     
-    평가가 GUIDE 기준에 따라 객관적으로 판정해주세요.`;
-    const result = await callGptOss(prompt);
-    if (result.startsWith('GENERIC:')) {
-      return { isGeneric: true, reason: result.replace('GENERIC:', '').trim() || '구체성이 부족한 피드백입니다' };
-    }
-  } catch (error) {
-    console.warn('⚠️ AI 일반성 검사 실패:', error);
-  }
-
-  return { isGeneric: false };
-}
-
-/**
- * 피드백 중복 검사 (다른 피평가자들과 비교)
- */
-export async function checkSimilarFeedback(
-  newFeedback: string,
-  existingFeedbacks: string[],
-  evaluatorName: string
-): Promise<{ isDuplicate: boolean; summary: string }> {
-  // 0. 빈 피드백 검사
-  if (!newFeedback || !newFeedback.trim()) {
-    return { isDuplicate: true, summary: '피드백을 입력해주세요. 빈 피드백은 저장할 수 없습니다.' };
-  }
-
-  if (existingFeedbacks.length === 0) {
-    const genericCheck = await detectGenericFeedback(newFeedback);
-    if (genericCheck.isGeneric) {
-      return { isDuplicate: true, summary: genericCheck.reason || '구체성이 부족한 피드백입니다' };
-    }
-    return { isDuplicate: false, summary: '비교할 다른 피드백이 없습니다.' };
-  }
-
-  // 1. 의미없는 내용 감지
-  const meaningfulnessCheck = detectMeaninglessContent(newFeedback);
-  if (!meaningfulnessCheck.isValid) {
-    return { isDuplicate: true, summary: meaningfulnessCheck.reason || '부적절한 내용이 감지되었습니다' };
-  }
-
-  // 2. 일반적이고 단순한 표현 감지 (AI 강화)
-  const genericCheck = await detectGenericFeedback(newFeedback);
-  if (genericCheck.isGeneric) {
-    return { isDuplicate: true, summary: genericCheck.reason || '구체성이 부족한 피드백입니다' };
-  }
-
-  // 3. 기본 길이·문장 구조 검사
-  const feedbackLength = newFeedback.trim().length;
-  const sentenceCount = newFeedback.split(/[.!?다요]\s*/).filter(s => s.trim().length > 0).length;
-
-  if (feedbackLength < 30) {
-    return { isDuplicate: true, summary: `너무 짧은 피드백입니다 (${feedbackLength}자). 최소 30자 이상의 구체적인 피드백을 작성해주세요.` };
-  }
-
-  if (sentenceCount <= 1 && feedbackLength < 50) {
-    return { isDuplicate: true, summary: `너무 단순한 피드백입니다 (${sentenceCount}문장). 더 구체적이고 상세한 피드백을 작성해주세요.` };
-  }
-
-  const template = await fetchPrompt('feedback_similarity_review');
-  const guide = await fetchPrompt('evaluation_guide');
-  const prompt = `${template}
-
-   [평가 기준]
-   ${guide}
-   
-   평가자 "${evaluatorName}"가 다른 피평가자들에게 작성한 기존 피드백들과 새로운 피드백을 비교하여 성의없는 피드백을 감지해주세요.
-   
-  **감지 기준:**
-  1. 복사·붙여넣기 (95% 이상 동일)
-  2. 단어 몇 개만 바꾼 경우 (85% 이상 유사)
-  3. 의미없는 반복적 표현 사용
-  4. 평가가 GUIDE에 맞지 않는 부적절한 내용
-  5. 구체성이 부족한 일반적인 표현만 사용
-   
-  **새로운 피드백:**
-  "${newFeedback}"
-   
-  **기존 피드백들:**
-  ${existingFeedbacks.slice(0, 10).map((fb, index) => `${index + 1}. "${fb}"`).join('\n')}
-   
-  **응답 형식:**
-  성의없는 피드백이 감지되면: "DUPLICATE: [감지된 이유를 간단히 요약]"
-  문제없으면: "OK: 적절한 피드백입니다"
-   
-  평가가 GUIDE 기준에 따라 분석하여 응답해주세요.`;
-
-  try {
-    const result = await callGptOss(prompt);
-    if (result.startsWith('DUPLICATE:')) {
-      return { isDuplicate: true, summary: result.replace('DUPLICATE:', '').trim() };
-    } else {
-      return { isDuplicate: false, summary: result.replace('OK:', '').trim() };
-    }
-  } catch (error) {
-    console.warn('⚠️ AI 중복 검사 실패:', error);
-    return { isDuplicate: false, summary: '중복 검사 중 오류가 발생했습니다.' };
   }
 }

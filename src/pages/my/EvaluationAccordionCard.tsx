@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Plus, Save, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DateRangePicker, isValidDateValue } from '@/components/ui/date-picker';
-import { IconSparkle, NumBadge, Pill } from '@/components/brand';
+import { NumBadge, Pill } from '@/components/brand';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -14,7 +14,8 @@ import { useLocalDraftPersistence } from '@/hooks/useLocalDraftPersistence';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
-import { generateGrowthSuggestion, generatePerformanceReportDraft } from '@/lib/gptOss';
+import { generatePerformanceReportDraft } from '@/lib/gptOss';
+import { AiContentText } from '@/components/ui/AiContentText';
 import type { FeedbackHistoryItem, Task } from '@/types/evaluation';
 import {
   formatScore,
@@ -32,7 +33,6 @@ import {
   formatDate,
   formatDateTime,
   getEvaluationStatusMeta,
-  getTaskSuggestion,
   getWeightStatus,
   toDateInput,
   type TaskDraft,
@@ -100,6 +100,7 @@ const EvaluationAccordionCard = ({
       title: selectedTask.title ?? '',
       description: selectedTask.description ?? '',
       weight: selectedTask.weight ?? 0,
+      isAiTask: selectedTask.isAiTask ?? false,
       startDate: toDateInput(selectedTask.startDate),
       endDate: toDateInput(selectedTask.endDate),
     };
@@ -130,6 +131,7 @@ const EvaluationAccordionCard = ({
         title: t.title ?? '',
         description: t.description ?? '',
         weight: t.weight ?? 0,
+        isAiTask: t.isAiTask ?? false,
         startDate: toDateInput(t.startDate),
         endDate: toDateInput(t.endDate),
       };
@@ -177,6 +179,7 @@ const EvaluationAccordionCard = ({
             title: prevTask.title ?? '',
             description: prevTask.description ?? '',
             weight: prevTask.weight ?? 0,
+            isAiTask: prevTask.isAiTask ?? false,
             startDate: toDateInput(prevTask.startDate),
             endDate: toDateInput(prevTask.endDate),
           };
@@ -201,69 +204,6 @@ const EvaluationAccordionCard = ({
     getMatrixScore(task.contributionMethod, task.contributionScope, matrix) ?? task.score ?? null;
   const selectedScore = selectedTask ? getCurrentScore(selectedTask) : null;
 
-  // AI 성장 제안 (자동 호출 + 수동 재생성)
-  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiRefreshKey, setAiRefreshKey] = useState(0);
-  // 성장제안 캐시 — 같은 과업 시그니처(점수·방식·범위·피드백·레벨)면 재호출 없이 재사용.
-  // 수동 재생성(aiRefreshKey 변경) 시에는 캐시를 우회해 새로 호출. (과업 클릭마다 LLM 난사 방지)
-  const aiCacheRef = useRef<Map<string, string>>(new Map());
-  const aiLastRefreshKeyRef = useRef(aiRefreshKey);
-
-  useEffect(() => {
-    if (!selectedTask) {
-      setAiSuggestion(null);
-      setAiError(null);
-      return;
-    }
-    const sig = [
-      selectedTaskId,
-      selectedScore ?? '',
-      selectedTask.contributionMethod ?? '',
-      selectedTask.contributionScope ?? '',
-      selectedTask.feedback ?? '',
-      evaluationData?.growthLevel ?? '',
-    ].join('|');
-    const forced = aiRefreshKey !== aiLastRefreshKeyRef.current;
-    aiLastRefreshKeyRef.current = aiRefreshKey;
-    const cached = aiCacheRef.current.get(sig);
-    if (!forced && cached !== undefined) {
-      setAiSuggestion(cached);
-      setAiError(null);
-      setAiLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setAiLoading(true);
-    setAiError(null);
-    generateGrowthSuggestion({
-      taskTitle: selectedTask.title || '제목 없음',
-      taskDescription: selectedTask.description,
-      score: selectedScore,
-      contributionMethod: selectedTask.contributionMethod,
-      contributionScope: selectedTask.contributionScope,
-      feedback: selectedTask.feedback,
-      growthLevel: evaluationData?.growthLevel,
-    })
-      .then((text) => {
-        if (!cancelled) {
-          aiCacheRef.current.set(sig, text);
-          setAiSuggestion(text);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 호출에 실패했습니다');
-      })
-      .finally(() => {
-        if (!cancelled) setAiLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTaskId, aiRefreshKey, evaluationData?.growthLevel]);
-
   // 각 과업의 유효 가중치(미저장 draft 우선) 합 — 어떤 과업을 보고 있든 모든 미저장 변경을 동일하게 반영.
   const savedTasksTotalWeight = tasks.reduce(
     (sum, task) => sum + (drafts[task.id]?.weight ?? task.weight ?? 0),
@@ -272,6 +212,16 @@ const EvaluationAccordionCard = ({
   const draftTotalWeight =
     mode === 'create' ? savedTasksTotalWeight + draft.weight : savedTasksTotalWeight;
   const isOverWeight = draftTotalWeight > 100;
+  // AI 과업 비중(50% 규칙) — 미저장 draft 우선. 면제자(user.aiRuleExempt)는 검사 생략.
+  const savedTasksAiWeight = tasks.reduce((sum, task) => {
+    const w = drafts[task.id]?.weight ?? task.weight ?? 0;
+    const ai = drafts[task.id]?.isAiTask ?? task.isAiTask ?? false;
+    return sum + (ai ? w : 0);
+  }, 0);
+  const draftAiWeight =
+    mode === 'create' ? savedTasksAiWeight + (draft.isAiTask ? draft.weight : 0) : savedTasksAiWeight;
+  const aiTaskRatio = draftTotalWeight > 0 ? draftAiWeight / draftTotalWeight : 0;
+  const aiRuleSatisfied = (user?.aiRuleExempt ?? false) || aiTaskRatio >= 0.5;
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
   const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
   const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
@@ -467,6 +417,7 @@ const EvaluationAccordionCard = ({
           title: d.title.trim(),
           description: d.description?.trim() || null,
           weight: d.weight || 0,
+          is_ai_task: d.isAiTask,
           start_date: d.startDate || null,
           end_date: d.endDate || null,
         },
@@ -492,6 +443,14 @@ const EvaluationAccordionCard = ({
           draftTotalWeight > 100
             ? `현재 ${draftTotalWeight}%입니다. ${draftTotalWeight - 100}%를 줄여 주세요.`
             : `현재 ${draftTotalWeight}%입니다. ${100 - draftTotalWeight}%를 추가하거나 가중치를 조정해 주세요.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (isFinal && !aiRuleSatisfied) {
+      toast({
+        title: 'AI 과업 비중이 50% 미만입니다.',
+        description: `현재 AI 과업 비중 ${Math.round(aiTaskRatio * 100)}%. 'AI 과업'으로 표시한 과업의 가중치 합이 전체의 50% 이상이어야 최종제출할 수 있습니다.`,
         variant: 'destructive',
       });
       return;
@@ -555,6 +514,7 @@ const EvaluationAccordionCard = ({
             title: draft.title.trim(),
             description: draft.description?.trim() || null,
             weight: draft.weight || 0,
+            is_ai_task: draft.isAiTask,
             start_date: draft.startDate || null,
             end_date: draft.endDate || null,
             contribution_method: null,
@@ -1016,6 +976,29 @@ const EvaluationAccordionCard = ({
                       ...lockedInputStyle,
                     }}
                   />
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      marginTop: 8,
+                      fontSize: 'var(--fs-sm)',
+                      fontWeight: 700,
+                      color: draft.isAiTask ? 'var(--ai-accent)' : 'var(--fg-muted)',
+                      cursor: canEditTasks ? 'pointer' : 'default',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={draft.isAiTask}
+                      onChange={(e) => setDraft({ ...draft, isAiTask: e.target.checked })}
+                      disabled={!canEditTasks}
+                    />
+                    AI 과업
+                    <span style={{ fontWeight: 500, color: 'var(--fg-subtle)', fontSize: 'var(--fs-xs)' }}>
+                      (AI 과업 가중치 합이 전체의 50% 이상이어야 최종제출 가능)
+                    </span>
+                  </label>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18 }}>
@@ -1065,6 +1048,7 @@ const EvaluationAccordionCard = ({
                           }}
                         />
                         <div
+                          className={reportAiSuggestion ? 'ai-shine-border' : undefined}
                           onCopy={(event) => {
                             event.preventDefault();
                             toast({ title: 'AI 의견은 복사할 수 없습니다.' });
@@ -1075,23 +1059,23 @@ const EvaluationAccordionCard = ({
                             minHeight: 158,
                             padding: '12px 14px',
                             borderRadius: 8,
-                            border: '1px solid var(--ok-orange-100)',
-                            background: 'var(--ok-orange-50)',
-                            color: 'var(--ok-brown)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-muted)',
+                            color: 'var(--fg)',
                             fontSize: 'var(--fs-sm)',
                             lineHeight: 1.7,
-                            whiteSpace: 'pre-wrap',
                             userSelect: 'none',
                             WebkitUserSelect: 'none',
                             cursor: 'default',
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                            <span style={{ fontWeight: 900 }}>AI 의견</span>
-                          </div>
-                          {reportAiLoading
-                            ? '작성 중입니다...'
-                            : reportAiSuggestion ?? 'AI 성과보고를 생성하면 여기에 표시됩니다.'}
+                          {reportAiLoading ? (
+                            <span style={{ color: 'var(--fg-muted)' }}>작성 중입니다...</span>
+                          ) : reportAiSuggestion ? (
+                            <AiContentText text={reportAiSuggestion} accent="var(--ai-accent)" />
+                          ) : (
+                            <span style={{ color: 'var(--fg-muted)' }}>AI 성과보고를 생성하면 여기에 표시됩니다.</span>
+                          )}
                         </div>
                       </div>
                       <div
@@ -1374,80 +1358,6 @@ const EvaluationAccordionCard = ({
                       </div>
                     )}
 
-                    {mode === 'view' && selectedTask && (
-                      <div
-                        className="sd-card"
-                        style={{
-                          background: 'var(--ok-orange-50)',
-                          border: '1px solid var(--ok-orange-100)',
-                        }}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
-                            <IconSparkle width={18} height={18} />
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 8,
-                              }}
-                            >
-                              <span
-                                style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}
-                              >
-                                AI 성장 제안
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setAiRefreshKey((k) => k + 1)}
-                                disabled={aiLoading}
-                                title="다시 생성"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  borderRadius: 6,
-                                  border: '1px solid var(--ok-orange-100)',
-                                  background: 'transparent',
-                                  color: 'var(--ok-orange-700)',
-                                  fontSize: 'var(--fs-xs)',
-                                  fontWeight: 700,
-                                  cursor: aiLoading ? 'wait' : 'pointer',
-                                  opacity: aiLoading ? 0.6 : 1,
-                                }}
-                              >
-                                <RefreshCw
-                                  size={12}
-                                  style={{
-                                    animation: aiLoading ? 'spin 1s linear infinite' : 'none',
-                                  }}
-                                />
-                                다시 생성
-                              </button>
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 'var(--fs-sm)',
-                                lineHeight: 1.6,
-                                color: 'var(--ok-brown)',
-                                marginTop: 6,
-                                minHeight: 40,
-                              }}
-                            >
-                              {aiLoading && aiSuggestion == null
-                                ? 'AI가 과업 정보를 분석 중입니다…'
-                                : aiError
-                                  ? `${aiError} (다시 생성 버튼으로 재시도)`
-                                  : aiSuggestion ?? getTaskSuggestion(selectedScore)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>

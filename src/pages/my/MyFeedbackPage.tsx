@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { IconSparkle } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
-import { generateFeedbackSummaryForEvaluatee, type FeedbackForSummary } from '@/lib/gptOss';
+import { type FeedbackForSummary } from '@/lib/gptOss';
+import { aiContentService } from '@/lib/services';
+import { AiContentText } from '@/components/ui/AiContentText';
+import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
+import { AiKeywordChips } from '@/components/ui/AiKeywordChips';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
 } from '@/components/Feedback/TaskFeedbackCard';
@@ -71,40 +74,39 @@ const MyFeedbackPage = () => {
     [cardsWithFeedback],
   );
 
-  const feedbackSignature = useMemo(
-    () => feedbackInputs.map((f) => `${f.taskTitle}|${f.content}`).join('\n'),
-    [feedbackInputs],
-  );
+  const { selectedPeriodId } = useEvaluationPeriod();
+  const scopeId =
+    user?.employeeId && selectedPeriodId ? `${user.employeeId}:${selectedPeriodId}` : null;
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiRefreshKey, setAiRefreshKey] = useState(0);
+  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
+  const [aiKeywords, setAiKeywords] = useState<string | null>(null);
+  const [aiKeywordsAt, setAiKeywordsAt] = useState<string | null>(null);
 
+  // 평가자 저장 시 자동 생성·영속된 요약/키워드를 불러오기만 한다(조회 시 AI 재호출 없음).
   useEffect(() => {
-    if (feedbackInputs.length === 0) {
+    if (!scopeId) {
       setAiSummary(null);
-      setAiError(null);
+      setAiGeneratedAt(null);
+      setAiKeywords(null);
+      setAiKeywordsAt(null);
       return;
     }
     let cancelled = false;
-    setAiLoading(true);
-    setAiError(null);
-    generateFeedbackSummaryForEvaluatee(feedbackInputs)
-      .then((text) => {
-        if (!cancelled) setAiSummary(text);
-      })
-      .catch((err) => {
-        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 요약 호출 실패');
-      })
-      .finally(() => {
-        if (!cancelled) setAiLoading(false);
-      });
+    aiContentService.get('evaluatee_feedback_summary', scopeId).then((rec) => {
+      if (cancelled) return;
+      setAiSummary(rec?.content ?? null);
+      setAiGeneratedAt(rec?.generated_at ?? null);
+    });
+    aiContentService.get('evaluatee_feedback_keywords', scopeId).then((rec) => {
+      if (cancelled) return;
+      setAiKeywords(rec?.content ?? null);
+      setAiKeywordsAt(rec?.generated_at ?? null);
+    });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feedbackSignature, aiRefreshKey]);
+  }, [scopeId]);
 
   return (
     <>
@@ -137,6 +139,52 @@ const MyFeedbackPage = () => {
         </div>
 
         <div className="flex flex-col gap-4">
+          <div className="sd-card ai-shine-border">
+            <AiSectionTitle
+              title="AI 요약"
+              right={
+                aiSummary && aiGeneratedAt
+                  ? `${new Date(aiGeneratedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                  : '평가자 저장 시 자동'
+              }
+            />
+            <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--fg)', minHeight: 40 }}>
+              {feedbackInputs.length === 0 ? (
+                <span style={{ color: 'var(--fg-muted)' }}>
+                  아직 받은 피드백이 없습니다. 평가자가 평가를 저장하면 요약이 표시됩니다.
+                </span>
+              ) : aiSummary ? (
+                <AiContentText text={aiSummary} accent="var(--ai-accent)" />
+              ) : (
+                <span style={{ color: 'var(--fg-muted)' }}>
+                  아직 생성된 요약이 없습니다. 평가자가 평가를 저장하면 자동으로 생성됩니다.
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="sd-card ai-shine-border">
+            <AiSectionTitle
+              title="AI 키워드"
+              right={
+                aiKeywords && aiKeywordsAt
+                  ? `${new Date(aiKeywordsAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                  : '평가자 저장 시 자동'
+              }
+            />
+            <div style={{ minHeight: 28 }}>
+              {feedbackInputs.length === 0 ? (
+                <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>아직 받은 피드백이 없습니다.</span>
+              ) : aiKeywords ? (
+                <AiKeywordChips text={aiKeywords} />
+              ) : (
+                <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+                  아직 생성된 키워드가 없습니다. 평가자가 평가를 저장하면 자동으로 생성됩니다.
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="sd-card">
             <div className="sd-label-mini" style={{ marginBottom: 12 }}>평가자</div>
             {latestEvaluator ? (
@@ -216,78 +264,6 @@ const MyFeedbackPage = () => {
             </div>
           </div>
 
-          <div
-            className="sd-card"
-            style={{
-              background: 'linear-gradient(135deg, var(--ok-orange-50) 0%, var(--bg-card) 100%)',
-              border: '1px solid var(--ok-orange-100)',
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
-                <IconSparkle width={16} height={16} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
-                    AI 요약
-                  </span>
-                  {feedbackInputs.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setAiRefreshKey((k) => k + 1)}
-                      disabled={aiLoading}
-                      title="다시 생성"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        border: '1px solid var(--ok-orange-100)',
-                        background: 'transparent',
-                        color: 'var(--ok-orange-700)',
-                        fontSize: 'var(--fs-xs)',
-                        fontWeight: 700,
-                        cursor: aiLoading ? 'wait' : 'pointer',
-                        opacity: aiLoading ? 0.6 : 1,
-                      }}
-                    >
-                      <RefreshCw
-                        size={12}
-                        style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }}
-                      />
-                      다시 생성
-                    </button>
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: 'var(--fs-sm)',
-                    lineHeight: 1.7,
-                    color: 'var(--ok-brown)',
-                    marginTop: 6,
-                    minHeight: 40,
-                  }}
-                >
-                  {feedbackInputs.length === 0
-                    ? '아직 받은 피드백이 없습니다. 평가자가 작성하면 요약이 생성됩니다.'
-                    : aiLoading && aiSummary == null
-                      ? 'AI가 피드백을 분석 중입니다…'
-                      : aiError
-                        ? `${aiError} (다시 생성 버튼으로 재시도)`
-                        : aiSummary ?? '요약을 준비하고 있습니다…'}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>

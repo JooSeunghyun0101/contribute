@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { AiReviewRollup } from '@/components/Feedback/AiReviewRollup';
+import type { OrgFields } from '@/lib/orgHierarchy';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
@@ -38,6 +40,19 @@ const MASS_THRESHOLD = 50;
 const SENDER_ID = 'system';
 const SENDER_NAME = '평가 시스템';
 
+// 리마인드 센터 탭 — 리마인드 발송 / AI 피드백 검수 결과(평가 인사이트에서 이관).
+const REMINDER_TABS = [
+  { key: 'remind', label: '리마인드' },
+  { key: 'ai', label: 'AI 검수' },
+] as const;
+type ReminderTab = (typeof REMINDER_TABS)[number]['key'];
+
+// 대상자 검색용 — 이름 외에 소속(법인·본부·부·팀)도 매칭. 부서 컬럼 표시는 '부 · 팀'.
+const orgSearchText = (o?: OrgFields) =>
+  o ? [o.org_corporation, o.org_division, o.org_department, o.org_team].filter(Boolean).join(' ') : '';
+const orgDeptLabel = (o?: OrgFields) =>
+  (o ? [o.org_department, o.org_team].filter(Boolean).join(' · ') : '') || '-';
+
 /** 한 평가자(=리마인드 수신자)에 대한 집계 행. */
 interface EvaluatorRow {
   evaluatorId: string;
@@ -48,6 +63,8 @@ interface EvaluatorRow {
   evaluateeNames: string[];
   /** 최근(24h 이내) 리마인드 발송 시각 — 없으면 null. */
   lastReminderAt: string | null;
+  /** 평가자의 소속(부서 검색·표시용). records 에 평가자의 evaluatee 행이 있을 때만 채워짐. */
+  org?: OrgFields;
 }
 
 const fmtDateTime = (v: string | null) => {
@@ -73,6 +90,8 @@ const buildMessage = (row: EvaluatorRow, periodName: string, endsOn: string | nu
 
 const RemindersPage = () => {
   const { user } = useAuth();
+  const [tab, setTab] = useState<ReminderTab>('remind');
+  const [search, setSearch] = useState('');
   const { toast } = useToast();
   const { selectedPeriod, selectedPeriodStatus } = useEvaluationPeriod();
   // 미완료 판정은 전사 현황과 동일한 소스 1개만 재사용(per-evaluator 조회 0).
@@ -136,6 +155,12 @@ const RemindersPage = () => {
 
   // 미완료 피평가자를 평가자(수신자)별로 집계. 이미 로드된 records 만 사용.
   const rows = useMemo<EvaluatorRow[]>(() => {
+    // 평가자 소속 해소용 — records 의 employee(=evaluatee) 행에서 사번→org 매핑.
+    const orgOf = new Map<string, OrgFields>();
+    for (const record of records) {
+      const eid = record.employee.employee_id?.trim();
+      if (eid && !orgOf.has(eid)) orgOf.set(eid, record.employee);
+    }
     const byEvaluator = new Map<string, EvaluatorRow>();
     for (const record of records) {
       if (!isIncomplete(record)) continue;
@@ -155,6 +180,7 @@ const RemindersPage = () => {
           incompleteCount: 1,
           evaluateeNames: [record.employee.name],
           lastReminderAt: null,
+          org: orgOf.get(evaluatorId),
         });
       }
     }
@@ -166,7 +192,16 @@ const RemindersPage = () => {
     return list;
   }, [records, recentReminderAt, nameById]);
 
-  const selectableIds = useMemo(() => rows.map((r) => r.evaluatorId), [rows]);
+  // 이름·부서 검색으로 후보를 좁혀 선택한다(긴 목록 스크롤 대체). 선택은 검색을 바꿔도 유지된다.
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) => r.evaluatorName.toLowerCase().includes(q) || orgSearchText(r.org).toLowerCase().includes(q),
+    );
+  }, [rows, search]);
+  const filteredIds = useMemo(() => filteredRows.map((r) => r.evaluatorId), [filteredRows]);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
 
   const toggle = (evaluatorId: string) => {
     setSelectedIds((prev) => {
@@ -177,10 +212,13 @@ const RemindersPage = () => {
     });
   };
 
-  const toggleAll = () => {
-    setSelectedIds((prev) =>
-      prev.size === selectableIds.length ? new Set() : new Set(selectableIds),
-    );
+  const toggleAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) for (const id of filteredIds) next.delete(id);
+      else for (const id of filteredIds) next.add(id);
+      return next;
+    });
   };
 
   const selectedRows = useMemo(
@@ -291,19 +329,46 @@ const RemindersPage = () => {
   return (
     <div>
       <PageHeader
-        title="독려·리마인드 센터"
-        subtitle="미완료 평가가 남은 평가자에게 인앱 리마인드를 발송합니다. 발송은 선택·확인 후에만 진행됩니다."
+        title="리마인드 · AI검수"
+        subtitle="미완료 평가 리마인드 발송과 AI 피드백 검수 결과를 한곳에서 봅니다. 발송은 선택·확인 후에만 진행됩니다."
         actions={
-          <button
-            className="sd-btn sd-btn-outline sd-btn-sm"
-            onClick={() => void loadReminderHistory()}
-            disabled={isLoading || historyLoading || sending}
-          >
-            {historyLoading ? '불러오는 중…' : '새로고침'}
-          </button>
+          tab === 'remind' ? (
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => void loadReminderHistory()}
+              disabled={isLoading || historyLoading || sending}
+            >
+              {historyLoading ? '불러오는 중…' : '새로고침'}
+            </button>
+          ) : undefined
+        }
+        filters={
+          <div style={{ display: 'flex', gap: 8 }}>
+            {REMINDER_TABS.map((t) => {
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  aria-pressed={active}
+                  className="sd-btn sd-btn-sm"
+                  style={{
+                    border: `1px solid ${active ? 'var(--ok-orange)' : 'var(--border)'}`,
+                    background: active ? 'var(--ok-orange-50)' : 'var(--bg-card)',
+                    color: active ? 'var(--ok-orange)' : 'var(--fg)',
+                    fontWeight: active ? 700 : 500,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
         }
       />
 
+      {tab === 'remind' && (
       <div style={{ padding: '20px 32px' }}>
         {!periodIsActive && (
           <div
@@ -322,31 +387,114 @@ const RemindersPage = () => {
 
         <div
           className="sd-card"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-            padding: 16,
-            marginBottom: 16,
-            flexWrap: 'wrap',
-          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 16, marginBottom: 16 }}
         >
-          <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-            미완료 평가자 <strong style={{ color: 'var(--fg)' }}>{rows.length}</strong>명 · 미완료
-            평가 <strong style={{ color: 'var(--fg)' }}>{totalIncomplete}</strong>건 · 선택{' '}
-            <strong style={{ color: 'var(--ok-orange)' }}>{selectedRows.length}</strong>명
-          </div>
-          <button
-            className="sd-btn sd-btn-primary sd-btn-sm"
-            disabled={!canOpenConfirm}
-            onClick={() => setConfirmOpen(true)}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              flexWrap: 'wrap',
+            }}
           >
-            {sending ? '발송 중…' : `선택한 ${selectedRows.length}명에게 리마인드 발송`}
-          </button>
+            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
+              미완료 평가자 <strong style={{ color: 'var(--fg)' }}>{rows.length}</strong>명 · 미완료
+              평가 <strong style={{ color: 'var(--fg)' }}>{totalIncomplete}</strong>건 · 선택{' '}
+              <strong style={{ color: 'var(--ok-orange)' }}>{selectedRows.length}</strong>명
+            </div>
+            <button
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              disabled={!canOpenConfirm}
+              onClick={() => setConfirmOpen(true)}
+            >
+              {sending ? '발송 중…' : `선택한 ${selectedRows.length}명에게 리마인드 발송`}
+            </button>
+          </div>
+          {selectedRows.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+                alignItems: 'center',
+                paddingTop: 10,
+                borderTop: '1px solid var(--border)',
+              }}
+            >
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginRight: 2 }}>선택된 평가자</span>
+              {selectedRows.map((r) => (
+                <span
+                  key={r.evaluatorId}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 4px 3px 9px',
+                    borderRadius: 999,
+                    fontSize: 'var(--fs-xs)',
+                    fontWeight: 600,
+                    background: 'var(--ok-orange-50)',
+                    color: 'var(--ok-orange)',
+                  }}
+                >
+                  {r.evaluatorName}
+                  <button
+                    type="button"
+                    onClick={() => toggle(r.evaluatorId)}
+                    disabled={sending}
+                    aria-label={`${r.evaluatorName} 제외`}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      color: 'inherit',
+                      lineHeight: 1,
+                      padding: '0 2px',
+                      fontSize: 'var(--fs-body)',
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {!isLoading && !error && rows.length > 0 && (
+            <div
+              style={{
+                padding: 12,
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+              }}
+            >
+              <input
+                className="sd-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="평가자 이름 또는 부서로 검색"
+                style={{ flex: 1, minWidth: 220 }}
+              />
+              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                검색 {filteredRows.length}명 · 선택 {selectedRows.length}명
+              </span>
+              {selectedRows.length > 0 && (
+                <button
+                  type="button"
+                  className="sd-btn sd-btn-outline sd-btn-sm"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  선택 비우기
+                </button>
+              )}
+            </div>
+          )}
           {isLoading ? (
             <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
           ) : error ? (
@@ -363,20 +511,28 @@ const RemindersPage = () => {
                     <th style={th}>
                       <input
                         type="checkbox"
-                        aria-label="전체 선택"
-                        checked={selectedIds.size > 0 && selectedIds.size === selectableIds.length}
-                        onChange={toggleAll}
+                        aria-label="검색 결과 전체 선택"
+                        checked={allFilteredSelected}
+                        onChange={toggleAllFiltered}
                         disabled={sending || !periodIsActive}
                       />
                     </th>
                     <th style={th}>평가자</th>
+                    <th style={th}>부서</th>
                     <th style={th}>미완료</th>
                     <th style={th}>대상 피평가자</th>
                     <th style={th}>최근 발송(24h)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
+                  {filteredRows.length === 0 && (
+                    <tr>
+                      <td style={{ ...td, color: 'var(--fg-muted)' }} colSpan={5}>
+                        검색 결과가 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                  {filteredRows.map((row) => {
                     const checked = selectedIds.has(row.evaluatorId);
                     const recentlySent = row.lastReminderAt !== null;
                     return (
@@ -396,6 +552,7 @@ const RemindersPage = () => {
                             {row.evaluatorId}
                           </div>
                         </td>
+                        <td style={{ ...td, color: 'var(--fg-muted)' }}>{orgDeptLabel(row.org)}</td>
                         <td style={td}>
                           <span style={{ fontWeight: 700 }}>{row.incompleteCount}</span>건
                         </td>
@@ -423,6 +580,13 @@ const RemindersPage = () => {
           )}
         </div>
       </div>
+      )}
+
+      {tab === 'ai' && (
+        <div style={{ padding: '24px 32px 32px' }}>
+          <AiReviewRollup />
+        </div>
+      )}
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !sending && setConfirmOpen(open)}>
         <AlertDialogContent>

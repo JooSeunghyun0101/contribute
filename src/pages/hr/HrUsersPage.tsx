@@ -567,6 +567,7 @@ const HrUsersPage = () => {
       orgDepartment: getOrgValue(employee, 'department'),
       orgTeam: getOrgValue(employee, 'team'),
       onLeave: isOnLeave(employee),
+      aiRuleExempt: employee.ai_rule_exempt ?? false,
     });
   };
 
@@ -662,6 +663,7 @@ const HrUsersPage = () => {
           : {}),
         // 휴직=‘휴직’, 복직(휴직→재직)=null 로 해제, 그 외 일반 편집은 미전송(기존값 유지).
         matching_result: editForm.onLeave ? '휴직' : isOnLeave(employee) ? null : undefined,
+        ai_rule_exempt: editForm.aiRuleExempt,
         changed_by: actorId,
       });
       await reload();

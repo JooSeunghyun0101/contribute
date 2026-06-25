@@ -4,6 +4,7 @@ export type TaskDraft = {
   title: string;
   description: string;
   weight: number;
+  isAiTask: boolean;
   startDate: string;
   endDate: string;
 };
@@ -28,6 +29,7 @@ export const EMPTY_DRAFT: TaskDraft = {
   title: '',
   description: '',
   weight: 0,
+  isAiTask: false,
   startDate: '',
   endDate: '',
 };

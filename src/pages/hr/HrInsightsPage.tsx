@@ -10,21 +10,19 @@ import { matchesOrgNodes, orgFieldsFromEvaluation } from '@/lib/orgHierarchy';
 import OrgChecklist from '@/components/hr/OrgChecklist';
 import InsightScatter from '@/components/hr/InsightScatter';
 import type { ScatterPoint } from '@/lib/insightScatter';
-import { AiReviewRollup } from '@/components/Feedback/AiReviewRollup';
 
-// 평가 인사이트 — 조직/직종/평가자 편향·품질을 한 화면에서 축(토글)만 바꿔 보고,
-// AI 검수 결과(롤업)도 같은 화면의 탭으로 묶는다. 각 축은 기존 분석 화면을 embedded 로 재사용.
-type TabKey = 'org' | 'job' | 'evaluator' | 'ai';
+// 평가 인사이트 — 조직/직종/평가자 편향·품질을 한 화면에서 축(토글)만 바꿔 본다.
+// 각 축은 기존 분석 화면을 embedded 로 재사용. (AI 검수는 '리마인드·AI검수' 센터로 이관)
+type TabKey = 'org' | 'job' | 'evaluator';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'org', label: '조직별' },
   { key: 'job', label: '직종별' },
   { key: 'evaluator', label: '평가자별' },
-  { key: 'ai', label: 'AI 검수' },
 ];
 
 const isTabKey = (v: string | null): v is TabKey =>
-  v === 'org' || v === 'job' || v === 'evaluator' || v === 'ai';
+  v === 'org' || v === 'job' || v === 'evaluator';
 
 const HrInsightsPage = () => {
   const { selectedPeriod, selectedPeriodId } = useEvaluationPeriod();
@@ -105,7 +103,6 @@ const HrInsightsPage = () => {
         }
       />
 
-      {tab !== 'ai' && (
         <div style={{ padding: '20px 32px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* 산점도 필터 — 조직(아래 표와 공유) + 성장레벨 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -140,12 +137,6 @@ const HrInsightsPage = () => {
           </div>
           <InsightScatter records={scatterRecords} cohortRecords={records} axis={tab} onSelect={setPicked} periodLabel={periodLabel} />
         </div>
-      )}
-      {tab === 'ai' && (
-        <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
-          <AiReviewRollup />
-        </div>
-      )}
 
       {picked && (
         <PointMembersDrawer

@@ -64,4 +64,5 @@ export type EmployeeEditForm = {
   orgDepartment: string;
   orgTeam: string;
   onLeave: boolean; // 휴직 여부(편집 폼에서 토글). 실제 소속은 org_* 로 보존.
+  aiRuleExempt: boolean; // AI 과업 50% 규칙 면제(HR 지정).
 };

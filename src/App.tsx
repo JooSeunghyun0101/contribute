@@ -48,6 +48,7 @@ const HrChangeRequestsPage = lazy(() => import("./pages/hr/ChangeRequestsPage"))
 const HrRemindersPage = lazy(() => import("./pages/hr/RemindersPage"));
 const HrNoticesFaqPage = lazy(() => import("./pages/hr/HrNoticesFaqPage"));
 const HrInsightsPage = lazy(() => import("./pages/hr/HrInsightsPage"));
+const HrPeopleSearchPage = lazy(() => import("./pages/hr/HrPeopleSearchPage"));
 const HrAuditLogPage = lazy(() => import("./pages/hr/HrAuditLogPage"));
 
 const queryClient = new QueryClient({
@@ -317,6 +318,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["hr"]}>
                       <HrInsightsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/hr/people-search"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrPeopleSearchPage />
                     </ProtectedRoute>
                   }
                 />

@@ -213,6 +213,7 @@ const EMPLOYEE_UPDATE_FIELDS = new Set([
   'org_department',
   'org_team',
   'matching_result', // 복직 처리 시 '휴직' 해제 등
+  'ai_rule_exempt', // AI 과업 50% 규칙 면제(HR 지정)
 ]);
 // 보안(P0): 평가 생성/수정 시 허용 컬럼 화이트리스트(동적 키 보간·mass-assignment 차단).
 const EVALUATION_INSERT_FIELDS = new Set([
@@ -231,6 +232,8 @@ const TASK_STRUCTURE_FIELDS = new Set([
   'title',
   'description',
   'weight',
+  'is_ai_task',
+  'isAiTask',
   'start_date',
   'end_date',
   'startDate',
@@ -2108,7 +2111,7 @@ const aiConfigured = Boolean(process.env.AI_BASE_URL) || aiApiKey.length > 0;
 const aiIsExternal = !process.env.AI_BASE_URL || aiBaseUrl.startsWith('https://models.github.ai');
 
 // 인증 도입(Phase S) 전 임시 레이트리밋: IP별 분당 호출 수 제한. 인증 후 세션 주체 기준으로 교체.
-const AI_RATE_LIMIT_PER_MINUTE = 20;
+const AI_RATE_LIMIT_PER_MINUTE = 40;
 const aiRateBuckets = new Map();
 const aiRateLimited = (key) => {
   const now = Date.now();
@@ -2175,14 +2178,16 @@ app.post('/api/ai/chat', async (req, res) => {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(55_000),
     });
 
     const text = await upstream.text();
     if (!upstream.ok) {
       // 업스트림 에러 본문은 서버 로그에만 남긴다(키·내부 정보 노출 방지).
       console.error('AI upstream error:', upstream.status, text.slice(0, 500));
-      return res.status(502).json({ error: 'AI upstream error', status: upstream.status });
+      // 레이트리밋(429)은 상태코드를 그대로 전달 → 클라이언트가 재시도/안내할 수 있게 한다.
+      const passthrough = upstream.status === 429 ? 429 : 502;
+      return res.status(passthrough).json({ error: 'AI upstream error', status: upstream.status });
     }
     res.type('application/json').send(text);
   } catch (err) {
@@ -2980,24 +2985,40 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
         FROM employees e
         LEFT JOIN evaluation_periods p ON p.id::text = $2::text
         WHERE e.evaluator_id IS DISTINCT FROM $1
-          AND EXISTS (
-            SELECT 1
-            FROM evaluator_assignment_history h
-            WHERE h.employee_id = e.employee_id
-              AND h.new_evaluator_id = $1
-              AND h.status = 'applied'
-              AND h.change_type <> 'cancel'
-              AND ($2::text IS NULL OR EXTRACT(YEAR FROM h.changed_at) = p.evaluation_year)
-              AND EXISTS (
-                SELECT 1
-                FROM evaluator_assignment_history later
-                WHERE later.employee_id = e.employee_id
-                  AND later.status = 'applied'
-                  AND later.change_type <> 'cancel'
-                  AND ($2::text IS NULL OR EXTRACT(YEAR FROM later.changed_at) = p.evaluation_year)
-                  AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
-                  AND later.new_evaluator_id IS DISTINCT FROM $1
-              )
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history h
+              WHERE h.employee_id = e.employee_id
+                AND h.new_evaluator_id = $1
+                AND h.status = 'applied'
+                AND h.change_type <> 'cancel'
+                AND ($2::text IS NULL OR EXTRACT(YEAR FROM h.changed_at) = p.evaluation_year)
+                AND EXISTS (
+                  SELECT 1
+                  FROM evaluator_assignment_history later
+                  WHERE later.employee_id = e.employee_id
+                    AND later.status = 'applied'
+                    AND later.change_type <> 'cancel'
+                    AND ($2::text IS NULL OR EXTRACT(YEAR FROM later.changed_at) = p.evaluation_year)
+                    AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
+                    AND later.new_evaluator_id IS DISTINCT FROM $1
+                )
+            )
+            -- 근본 차단: 전보로 마스터 포인터(employees.evaluator_id)가 옮겨가도, '그 기간 평가'에
+            -- 이 평가자의 active 엔트리가 남아 있으면 과거 담당으로 노출한다. (엔드포인트 주석의
+            -- "or have entries owned by that evaluator" 를 실제로 구현 — 전보 이력 누락/단일배정 케이스에서
+            -- 과거 평가자가 자기 평가를 못 보던 문제 해결.)
+            OR EXISTS (
+              SELECT 1
+              FROM task_evaluation_entries tee
+              JOIN evaluations ev ON ev.id = tee.evaluation_id
+              WHERE ev.evaluatee_id = e.employee_id
+                AND tee.evaluator_id = $1
+                AND COALESCE(tee.status, 'active') = 'active'
+                AND COALESCE(ev.record_status, 'active') = 'active'
+                AND ($2::text IS NULL OR ev.evaluation_period_id::text = $2::text)
+            )
           )
         ORDER BY e.department, e.name
       `,
@@ -7524,7 +7545,8 @@ app.get('/api/tasks/evaluation/:evaluationId', guardEvaluationParam('evaluationI
           t.created_at,
           t.deleted_at,
           t.evaluation_year,
-          t.evaluation_period_id
+          t.evaluation_period_id,
+          t.is_ai_task
         FROM tasks t
         INNER JOIN evaluations ev ON ev.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history h
@@ -7614,7 +7636,8 @@ app.get('/api/tasks/current-year', requireHr, async (req, res) => {
           t.created_at,
           t.deleted_at,
           t.evaluation_year,
-          t.evaluation_period_id
+          t.evaluation_period_id,
+          t.is_ai_task
         FROM tasks t
         INNER JOIN evaluations ev ON ev.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history h
@@ -8034,6 +8057,198 @@ app.get('/api/ai-reviews', requireHr, async (req, res) => {
   } catch (err) {
     console.error('Error fetching AI review rollup:', err);
     res.json({ total: 0, reviewed: 0, flagged: 0, byEvaluator: [], items: [] });
+  }
+});
+
+// ============================================================
+// 조회 시 재호출 없는 AI 결과물(요약·제안) 영속 저장소 — /api/ai-content
+// 조회 때마다 AI를 돌리던 항목을 '트리거 시 1회 생성 → DB 저장 → 조회 시 그대로 출력'으로 전환.
+// kind/scope_id 규약은 db_mig/add_ai_generated_content.sql 주석 참조. 생성은 클라이언트(/api/ai/chat),
+// 여기서는 저장/조회만 하며 AI를 호출하지 않는다.
+// ============================================================
+const AI_CONTENT_KINDS = new Set([
+  'evaluatee_feedback_summary',
+  'evaluator_feedback_summary',
+  'task_growth_suggestion',
+  'evaluatee_growth_suggestion',
+  'evaluatee_feedback_keywords',
+  'evaluator_feedback_keywords',
+]);
+
+// 이 사용자가 해당 (kind, scopeId)를 읽기/쓰기할 수 있는지. HR은 전부 허용.
+async function authorizeAiContent(req, kind, scopeId) {
+  const me = req.session?.employeeId;
+  if (!me) return false;
+  if (await requesterIsHr(req).catch(() => false)) return true;
+  const parts = String(scopeId).split(':');
+  if (
+    kind === 'evaluatee_feedback_summary' ||
+    kind === 'evaluatee_growth_suggestion' ||
+    kind === 'evaluatee_feedback_keywords'
+  ) {
+    // '<evaluatee_id>:<period_id>' — 본인(피평가자, 읽기) 또는 그 피평가자의 평가자(평가 저장 시 쓰기).
+    // evaluations 엔 평가자 컬럼이 없어, 평가자 연결은 task_evaluation_entries.evaluator_id 로 판정한다
+    // (평가 저장 시 엔트리가 먼저 생성되므로 저장 시점 쓰기 권한이 성립).
+    if (parts[0] === me) return true;
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM evaluations ev
+         JOIN task_evaluation_entries tee
+           ON tee.evaluation_id = ev.id
+          AND COALESCE(tee.status, 'active') = 'active'
+          AND tee.evaluator_id = $3
+        WHERE ev.evaluatee_id = $1 AND ev.evaluation_period_id = $2
+        LIMIT 1`,
+      [parts[0], parts[1], me],
+    );
+    return rows.length > 0;
+  }
+  if (kind === 'evaluator_feedback_summary' || kind === 'evaluator_feedback_keywords') {
+    // '<evaluator_id>:<evaluatee_id>:<period_id>' — 그 평가자만.
+    return parts[0] === me;
+  }
+  if (kind === 'task_growth_suggestion') {
+    // '<task_uuid>' — 그 과업의 피평가자(본인) 또는 평가자만.
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM tasks t
+         JOIN evaluations ev ON ev.id = t.evaluation_id
+         LEFT JOIN task_evaluation_entries tee
+           ON tee.task_uuid = t.id AND COALESCE(tee.status, 'active') = 'active'
+        WHERE t.id = $1 AND (ev.evaluatee_id = $2 OR tee.evaluator_id = $2)
+        LIMIT 1`,
+      [parts[0], me],
+    );
+    return rows.length > 0;
+  }
+  return false;
+}
+
+// 배치 조회 — ?scopeIds=a,b,c (피평가자 과업 성장제안 일괄 로드 등). 1세그먼트 라우트.
+app.get('/api/ai-content/:kind', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const { kind } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!req.session?.employeeId) return res.status(401).json({ error: 'unauthorized' });
+  const ids = String(req.query.scopeIds ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  if (ids.length === 0) return res.json([]);
+  try {
+    const allowed = [];
+    for (const sid of ids) {
+      if (await authorizeAiContent(req, kind, sid)) allowed.push(sid);
+    }
+    if (allowed.length === 0) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT scope_id, content, generated_at FROM ai_generated_content WHERE kind = $1 AND scope_id = ANY($2::text[])`,
+      [kind, allowed],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('ai-content batch get failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 단건 조회 — 2세그먼트 라우트.
+app.get('/api/ai-content/:kind/:scopeId', async (req, res) => {
+  if (!isDbAvailable) return res.json(null);
+  const { kind, scopeId } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!(await authorizeAiContent(req, kind, scopeId))) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT content, generated_at, generated_by FROM ai_generated_content WHERE kind = $1 AND scope_id = $2 LIMIT 1`,
+      [kind, scopeId],
+    );
+    res.json(rows[0] ?? null);
+  } catch (err) {
+    console.error('ai-content get failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 생성/갱신(upsert) — 본인 소유 scope 만.
+app.put('/api/ai-content/:kind/:scopeId', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const { kind, scopeId } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!(await authorizeAiContent(req, kind, scopeId))) return res.status(403).json({ error: 'forbidden' });
+  const content = normalizeOptionalText(req.body?.content);
+  if (!content) return res.status(400).json({ error: 'content required' });
+  const meta = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO ai_generated_content (kind, scope_id, content, generated_by, meta, generated_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       ON CONFLICT (kind, scope_id)
+       DO UPDATE SET content = EXCLUDED.content, generated_by = EXCLUDED.generated_by, meta = EXCLUDED.meta, generated_at = now()
+       RETURNING content, generated_at, generated_by`,
+      [kind, scopeId, content, req.session.employeeId, meta],
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('ai-content put failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 자연어 인물검색(HR 전용) — 클라이언트가 질의를 AI로 키워드 파싱한 뒤 호출. 여기서는 SQL 검색만(LLM 호출 없음).
+// 피드백 본문(tee.feedback)을 키워드로 매칭해 평가대상별로 집계·랭킹하고, 그 인물의 AI 키워드를 첨부한다.
+// periodIds(다중) 범위로 한정. ILIKE 패턴은 LLM이 만든 한국어 명사라 와일드카드 위험 낮음.
+app.post('/api/people-search', requireHr, async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const rawKeywords = Array.isArray(req.body?.keywords) ? req.body.keywords : [];
+  const keywords = [
+    ...new Set(rawKeywords.map((k) => String(k).trim()).filter((k) => k.length >= 1 && k.length <= 40)),
+  ].slice(0, 12);
+  const rawPeriods = Array.isArray(req.body?.periodIds) ? req.body.periodIds : [];
+  const periodIds = [...new Set(rawPeriods.map((p) => String(p).trim()).filter(Boolean))].slice(0, 20);
+  if (keywords.length === 0 || periodIds.length === 0) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `WITH kw AS (SELECT DISTINCT trim(t) AS term FROM unnest($1::text[]) AS t WHERE trim(t) <> ''),
+       fb AS (
+         SELECT ev.evaluatee_id AS emp,
+                count(DISTINCT kw.term) AS kw_hits,
+                count(*)::int AS fb_hits,
+                array_agg(DISTINCT kw.term) AS terms,
+                (array_agg(left(tee.feedback, 160) ORDER BY tee.score DESC NULLS LAST))[1:3] AS snippets,
+                round(avg(tee.score)::numeric, 1) AS avg_score
+           FROM kw
+           JOIN task_evaluation_entries tee
+             ON tee.feedback ILIKE '%' || kw.term || '%'
+            AND COALESCE(tee.status, 'active') = 'active'
+            AND COALESCE(tee.feedback, '') <> ''
+           JOIN tasks t ON t.id = tee.task_uuid
+           JOIN evaluations ev ON ev.id = t.evaluation_id
+          WHERE ev.evaluation_period_id::text = ANY($2::text[])
+          GROUP BY ev.evaluatee_id
+       )
+       SELECT fb.emp AS employee_id, e.name, e.department,
+              e.org_corporation, e.org_division, e.org_department, e.org_team,
+              fb.kw_hits::int AS kw_hits, fb.fb_hits, fb.terms, fb.snippets, fb.avg_score,
+              kwc.content AS ai_keywords
+         FROM fb
+         JOIN employees e ON e.employee_id = fb.emp
+         LEFT JOIN LATERAL (
+           SELECT content FROM ai_generated_content agc
+            WHERE agc.kind = 'evaluatee_feedback_keywords'
+              AND split_part(agc.scope_id, ':', 1) = fb.emp
+              AND split_part(agc.scope_id, ':', 2) = ANY($2::text[])
+            ORDER BY agc.generated_at DESC LIMIT 1
+         ) kwc ON true
+        ORDER BY fb.kw_hits DESC, fb.fb_hits DESC, e.name
+        LIMIT 25`,
+      [keywords, periodIds],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('people-search failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 

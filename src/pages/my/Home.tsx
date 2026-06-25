@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
@@ -10,6 +10,9 @@ import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { usePriorYearRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { aiContentService } from '@/lib/services';
+import { AiContentText } from '@/components/ui/AiContentText';
+import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { buildMonthlyScoreTrend } from '@/lib/scoreTrend';
 import type { Employee } from '@/types';
 import {
@@ -150,6 +153,28 @@ const MyHome = () => {
   /* 직전연도 개인 추이 비교 */
   const { periods, selectedPeriod } = useEvaluationPeriod();
   const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+
+  // AI 종합 성장제안 — 평가자 저장 시 생성·영속된 값만 불러온다(조회 시 AI 재호출 없음).
+  const growthScopeId =
+    user?.employeeId && selectedPeriod?.id ? `${user.employeeId}:${selectedPeriod.id}` : null;
+  const [growthSuggestion, setGrowthSuggestion] = useState<string | null>(null);
+  const [growthGeneratedAt, setGrowthGeneratedAt] = useState<string | null>(null);
+  useEffect(() => {
+    if (!growthScopeId) {
+      setGrowthSuggestion(null);
+      setGrowthGeneratedAt(null);
+      return;
+    }
+    let cancelled = false;
+    aiContentService.get('evaluatee_growth_suggestion', growthScopeId).then((rec) => {
+      if (cancelled) return;
+      setGrowthSuggestion(rec?.content ?? null);
+      setGrowthGeneratedAt(rec?.generated_at ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [growthScopeId]);
   const priorPeriodId = useMemo(
     () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
     [periods, priorYear],
@@ -328,8 +353,8 @@ const MyHome = () => {
         </div>
       ) : (
         <>
-          {/* ── 2-컬럼 (기여 분포 + 간트) ────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16 }}>
+          {/* ── 2-컬럼 (기여 분포 + 간트) ── 화면상 '두 번째' 줄(order 로 과업비율 줄과 자리 바꿈) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16, order: -1 }}>
             {/* 기여 분포 */}
             <div className="sd-card" style={{ padding: 18 }}>
               <div
@@ -732,7 +757,9 @@ const MyHome = () => {
             </div>
           </div>
 
-          {/* ── 과업 비율 도넛차트 ───────────────────────────── */}
+          {/* ── 과업 비율 + AI 성장제안 (2단) ── 화면상 '첫 번째' 줄로 올림(order) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch', order: -2 }}>
+          {/* 과업 비율 도넛차트 */}
           <div className="sd-card" style={{ padding: 18 }}>
             <div
               style={{
@@ -955,6 +982,33 @@ const MyHome = () => {
                 })}
               </div>
             </div>
+          </div>
+          {/* AI 성장제안 카드 — 행의 오른쪽. 평가자 저장 시 생성·영속된 종합 제안(조회 시 AI 0). */}
+          <div
+            className="sd-card ai-shine-border"
+            style={{ padding: 18, display: 'flex', flexDirection: 'column' }}
+          >
+            <AiSectionTitle
+              title="AI 성장 제안"
+              variant="heading"
+              right={
+                growthGeneratedAt
+                  ? `${new Date(growthGeneratedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                  : '평가자 저장 시 자동'
+              }
+              style={{ marginBottom: 14 }}
+            />
+            <div style={{ flex: 1, minHeight: 220 }}>
+              {growthSuggestion ? (
+                <AiContentText text={growthSuggestion} accent="var(--ai-accent)" />
+              ) : (
+                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.75, color: 'var(--fg-muted)' }}>
+                  평가자가 평가를 저장하면 과업 전체(일정·비중·기여방식/범위·피드백)를 종합한 성장 제안이
+                  여기에 표시됩니다.
+                </p>
+              )}
+            </div>
+          </div>
           </div>
 
           {/* ── 월별 점수 추이 ───────────────────────────── */}
