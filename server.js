@@ -70,6 +70,28 @@ const sendDbUnavailable = (res) =>
 
 // Initialize PostgreSQL pool
 const connectionString = process.env.DATABASE_URL;
+// 기본 프롬프트 시드 — 빈 DB(내부망 반입 등)에 프론트/서버 공용 기본 프롬프트를 채운다.
+// 단일 원천: src/lib/defaultPrompts.json (프론트 gptOss.ts 도 동일 파일을 import).
+// ON CONFLICT DO NOTHING 이라 HR이 편집한 행은 보존하고, 없는 키만 새로 넣는다.
+const DEFAULT_PROMPTS_SEED = require('./src/lib/defaultPrompts.json');
+async function seedDefaultPrompts() {
+  if (!isDbAvailable || !pool?.query) return;
+  try {
+    let inserted = 0;
+    for (const p of DEFAULT_PROMPTS_SEED) {
+      const r = await pool.query(
+        `INSERT INTO prompt_templates (key, description, content)
+         VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
+        [p.key, p.description, p.content],
+      );
+      inserted += r.rowCount || 0;
+    }
+    console.log(`[seed] prompt_templates: ${inserted} new (of ${DEFAULT_PROMPTS_SEED.length} defaults)`);
+  } catch (e) {
+    console.error('[seed] prompt seed failed:', e.message);
+  }
+}
+
 let pool;
 if (connectionString) {
   pool = new Pool({ 
@@ -88,6 +110,7 @@ if (connectionString) {
     .then(() => {
       isDbAvailable = true;
       console.log('PostgreSQL 연결 성공 (API 서버)');
+      seedDefaultPrompts();
     })
     .catch(err => {
       console.error('PostgreSQL 연결 실패 (API 서버):', err.message);
