@@ -126,6 +126,9 @@ const MyHome = () => {
     () => tasks.reduce((sum, t) => sum + (t.weight ?? 0), 0),
     [tasks],
   );
+  // 과업비율 도넛 선택 → 리스트·기여분포·간트 연동 하이라이트.
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const toggleActiveTask = (id: string | null) => setActiveTaskId((prev) => (prev === id ? null : id));
   const weightDonutData = useMemo(
     () =>
       tasks.map((t, i) => ({
@@ -134,6 +137,8 @@ const MyHome = () => {
         weight: t.weight ?? 0,
         score: getMatrixScore(t.contributionMethod, t.contributionScope, matrix) ?? t.score ?? null,
         index: i,
+        id: t.id,
+        isAiTask: t.isAiTask ?? false,
       })),
     [matrix, tasks],
   );
@@ -418,8 +423,11 @@ const MyHome = () => {
                     const label = `T${String(cell.taskIndex + 1).padStart(2, '0')}`;
                     const hasScore = cell.score != null;
                     const bg = getScoreColor(cell.score);
+                    const cellTask = tasks[cell.taskIndex];
+                    const cellActive = cellTask?.id != null && cellTask.id === activeTaskId;
                     return (
                       <div
+                        onClick={() => cellTask?.id && toggleActiveTask(cellTask.id)}
                         style={{
                           height: 48,
                           borderRadius: 8,
@@ -432,6 +440,8 @@ const MyHome = () => {
                           lineHeight: 1.05,
                           gap: 2,
                           padding: '4px 0',
+                          cursor: 'pointer',
+                          opacity: activeTaskId && !cellActive ? 0.35 : 1,
                         }}
                         title={hasScore ? `${label} · ${cell.score}점` : `${label} · 미완료`}
                       >
@@ -441,8 +451,14 @@ const MyHome = () => {
                             fontWeight: 800,
                             opacity: 0.85,
                             letterSpacing: '0.04em',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
                           }}
                         >
+                          {cellTask?.isAiTask && (
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                          )}
                           {label}
                         </span>
                         <span
@@ -488,9 +504,12 @@ const MyHome = () => {
                         const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
                         const hasScore = c.score != null;
                         const bg = getScoreColor(c.score);
+                        const chipTask = tasks[c.taskIndex];
+                        const chipActive = chipTask?.id != null && chipTask.id === activeTaskId;
                         return (
                           <div
                             key={`chip-${c.taskIndex}`}
+                            onClick={() => chipTask?.id && toggleActiveTask(chipTask.id)}
                             style={{
                               flex: 1,
                               minHeight: 18,
@@ -504,9 +523,18 @@ const MyHome = () => {
                               fontSize: 'var(--fs-micro)',
                               fontWeight: 800,
                               lineHeight: 1,
+                              cursor: 'pointer',
+                              opacity: activeTaskId && !chipActive ? 0.35 : 1,
                             }}
                           >
-                            <span style={{ opacity: 0.9, letterSpacing: '0.02em' }}>{lab}</span>
+                            <span
+                              style={{ opacity: 0.9, letterSpacing: '0.02em', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            >
+                              {chipTask?.isAiTask && (
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                              )}
+                              {lab}
+                            </span>
                             <span className="tnum" style={{ fontSize: 'var(--fs-xs)', fontWeight: 900 }}>
                               {hasScore ? c.score : '–'}
                             </span>
@@ -648,14 +676,18 @@ const MyHome = () => {
                   const widthPct = (endFrac - startFrac) * 100;
                   const taskScore = getCurrentScore(task);
 
+                  const ganttActive = task.id === activeTaskId;
                   return (
                     <div
                       key={task.id}
+                      onClick={() => toggleActiveTask(task.id)}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 64px',
                         gap: 8,
                         alignItems: 'center',
+                        cursor: 'pointer',
+                        opacity: activeTaskId && !ganttActive ? 0.45 : 1,
                       }}
                     >
                       <div
@@ -699,6 +731,22 @@ const MyHome = () => {
                             whiteSpace: 'nowrap',
                           }}
                         >
+                          {task.isAiTask && (
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                marginRight: 4,
+                                padding: '0 4px',
+                                borderRadius: 999,
+                                fontSize: 'var(--fs-2xs)',
+                                fontWeight: 800,
+                                color: 'var(--ai-accent)',
+                                background: '#fff',
+                              }}
+                            >
+                              AI
+                            </span>
+                          )}
                           T{String(index + 1).padStart(2, '0')} · {task.title}
                         </div>
                       </div>
@@ -797,6 +845,8 @@ const MyHome = () => {
                       <PieChart>
                         <Pie
                           data={weightDonutData}
+                          onClick={(_d: unknown, idx: number) => toggleActiveTask(weightDonutData[idx]?.id ?? null)}
+                          cursor="pointer"
                           dataKey="weight"
                           nameKey="shortName"
                           cx="50%"
@@ -841,7 +891,13 @@ const MyHome = () => {
                           }}
                         >
                           {weightDonutData.map((entry) => (
-                            <Cell key={entry.shortName} fill={getScoreColor(entry.score)} />
+                            <Cell
+                              key={entry.shortName}
+                              fill={getScoreColor(entry.score)}
+                              opacity={activeTaskId && entry.id !== activeTaskId ? 0.25 : 1}
+                              stroke="var(--bg-card)"
+                              strokeWidth={2}
+                            />
                           ))}
                         </Pie>
                         <Tooltip
@@ -912,6 +968,7 @@ const MyHome = () => {
                   return (
                     <div
                       key={item.shortName}
+                      onClick={() => toggleActiveTask(item.id)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -919,6 +976,8 @@ const MyHome = () => {
                         padding: '4px 8px',
                         borderRadius: 6,
                         background: 'var(--bg-muted)',
+                        opacity: activeTaskId && item.id !== activeTaskId ? 0.4 : 1,
+                        cursor: 'pointer',
                         minWidth: 0,
                       }}
                     >
@@ -954,6 +1013,21 @@ const MyHome = () => {
                       >
                         {tasks[i]?.title}
                       </span>
+                      {item.isAiTask && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            padding: '0 5px',
+                            borderRadius: 999,
+                            fontSize: 'var(--fs-2xs)',
+                            fontWeight: 800,
+                            color: 'var(--ai-accent)',
+                            background: 'var(--ai-accent-bg)',
+                          }}
+                        >
+                          AI
+                        </span>
+                      )}
                       <span
                         className="tnum"
                         style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg)' }}

@@ -52,7 +52,7 @@ const MySchedulePage = () => {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '220px 1fr 88px',
+                  gridTemplateColumns: '220px 22px 1fr 88px',
                   gap: 14,
                   alignItems: 'center',
                   paddingBottom: 10,
@@ -64,6 +64,7 @@ const MySchedulePage = () => {
                 }}
               >
                 <div>과업</div>
+                <div />
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${monthLabels.length}, 1fr)` }}>
                   {monthLabels.map((month) => (
                     <div key={month} style={{ textAlign: 'center' }}>
@@ -84,7 +85,7 @@ const MySchedulePage = () => {
                 return (
                   <div
                     key={task.id}
-                    style={{ display: 'grid', gridTemplateColumns: '220px 1fr 88px', gap: 14, alignItems: 'center' }}
+                    style={{ display: 'grid', gridTemplateColumns: '220px 22px 1fr 88px', gap: 14, alignItems: 'center' }}
                   >
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <div
@@ -109,6 +110,23 @@ const MySchedulePage = () => {
                           {formatDate(task.startDate)} – {formatDate(task.endDate)}
                         </div>
                       </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      {task.isAiTask && (
+                        <span
+                          style={{
+                            padding: '0 4px',
+                            borderRadius: 999,
+                            fontSize: 'var(--fs-2xs)',
+                            fontWeight: 800,
+                            color: 'var(--ai-accent)',
+                            background: 'var(--ai-accent-bg)',
+                          }}
+                        >
+                          AI
+                        </span>
+                      )}
                     </div>
 
                     <div style={{ position: 'relative', height: 28, background: 'var(--bg-muted)', borderRadius: 6 }}>

@@ -61,6 +61,7 @@ const buildEmployeeTaskCards = (
       taskId: task.task_id,
       taskIndex: idx,
       taskTitle: task.title,
+      isAiTask: task.is_ai_task ?? false,
       contributionMethod: task.contribution_method,
       contributionScope: task.contribution_scope,
       score: task.score,
@@ -305,6 +306,7 @@ const EvaluatorFeedbackPage = () => {
                               key={card.taskId}
                               taskIndex={card.taskIndex}
                               taskTitle={card.taskTitle}
+                              isAiTask={card.isAiTask}
                               contributionMethod={card.contributionMethod}
                               contributionScope={card.contributionScope}
                               score={card.score}

@@ -310,7 +310,7 @@ const EvaluatorSchedulePage = () => {
                               >
                                 T{String(index + 1).padStart(2, '0')}
                               </div>
-                              <div style={{ minWidth: 0 }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
                                 <div
                                   style={{
                                     fontSize: 'var(--fs-body)',
@@ -326,6 +326,21 @@ const EvaluatorSchedulePage = () => {
                                   {formatDate(task.start_date)} – {formatDate(task.end_date)}
                                 </div>
                               </div>
+                              {task.is_ai_task && (
+                                <span
+                                  style={{
+                                    flexShrink: 0,
+                                    padding: '0 5px',
+                                    borderRadius: 999,
+                                    fontSize: 'var(--fs-2xs)',
+                                    fontWeight: 800,
+                                    color: 'var(--ai-accent)',
+                                    background: 'var(--ai-accent-bg)',
+                                  }}
+                                >
+                                  AI
+                                </span>
+                              )}
                             </div>
 
                             <div

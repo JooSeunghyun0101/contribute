@@ -412,7 +412,20 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
               </div>
               {item.score != null && <NumBadge score={item.score} size={28} />}
             </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)' }}>
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)', alignItems: 'center' }}>
+              {item.task.isAiTask && (
+                <span
+                  style={{
+                    padding: '0 6px',
+                    borderRadius: 999,
+                    fontWeight: 800,
+                    color: 'var(--ai-accent)',
+                    background: 'var(--ai-accent-bg)',
+                  }}
+                >
+                  AI
+                </span>
+              )}
               <span>{item.displayTask.contributionMethod || '방식 미정'}</span>
               <span>·</span>
               <span>{item.displayTask.contributionScope || '범위 미정'}</span>

@@ -679,7 +679,7 @@ const EvaluationAccordionCard = ({
               )}
             </div>
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
-              과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}%
+              과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}% (AI {draftAiWeight}%)
             </div>
           </div>
         </div>
@@ -770,6 +770,24 @@ const EvaluationAccordionCard = ({
                     {weightStatus.message}
                   </span>
                 </div>
+                <div
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    fontWeight: 700,
+                    color: user?.aiRuleExempt
+                      ? 'var(--fg-muted)'
+                      : aiTaskRatio >= 0.5
+                        ? 'var(--success)'
+                        : 'var(--danger)',
+                  }}
+                >
+                  AI 과업 {draftAiWeight}%
+                  {user?.aiRuleExempt
+                    ? ' · 50% 규칙 면제'
+                    : aiTaskRatio >= 0.5
+                      ? ' · 50% 충족'
+                      : ' · 50% 이상 필요'}
+                </div>
                 <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
                   {weightStatus.guide}
                 </div>
@@ -843,9 +861,25 @@ const EvaluationAccordionCard = ({
                       }}
                     >
                       <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
-                        <Pill tone={taskScore == null ? 'neutral' : 'orange'}>
-                          T{String(index + 1).padStart(2, '0')}
-                        </Pill>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Pill tone={taskScore == null ? 'neutral' : 'orange'}>
+                            T{String(index + 1).padStart(2, '0')}
+                          </Pill>
+                          {task.isAiTask && (
+                            <span
+                              style={{
+                                padding: '1px 7px',
+                                borderRadius: 999,
+                                fontSize: 'var(--fs-2xs)',
+                                fontWeight: 800,
+                                color: 'var(--ai-accent)',
+                                background: 'var(--ai-accent-bg)',
+                              }}
+                            >
+                              AI
+                            </span>
+                          )}
+                        </div>
                         <NumBadge score={taskScore} size={28} />
                       </div>
                       <div style={{ fontWeight: active ? 700 : 600, fontSize: 'var(--fs-body)', lineHeight: 1.45 }}>
@@ -898,7 +932,7 @@ const EvaluationAccordionCard = ({
                         </Pill>
                       </>
                     )}
-                    <Pill tone={weightStatus.tone}>총 가중치 {draftTotalWeight}%</Pill>
+                    <Pill tone={weightStatus.tone}>총 가중치 {draftTotalWeight}% · AI {draftAiWeight}%</Pill>
                     <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
                     <span style={{ flex: 1 }} />
                     {mode === 'create' && (

@@ -14,6 +14,7 @@ export type TaskFeedbackCardProps = {
   contributionMethod?: string | null;
   contributionScope?: string | null;
   score: number | null;
+  isAiTask?: boolean;
   entries: TaskFeedbackEntry[];
 };
 
@@ -74,6 +75,7 @@ const TaskFeedbackCard = ({
   contributionMethod,
   contributionScope,
   score,
+  isAiTask,
   entries,
 }: TaskFeedbackCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -148,6 +150,20 @@ const TaskFeedbackCard = ({
             }}
           >
             {taskBadge}
+          </span>
+        )}
+        {isAiTask && (
+          <span
+            style={{
+              fontSize: 'var(--fs-xs)',
+              fontWeight: 800,
+              color: 'var(--ai-accent)',
+              background: 'var(--ai-accent-bg)',
+              borderRadius: 4,
+              padding: '2px 7px',
+            }}
+          >
+            AI
           </span>
         )}
         <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{taskTitle}</span>

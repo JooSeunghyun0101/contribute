@@ -170,6 +170,7 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
                 title: dbt.title,
                 description: dbt.description ?? '',
                 weight: dbt.weight,
+                isAiTask: dbt.is_ai_task ?? false,
                 startDate: dbt.start_date ?? undefined,
                 endDate: dbt.end_date ?? undefined,
                 contributionMethod: latest ? latest.contribution_method ?? undefined : dbt.contribution_method ?? undefined,

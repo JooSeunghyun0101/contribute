@@ -34,6 +34,7 @@ const MyFeedbackPage = () => {
         taskId: task.id,
         taskIndex,
         taskTitle: task.title,
+        isAiTask: task.isAiTask,
         contributionMethod: task.contributionMethod ?? null,
         contributionScope: task.contributionScope ?? null,
         score: task.score ?? null,
@@ -129,6 +130,7 @@ const MyFeedbackPage = () => {
                 key={card.taskId}
                 taskIndex={card.taskIndex}
                 taskTitle={card.taskTitle}
+                isAiTask={card.isAiTask}
                 contributionMethod={card.contributionMethod}
                 contributionScope={card.contributionScope}
                 score={card.score}
