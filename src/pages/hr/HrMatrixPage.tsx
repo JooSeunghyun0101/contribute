@@ -269,7 +269,8 @@ const HrMatrixPage = () => {
             <div>
               <div className="sd-label-mini" style={{ marginBottom: 10 }}>기여 범위</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {MATRIX_SCOPES.map((s) => (
+                {/* 기여 방식(총괄→지원)과 같은 내림차순으로 맞추기 위해 범위는 전략적→의존적으로 표시 */}
+                {[...MATRIX_SCOPES].reverse().map((s) => (
                   <GuideFieldRow
                     key={s}
                     term={s}

@@ -925,15 +925,15 @@ export const useEvaluationDataDB = (
     if (!ensurePeriodEditable()) return;
 
     updateTaskDraft(taskId, (task) => {
-      if (method === '기여없음') {
+      if (method === '기여미흡') {
         return {
-          contributionMethod: '기여없음',
-          contributionScope: '기여없음',
+          contributionMethod: '기여미흡',
+          contributionScope: '기여미흡',
           score: 0,
         };
       }
 
-      const nextScope = task.contributionScope === '기여없음' ? null : task.contributionScope;
+      const nextScope = task.contributionScope === '기여미흡' ? null : task.contributionScope;
       const nextScore = calculateMatrixScore(method, nextScope);
       return {
         contributionMethod: method,
@@ -950,15 +950,15 @@ export const useEvaluationDataDB = (
     if (!ensurePeriodEditable()) return;
 
     updateTaskDraft(taskId, (task) => {
-      if (scope === '기여없음') {
+      if (scope === '기여미흡') {
         return {
-          contributionMethod: '기여없음',
-          contributionScope: '기여없음',
+          contributionMethod: '기여미흡',
+          contributionScope: '기여미흡',
           score: 0,
         };
       }
 
-      const nextMethod = task.contributionMethod === '기여없음' ? null : task.contributionMethod;
+      const nextMethod = task.contributionMethod === '기여미흡' ? null : task.contributionMethod;
       const nextScore = calculateMatrixScore(nextMethod, scope);
       return {
         contributionMethod: nextMethod,

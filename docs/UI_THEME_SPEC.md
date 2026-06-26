@@ -441,7 +441,7 @@ className="bg-amber-500 text-white border-amber-600 border-2 shadow-lg scale-105
 // 열 헤더 — 비선택
 className="bg-amber-500/20 text-foreground hover:bg-amber-500/30"
 
-// 기여없음 버튼
+// 기여미흡 버튼
 className="bg-destructive/20 text-foreground hover:bg-destructive/30"
 ```
 

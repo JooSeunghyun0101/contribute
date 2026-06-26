@@ -10,6 +10,8 @@ type Props = {
   text: string;
   /** 리스트 마커/라벨 강조 색 (기본 OK 오렌지). */
   accent?: string;
+  /** 본문 글자 크기 (기본 --fs-sm). 카드별로 키울 수 있다. */
+  fontSize?: string;
   style?: CSSProperties;
 };
 
@@ -20,7 +22,7 @@ const LABEL_RE = /^([가-힣A-Za-z][가-힣A-Za-z0-9 /·]{0,11}):\s*(.+)$/;
 
 const stripMarker = (line: string) => line.replace(BULLET_RE, '').replace(NUM_RE, '').trim();
 
-export const AiContentText = ({ text, accent = 'var(--ok-orange)', style }: Props) => {
+export const AiContentText = ({ text, accent = 'var(--ok-orange)', fontSize = 'var(--fs-sm)', style }: Props) => {
   const raw = (text ?? '').trim();
   if (!raw) return null;
 
@@ -52,7 +54,7 @@ export const AiContentText = ({ text, accent = 'var(--ok-orange)', style }: Prop
           return (
             <li
               key={i}
-              style={{ display: 'flex', gap: 9, fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--fg)' }}
+              style={{ display: 'flex', gap: 9, fontSize, lineHeight: 1.7, color: 'var(--fg)' }}
             >
               <span style={{ color: accent, fontWeight: 900, flexShrink: 0, marginTop: 1 }} aria-hidden="true">
                 •
@@ -85,12 +87,12 @@ export const AiContentText = ({ text, accent = 'var(--ok-orange)', style }: Prop
                 <div className="sd-label-mini" style={{ color: accent, marginBottom: 3 }}>
                   {m[1]}
                 </div>
-                <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--fg)' }}>{m[2]}</div>
+                <div style={{ fontSize, lineHeight: 1.7, color: 'var(--fg)' }}>{m[2]}</div>
               </div>
             );
           }
           return (
-            <div key={i} style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--fg)' }}>
+            <div key={i} style={{ fontSize, lineHeight: 1.7, color: 'var(--fg)' }}>
               {line}
             </div>
           );
@@ -107,7 +109,7 @@ export const AiContentText = ({ text, accent = 'var(--ok-orange)', style }: Prop
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 9, ...style }}>
       {(paras.length ? paras : [raw]).map((p, i) => (
-        <p key={i} style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.75, color: 'var(--fg)' }}>
+        <p key={i} style={{ margin: 0, fontSize, lineHeight: 1.75, color: 'var(--fg)' }}>
           {p}
         </p>
       ))}

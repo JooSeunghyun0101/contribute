@@ -30,7 +30,7 @@ import {
 // 새 AI 기능을 추가하면 여기에도 같이 등록해 HR이 어디 영향이 가는지 알 수 있게 한다.
 const PROMPT_USAGE: Record<string, { screen: string; route?: string }[]> = {
   // ── 사용 중 ──
-  evaluation_guide: [{ screen: '공통 평가 기준 (다른 프롬프트에 합성)' }],
+  evaluation_guide: [{ screen: '평가 기준 문서 — 성과보고·피드백의견·성장제안·요약보고서·AI도움말에 공통 합성' }],
   feedback_recommendation: [{ screen: '평가 화면 · 평가자 피드백 의견 AI 작성', route: '/evaluation/:id' }],
   performance_report_draft: [{ screen: '피평가자 과업 입력 · 성과보고 AI 작성', route: '/my' }],
   evaluation_feedback_review: [{ screen: '평가 저장 · AI 피드백 검수(구체성·성실성·중복성·정합성)', route: '/evaluation/:id' }],
@@ -50,7 +50,7 @@ const PROMPT_USAGE: Record<string, { screen: string; route?: string }[]> = {
 // prompt key → 이 프롬프트에 '코드가 자동으로 덧붙이는 데이터'. {변수} 치환이 아니라,
 // 저장된 지시문 '뒤에' 아래 데이터가 붙어 AI 에 전달된다(편집자가 데이터 연결을 확인하도록 안내).
 const PROMPT_AUTO_DATA: Record<string, string[]> = {
-  evaluation_guide: ['(데이터 없음 — 다른 프롬프트에 합성되는 공통 평가 기준)'],
+  evaluation_guide: ['/hr/matrix 의 모든 기준(점수 매트릭스·기여방식범위 정의·성장레벨/갭 기대수준)이 자동 합성됨 — 이 문서엔 적지 않음', '이 문서 자체가 5개 AI 기능에 공통 합성'],
   feedback_recommendation: ['공통 평가 기준', '과업명·과업내용', '기여방식·기여범위·점수', '기존 피드백(있으면)'],
   performance_report_draft: ['공통 평가 기준', '과업명·기간·가중치', '기존 작성 내용(있으면)'],
   evaluation_feedback_review: ['변경된 피드백 항목들(taskId·과업명·피드백·점수·gapBucket)', '복붙 검사용 비교 피드백'],
@@ -60,7 +60,7 @@ const PROMPT_AUTO_DATA: Record<string, string[]> = {
   feedback_keywords: ['피드백 목록(과업·점수·내용)'],
   people_search_parse: ['HR 이 입력한 자연어 질의'],
   people_search_rank: ['검색 조건(질의)', '1차 검색된 후보 목록과 피드백 근거'],
-  evaluator_qna_assistant: ['이전 대화 맥락', '평가자의 질문'],
+  evaluator_qna_assistant: ['공통 평가 기준(evaluation_guide)', '이전 대화 맥락', '평가자의 질문'],
   ai_connection_test: ['(데이터 없음 — 고정 문구)'],
 };
 

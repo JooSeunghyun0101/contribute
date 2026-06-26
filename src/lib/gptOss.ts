@@ -1,3 +1,20 @@
+import {
+  COMPANY_MATRIX_SETTING_USER_ID,
+  EVALUATION_MATRIX_SETTING_TYPE,
+  MATRIX_GUIDE_SETTING_TYPE,
+  GROWTH_LEVEL_EXPECTATIONS_SETTING_TYPE,
+  SCORE_GAP_EXPECTATIONS_SETTING_TYPE,
+  cloneDefaultMatrix,
+  cloneDefaultMatrixGuide,
+  cloneDefaultGrowthLevelExpectations,
+  cloneDefaultScoreGapExpectations,
+  formatMatrixCriteria,
+  normalizeEvaluationMatrix,
+  normalizeMatrixGuide,
+  normalizeGrowthLevelExpectations,
+  normalizeScoreGapExpectations,
+} from '@/lib/evaluationMatrix';
+
 export interface PromptTemplate {
   key: string;
   description: string;
@@ -8,12 +25,39 @@ export interface PromptTemplate {
 const DEFAULT_PROMPTS: PromptTemplate[] = [
   {
     key: 'evaluation_guide',
-    description: '성과평가 기준과 점수 매트릭스 공통 가이드',
-    content: `수시 성과관리체계 기준을 바탕으로 평가합니다.
-- 점수는 성장레벨별 요구수준 대비 달성 수준을 뜻합니다.
-- 기여방식은 총괄, 리딩, 실무, 지원으로 판단합니다.
-- 기여범위는 의존적, 독립적, 상호적, 전략적으로 판단합니다.
-- 피드백은 구체적 행동, 성과, 영향, 다음 개선 방향을 포함해야 합니다.`,
+    description: '평가 기준 문서 — 성과보고·피드백의견·성장제안·요약보고서·AI도움말에 공통 합성(이 문서만 고치면 5개 AI가 함께 갱신)',
+    content: `OK금융그룹 기여도 평가 기준입니다.
+본 기준은 新인사제도 3대 평가축(기여도·전문성·영향력) 중 기여도(Contribution) 평가에 적용됩니다. 전문성·영향력은 본 기준의 대상이 아니므로, 관련 질문에는 별도 기준 확인이 필요하다고 안내하세요.
+기여도는 과업별로 '어떻게 기여했는가(기여방식: 총괄·리딩·실무·지원)'와 '어디까지 영향을 미쳤는가(기여범위: 의존적·독립적·상호적·전략적)'를 교차해 평가합니다. 각 정의·점수 매트릭스·성장레벨별 기대수준·점수 갭 해석은 이 문서 뒤에 [평가 기준]으로 자동 합성되므로, 그 블록을 근거로 판단하세요.
+
+[평가 철학 — 수시 성과관리]
+- 지속적 모니터링: 과업 진행 상황을 실시간으로 추적·관리합니다.
+- 정기적 피드백: 수시 성과보고를 통해 양방향으로 소통하고 개선점을 도출합니다.
+- 적응적 목표 조정: 환경 변화에 맞춰 과업과 목표를 유연하게 조정합니다.
+- 성장 중심: 결과뿐 아니라 과정과 학습을 중시합니다.
+
+[점수를 읽는 원칙]
+- 기여도 점수(1~4점)는 절대 등급이 아니라 '본인 성장레벨 대비 달성 수준'입니다. 같은 점수라도 성장레벨이 다르면 의미가 다릅니다(상세 해석은 합성되는 [점수-성장레벨 갭별 해석] 참조).
+- 과업 내 역할이 불분명해 성과 창출에 필요한 최소한의 실행력이 확인되지 않으면 0점(기여미흡)입니다.
+
+[피드백 작성 기준]
+- 구체적 행동 → 산출물/결과 → 협업·영향 → 다음 개선 방향 순으로 작성합니다.
+- "열심히 했음", "잘 수행함" 같은 추상적 표현만으로는 부족하며 구체적 행동·산출물·수치·사례를 포함합니다.
+- 점수(기여방식·범위 판정)와 피드백 논조의 방향이 일치해야 합니다(미달인데 칭찬만, 초과인데 질책만 금지).
+- 평가 기준과 무관한 표현은 넣지 않습니다.
+
+[평가 절차 및 진행 상태]
+과업·평가는 다음 상태로 흐릅니다: 임시저장(draft) → 최종제출(submitted) → 평가중(evaluating) → 평가완료(completed) → 잠금(locked).
+1. 피평가자 — 과업 등록: 주요 과업과 가중치를 등록합니다(임시저장 가능). 최종제출은 총 가중치가 정확히 100%이고, 'AI 과업'으로 표시한 과업의 가중치 합이 전체의 50% 이상일 때만 가능합니다(HR이 예외로 지정한 피평가자는 50% 규칙 제외).
+2. 피평가자 — 최종제출: 제출하면 과업이 잠겨 더 이상 직접 수정할 수 없습니다.
+3. 평가자 — 평가: 피평가자가 최종제출한 뒤에만 평가를 시작할 수 있습니다. 과업별 기여방식(총괄/리딩/실무/지원)과 기여범위(의존적/독립적/상호적/전략적)를 선택하고 피드백을 작성합니다(임시저장·AI 검수 후 평가완료).
+4. 피평가자 — 피드백 확인 및 다음 과업 개선.
+
+수정이 필요할 때(되돌리기 경로):
+- 피평가자 → 평가자 '수정 요청': 최종제출 후 과업을 고쳐야 하면 피평가자가 담당 평가자에게 수정을 요청합니다(사유 입력 가능). 이는 알림만 보내며, 실제 수정은 평가자가 과업을 돌려보내야 열립니다.
+- 평가자 → 피평가자 '돌려보내기(반려)': 평가자는 피평가자가 최종제출한 건을 다시 작성하도록 돌려보낼 수 있습니다(최종제출·평가중·평가완료 단계 모두 가능, 사유 입력 가능). 돌려보내면 피평가자가 과업을 수정해 다시 최종제출할 때까지 평가는 잠시 잠깁니다.
+- 평가자 본인 수정: 평가자는 자신의 완료(completed) 평가를 임시저장(draft) 단계로 되돌린 뒤 점수·피드백을 수정하고 다시 평가완료할 수 있습니다. 단, 평가기간이 마감되면 되돌릴 수 없습니다.
+- 평가기간이 마감·잠금(locked)되면 위 되돌리기는 제한됩니다.`,
   },
   {
     key: 'feedback_recommendation',
@@ -94,24 +138,30 @@ type 값은 정확히 다음 중 하나: "구체성" | "성실성" | "중복성"
   },
   {
     key: 'evaluator_qna_assistant',
-    description: '평가자 AI 질의응답 (평가 기준·운영·피드백 작성 가이드)',
-    content: `당신은 OK금융그룹 기여도평가 시스템의 평가자 전용 AI 어시스턴트입니다.
-역할:
-- 평가자가 평가 진행 중 가지는 의문(평가 기준, 점수 매트릭스 해석, 가중치, 피드백 작성 방법, 운영 절차 등)에 답변합니다.
-- 평가 결과나 점수를 직접 결정하거나 피평가자 정보를 추측하지 않습니다.
-- 답변은 600자 이내, 명확한 한국어 존댓말, 핵심 포인트는 글머리표(•)로 정리하세요.
+    description: '평가자 AI 도움말 — 기여도 상세 + 新인사제도 제도 개괄',
+    content: `당신은 OK금융그룹 평가 시스템의 평가자 전용 AI 어시스턴트입니다.
+주 역할은 '기여도(Contribution)' 평가 지원이며, 新인사제도 평가제도 전반에 대해서도 개괄 수준으로 안내합니다.
 
-평가 체계 핵심:
-- 기여 방식 4단계: 총괄/주도, 리딩, 실무, 지원
-- 기여 범위 4단계: 의존적, 독립적, 상호적, 전략적
-- 매트릭스: [총괄=2/3/4/4 · 리딩=1/2/3/4 · 실무=1/1/2/3 · 지원=1/1/1/2] (열 순서: 의존→전략)
-- 가중치 합은 100%여야 최종 저장 가능합니다.
-- 피드백은 구체적 행동 → 결과 → 영향 → 개선 방향 순으로 작성을 권장합니다.
+[다룰 수 있는 주제]
+- (상세) 기여도 평가: 기여방식·기여범위·점수 매트릭스 해석, 가중치, 성장레벨·점수 갭 해석, 피드백 작성법 — 아래 [평가 기준] 블록을 근거로 구체적으로 답합니다.
+- (상세) 평가 진행 절차·상태(임시저장/최종제출/평가중/평가완료/잠금)와 수정요청·돌려보내기(반려) 운영 흐름 — [평가 기준] 블록 근거.
+- (개괄) 新인사제도 평가제도 전반: 3대 평가축, 평가등급, 연간 평가 프로세스, 성장레벨 — 아래 [제도 개괄]을 근거로 큰 틀만 안내하고, 전문성·영향력의 상세 채점 기준은 별도 기준 확인을 권합니다.
 
-답변 가이드:
-1. 질문이 시스템 기능과 무관하면 "기여도평가 운영과 관련된 질문에만 답변드릴 수 있습니다"라고 안내하세요.
-2. 점수·등급에 영향을 주는 의사결정은 평가자 본인이 한다는 점을 명확히 전달하세요.
-3. 모호한 질문은 추가 정보를 요청하세요.`,
+[제도 개괄 — 新인사제도 평가제도]
+- 3대 평가축: ① 기여도(과업의 기여방식×기여범위) ② 전문성(직무 Key Skill & Knowledge 보유·발현: 이해→적용→가이드→개선) ③ 영향력(핵심가치 실천·리더십: 발현범위 개인→조직내→조직간→시장, 발현방식 핵심가치→리더십).
+- 점수 판정: 각 축의 평가 점수가 본인 성장레벨 이상이면 '달성'. 성장레벨은 Non-PL Lv.1~4, PL Lv.1~3.
+- 평가등급: 1차 부서장 절대평가 3등급 — 3개 축 중 2개 이상 달성=A, 1개=B, 0개(전무)=C. 이후 Calibration Session(집단 논의)으로 최종 7등급(S·A+·A·B+·B·C·D) 확정.
+- 연간 프로세스: 연초 과업(목표) 등록·부서장 승인 → 분기 기여도 평가+Check-in → 연말 전문성·영향력 평가 → Calibration 최종등급 → 성장레벨 인증·보상 연계.
+- 본 시스템은 이 중 '기여도' 평가를 담당합니다.
+
+[답변 원칙]
+- 평가 결과·점수를 직접 결정하거나 피평가자 정보를 추측하지 않습니다.
+- 답변은 600자 이내, 명확한 한국어 존댓말, 핵심 포인트는 글머리표(•)로 정리합니다.
+- 기여도·절차 질문은 [평가 기준] 블록을 근거로 구체적으로, 제도 전반 질문은 [제도 개괄] 수준에서 답합니다.
+- 전문성·영향력의 구체적 점수 기준을 묻는 경우 개괄만 안내하고 "상세 기준은 별도 평가 가이드를 확인해 주세요"라고 덧붙입니다.
+- [평가 기준]·[제도 개괄] 어디에도 없는 내용은 임의로 지어내지 말고 추가 확인을 요청합니다.
+- 평가와 무관한 질문은 "평가 운영과 관련된 질문에만 답변드릴 수 있습니다"라고 안내합니다.
+- 점수·등급 의사결정은 평가자 본인의 몫임을 명확히 하고, 모호한 질문은 추가 정보를 요청합니다.`,
   },
   {
     key: 'feedback_keywords',
@@ -196,6 +246,40 @@ function fetchPrompt(key: string): Promise<string> {
       if (fallback) return fallback;
       throw error;
     });
+}
+
+// 회사 공통 평가 기준 설정을 조회(모두 user_id='system'). 실패 시 null → 호출부에서 기본값 폴백.
+async function fetchCompanySetting(type: string): Promise<unknown> {
+  try {
+    const res = await fetch(
+      `/api/settings/${encodeURIComponent(COMPANY_MATRIX_SETTING_USER_ID)}/${encodeURIComponent(type)}`,
+    );
+    if (!res.ok) return null;
+    const setting = await res.json();
+    return setting?.setting_data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 평가 기준 문서 = evaluation_guide(텍스트) + /hr/matrix 의 모든 기준(설정값) 합성.
+// 매트릭스·기여방식범위 정의·성장레벨/갭 기대수준을 문서에 하드코딩하지 않고 여기서 주입해,
+// /hr/matrix 에서 무엇을 바꾸든 5개 AI 기능에 자동 반영되게 한다(단일 원천·중복 제거).
+async function fetchEvaluationGuide(): Promise<string> {
+  const [guide, matrixData, guideData, growthData, gapData] = await Promise.all([
+    fetchPrompt('evaluation_guide'),
+    fetchCompanySetting(EVALUATION_MATRIX_SETTING_TYPE),
+    fetchCompanySetting(MATRIX_GUIDE_SETTING_TYPE),
+    fetchCompanySetting(GROWTH_LEVEL_EXPECTATIONS_SETTING_TYPE),
+    fetchCompanySetting(SCORE_GAP_EXPECTATIONS_SETTING_TYPE),
+  ]);
+  const criteria = formatMatrixCriteria({
+    matrix: normalizeEvaluationMatrix(matrixData) ?? cloneDefaultMatrix(),
+    guide: normalizeMatrixGuide(guideData) ?? cloneDefaultMatrixGuide(),
+    growth: normalizeGrowthLevelExpectations(growthData) ?? cloneDefaultGrowthLevelExpectations(),
+    gap: normalizeScoreGapExpectations(gapData) ?? cloneDefaultScoreGapExpectations(),
+  });
+  return `${guide}\n\n${criteria}`;
 }
 
 export function fetchAllPrompts(): Promise<PromptTemplate[]> {
@@ -369,7 +453,7 @@ export async function generatePerformanceReportDraft(input: {
   weight?: number | null;
 }): Promise<string> {
   const template = await fetchPrompt('performance_report_draft');
-  const guide = await fetchPrompt('evaluation_guide');
+  const guide = await fetchEvaluationGuide();
   const period =
     input.startDate || input.endDate
       ? `${input.startDate || '시작일 미기재'} ~ ${input.endDate || '종료일 미기재'}`
@@ -409,7 +493,7 @@ export async function generateEvaluationSummaryReport(input: {
 }): Promise<string> {
   let guide = '';
   try {
-    guide = await fetchPrompt('evaluation_guide');
+    guide = await fetchEvaluationGuide();
   } catch {
     guide = '';
   }
@@ -443,7 +527,7 @@ export async function generateFeedbackRecommendation(
   currentFeedback?: string
 ): Promise<string> {
   const template = await fetchPrompt('feedback_recommendation');
-  const guide = await fetchPrompt('evaluation_guide');
+  const guide = await fetchEvaluationGuide();
   const prompt = `${template}
 
    [평가 기준]
@@ -475,6 +559,7 @@ export async function askEvaluatorQuestion(
   history: EvaluatorQnaTurn[] = [],
 ): Promise<string> {
   const systemPrompt = await fetchPrompt('evaluator_qna_assistant');
+  const guide = await fetchEvaluationGuide(); // 공통 평가 기준 문서를 근거로 합성(단일 기준).
   const recent = history.slice(-6);
 
   const transcript = recent
@@ -482,6 +567,9 @@ export async function askEvaluatorQuestion(
     .join('\n');
 
   const prompt = `${systemPrompt}
+
+[평가 기준]
+${guide}
 
 이전 대화:
 ${transcript || '(없음)'}
@@ -518,7 +606,7 @@ export async function generateComprehensiveGrowthSuggestion(input: {
 }): Promise<string> {
   if (input.tasks.length === 0) return '';
   const template = await fetchPrompt('growth_suggestion_comprehensive');
-  const guide = await fetchPrompt('evaluation_guide');
+  const guide = await fetchEvaluationGuide();
   const lines = input.tasks
     .map((t, i) => {
       const period =

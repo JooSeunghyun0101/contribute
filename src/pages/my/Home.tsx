@@ -1074,9 +1074,9 @@ const MyHome = () => {
             />
             <div style={{ flex: 1, minHeight: 220 }}>
               {growthSuggestion ? (
-                <AiContentText text={growthSuggestion} accent="var(--ai-accent)" />
+                <AiContentText text={growthSuggestion} accent="var(--ai-accent)" fontSize="var(--fs-body)" />
               ) : (
-                <p style={{ margin: 0, fontSize: 'var(--fs-sm)', lineHeight: 1.75, color: 'var(--fg-muted)' }}>
+                <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.75, color: 'var(--fg-muted)' }}>
                   평가자가 평가를 저장하면 과업 전체(일정·비중·기여방식/범위·피드백)를 종합한 성장 제안이
                   여기에 표시됩니다.
                 </p>

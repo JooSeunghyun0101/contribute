@@ -389,8 +389,8 @@ const Evaluation = () => {
 
   const onNoContributionClick = (group: EvaluatorGroup, task: Task) => {
     if (!group.canEdit) return;
-    handleMethodClick(task.id, '기여없음');
-    handleScopeClick(task.id, '기여없음');
+    handleMethodClick(task.id, '기여미흡');
+    handleScopeClick(task.id, '기여미흡');
   };
 
   const onSaveClick = async () => {

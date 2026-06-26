@@ -539,7 +539,7 @@ const TaskDetail = ({
   const selectedMethodIdx = (METHODS as readonly string[]).indexOf(displayTask.contributionMethod ?? '');
   const selectedScopeIdx = (SCOPES as readonly string[]).indexOf(displayTask.contributionScope ?? '');
   const noContribSelected =
-    displayTask.contributionMethod === '기여없음' && displayTask.contributionScope === '기여없음';
+    displayTask.contributionMethod === '기여미흡' && displayTask.contributionScope === '기여미흡';
   const [feedbackAiLoading, setFeedbackAiLoading] = useState(false);
   const [feedbackAiSuggestion, setFeedbackAiSuggestion] = useState<string | null>(null);
 
@@ -644,7 +644,7 @@ const TaskDetail = ({
                 opacity: group.canEdit ? 1 : 0.55,
               }}
             >
-              기여없음 (0점)
+              기여미흡 (0점)
             </button>
           </div>
 

@@ -1005,8 +1005,8 @@ function isPromotion(employeeId, ability2025) {
           // score=0 하드픽 (단일 건, 재현)
           if (!scoreZeroInjected && evalId === scoreZeroTaskEvalId && ti === 0) {
             score = 0;
-            methodLabel = '기여없음';
-            scopeLabel = '기여없음';
+            methodLabel = '기여미흡';
+            scopeLabel = '기여미흡';
             scoreZeroInjected = true;
           } else {
             const targetScore = generateScore(rngScore, growthLevel, abilityZ, bias_e, sigma_e);
@@ -1020,7 +1020,7 @@ function isPromotion(employeeId, ability2025) {
         // feedback
         let feedback = null;
         let feedbackDate = null;
-        // 0점(기여없음×기여없음) 과업은 의견 없음 — 충족형 의견이 붙어 점수-의견 정합이 깨지지 않게.
+        // 0점(기여미흡×기여미흡) 과업은 의견 없음 — 충족형 의견이 붙어 점수-의견 정합이 깨지지 않게.
         if (score !== null && score > 0 && !isFeedbackNull(evalId, ti)) {
           const rngFbDate = makePrng(evalId + ':' + ti, 'fbDate');
           feedbackDate = feedbackCreatedAt(rngFbDate, endDate);
