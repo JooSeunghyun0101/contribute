@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
@@ -10,6 +10,9 @@ import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { usePriorYearRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { aiContentService } from '@/lib/services';
+import { AiContentText } from '@/components/ui/AiContentText';
+import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { buildMonthlyScoreTrend } from '@/lib/scoreTrend';
 import type { Employee } from '@/types';
 import {
@@ -123,6 +126,9 @@ const MyHome = () => {
     () => tasks.reduce((sum, t) => sum + (t.weight ?? 0), 0),
     [tasks],
   );
+  // 과업비율 도넛 선택 → 리스트·기여분포·간트 연동 하이라이트.
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const toggleActiveTask = (id: string | null) => setActiveTaskId((prev) => (prev === id ? null : id));
   const weightDonutData = useMemo(
     () =>
       tasks.map((t, i) => ({
@@ -131,6 +137,8 @@ const MyHome = () => {
         weight: t.weight ?? 0,
         score: getMatrixScore(t.contributionMethod, t.contributionScope, matrix) ?? t.score ?? null,
         index: i,
+        id: t.id,
+        isAiTask: t.isAiTask ?? false,
       })),
     [matrix, tasks],
   );
@@ -150,6 +158,30 @@ const MyHome = () => {
   /* 직전연도 개인 추이 비교 */
   const { periods, selectedPeriod } = useEvaluationPeriod();
   const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  // 간트 '오늘' 세로줄은 현재 연도 평가기간을 볼 때만 표시(지난 연도 조회 시 숨김).
+  const showTodayMarker = (selectedPeriod?.evaluation_year ?? todayDate.getFullYear()) === todayDate.getFullYear();
+
+  // AI 종합 성장제안 — 평가자 저장 시 생성·영속된 값만 불러온다(조회 시 AI 재호출 없음).
+  const growthScopeId =
+    user?.employeeId && selectedPeriod?.id ? `${user.employeeId}:${selectedPeriod.id}` : null;
+  const [growthSuggestion, setGrowthSuggestion] = useState<string | null>(null);
+  const [growthGeneratedAt, setGrowthGeneratedAt] = useState<string | null>(null);
+  useEffect(() => {
+    if (!growthScopeId) {
+      setGrowthSuggestion(null);
+      setGrowthGeneratedAt(null);
+      return;
+    }
+    let cancelled = false;
+    aiContentService.get('evaluatee_growth_suggestion', growthScopeId).then((rec) => {
+      if (cancelled) return;
+      setGrowthSuggestion(rec?.content ?? null);
+      setGrowthGeneratedAt(rec?.generated_at ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [growthScopeId]);
   const priorPeriodId = useMemo(
     () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
     [periods, priorYear],
@@ -328,8 +360,8 @@ const MyHome = () => {
         </div>
       ) : (
         <>
-          {/* ── 2-컬럼 (기여 분포 + 간트) ────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16 }}>
+          {/* ── 2-컬럼 (기여 분포 + 간트) ── 화면상 '두 번째' 줄(order 로 과업비율 줄과 자리 바꿈) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16, order: -1 }}>
             {/* 기여 분포 */}
             <div className="sd-card" style={{ padding: 18 }}>
               <div
@@ -393,8 +425,11 @@ const MyHome = () => {
                     const label = `T${String(cell.taskIndex + 1).padStart(2, '0')}`;
                     const hasScore = cell.score != null;
                     const bg = getScoreColor(cell.score);
+                    const cellTask = tasks[cell.taskIndex];
+                    const cellActive = cellTask?.id != null && cellTask.id === activeTaskId;
                     return (
                       <div
+                        onClick={() => cellTask?.id && toggleActiveTask(cellTask.id)}
                         style={{
                           height: 48,
                           borderRadius: 8,
@@ -407,6 +442,8 @@ const MyHome = () => {
                           lineHeight: 1.05,
                           gap: 2,
                           padding: '4px 0',
+                          cursor: 'pointer',
+                          opacity: activeTaskId && !cellActive ? 0.35 : 1,
                         }}
                         title={hasScore ? `${label} · ${cell.score}점` : `${label} · 미완료`}
                       >
@@ -416,8 +453,14 @@ const MyHome = () => {
                             fontWeight: 800,
                             opacity: 0.85,
                             letterSpacing: '0.04em',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
                           }}
                         >
+                          {cellTask?.isAiTask && (
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                          )}
                           {label}
                         </span>
                         <span
@@ -463,9 +506,12 @@ const MyHome = () => {
                         const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
                         const hasScore = c.score != null;
                         const bg = getScoreColor(c.score);
+                        const chipTask = tasks[c.taskIndex];
+                        const chipActive = chipTask?.id != null && chipTask.id === activeTaskId;
                         return (
                           <div
                             key={`chip-${c.taskIndex}`}
+                            onClick={() => chipTask?.id && toggleActiveTask(chipTask.id)}
                             style={{
                               flex: 1,
                               minHeight: 18,
@@ -479,9 +525,18 @@ const MyHome = () => {
                               fontSize: 'var(--fs-micro)',
                               fontWeight: 800,
                               lineHeight: 1,
+                              cursor: 'pointer',
+                              opacity: activeTaskId && !chipActive ? 0.35 : 1,
                             }}
                           >
-                            <span style={{ opacity: 0.9, letterSpacing: '0.02em' }}>{lab}</span>
+                            <span
+                              style={{ opacity: 0.9, letterSpacing: '0.02em', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            >
+                              {chipTask?.isAiTask && (
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                              )}
+                              {lab}
+                            </span>
                             <span className="tnum" style={{ fontSize: 'var(--fs-xs)', fontWeight: 900 }}>
                               {hasScore ? c.score : '–'}
                             </span>
@@ -601,20 +656,22 @@ const MyHome = () => {
                   position: 'relative',
                 }}
               >
-                {/* Today marker */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    left: `calc(${todayFrac * 100}% - 32px)`,
-                    width: 2,
-                    background: 'var(--ok-orange)',
-                    borderRadius: 1,
-                    zIndex: 2,
-                    pointerEvents: 'none',
-                  }}
-                />
+                {/* Today marker — 현재 연도 조회 시에만 */}
+                {showTodayMarker && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: `calc(${todayFrac * 100}% - 32px)`,
+                      width: 2,
+                      background: 'var(--ok-orange)',
+                      borderRadius: 1,
+                      zIndex: 2,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
 
                 {tasks.map((task, index) => {
                   const startFrac = toGanttFrac(task.startDate);
@@ -623,14 +680,18 @@ const MyHome = () => {
                   const widthPct = (endFrac - startFrac) * 100;
                   const taskScore = getCurrentScore(task);
 
+                  const ganttActive = task.id === activeTaskId;
                   return (
                     <div
                       key={task.id}
+                      onClick={() => toggleActiveTask(task.id)}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 64px',
                         gap: 8,
                         alignItems: 'center',
+                        cursor: 'pointer',
+                        opacity: activeTaskId && !ganttActive ? 0.45 : 1,
                       }}
                     >
                       <div
@@ -674,6 +735,22 @@ const MyHome = () => {
                             whiteSpace: 'nowrap',
                           }}
                         >
+                          {task.isAiTask && (
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                marginRight: 4,
+                                padding: '0 4px',
+                                borderRadius: 999,
+                                fontSize: 'var(--fs-2xs)',
+                                fontWeight: 800,
+                                color: 'var(--ai-accent)',
+                                background: '#fff',
+                              }}
+                            >
+                              AI
+                            </span>
+                          )}
                           T{String(index + 1).padStart(2, '0')} · {task.title}
                         </div>
                       </div>
@@ -732,7 +809,9 @@ const MyHome = () => {
             </div>
           </div>
 
-          {/* ── 과업 비율 도넛차트 ───────────────────────────── */}
+          {/* ── 과업 비율 + AI 성장제안 (2단) ── 화면상 '첫 번째' 줄로 올림(order) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch', order: -2 }}>
+          {/* 과업 비율 도넛차트 */}
           <div className="sd-card" style={{ padding: 18 }}>
             <div
               style={{
@@ -770,6 +849,8 @@ const MyHome = () => {
                       <PieChart>
                         <Pie
                           data={weightDonutData}
+                          onClick={(_d: unknown, idx: number) => toggleActiveTask(weightDonutData[idx]?.id ?? null)}
+                          cursor="pointer"
                           dataKey="weight"
                           nameKey="shortName"
                           cx="50%"
@@ -814,7 +895,13 @@ const MyHome = () => {
                           }}
                         >
                           {weightDonutData.map((entry) => (
-                            <Cell key={entry.shortName} fill={getScoreColor(entry.score)} />
+                            <Cell
+                              key={entry.shortName}
+                              fill={getScoreColor(entry.score)}
+                              opacity={activeTaskId && entry.id !== activeTaskId ? 0.25 : 1}
+                              stroke="var(--bg-card)"
+                              strokeWidth={2}
+                            />
                           ))}
                         </Pie>
                         <Tooltip
@@ -885,6 +972,7 @@ const MyHome = () => {
                   return (
                     <div
                       key={item.shortName}
+                      onClick={() => toggleActiveTask(item.id)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -892,6 +980,8 @@ const MyHome = () => {
                         padding: '4px 8px',
                         borderRadius: 6,
                         background: 'var(--bg-muted)',
+                        opacity: activeTaskId && item.id !== activeTaskId ? 0.4 : 1,
+                        cursor: 'pointer',
                         minWidth: 0,
                       }}
                     >
@@ -927,6 +1017,21 @@ const MyHome = () => {
                       >
                         {tasks[i]?.title}
                       </span>
+                      {item.isAiTask && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            padding: '0 5px',
+                            borderRadius: 999,
+                            fontSize: 'var(--fs-2xs)',
+                            fontWeight: 800,
+                            color: 'var(--ai-accent)',
+                            background: 'var(--ai-accent-bg)',
+                          }}
+                        >
+                          AI
+                        </span>
+                      )}
                       <span
                         className="tnum"
                         style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg)' }}
@@ -955,6 +1060,33 @@ const MyHome = () => {
                 })}
               </div>
             </div>
+          </div>
+          {/* AI 성장제안 카드 — 행의 오른쪽. 평가자 저장 시 생성·영속된 종합 제안(조회 시 AI 0). */}
+          <div
+            className="sd-card ai-shine-border"
+            style={{ padding: 18, display: 'flex', flexDirection: 'column' }}
+          >
+            <AiSectionTitle
+              title="AI 성장 제안"
+              variant="heading"
+              right={
+                growthGeneratedAt
+                  ? `${new Date(growthGeneratedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                  : '평가자 저장 시 자동'
+              }
+              style={{ marginBottom: 14 }}
+            />
+            <div style={{ flex: 1, minHeight: 220 }}>
+              {growthSuggestion ? (
+                <AiContentText text={growthSuggestion} accent="var(--ai-accent)" fontSize="var(--fs-body)" />
+              ) : (
+                <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.75, color: 'var(--fg-muted)' }}>
+                  평가자가 평가를 저장하면 과업 전체(일정·비중·기여방식/범위·피드백)를 종합한 성장 제안이
+                  여기에 표시됩니다.
+                </p>
+              )}
+            </div>
+          </div>
           </div>
 
           {/* ── 월별 점수 추이 ───────────────────────────── */}

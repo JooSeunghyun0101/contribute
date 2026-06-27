@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
 
 export type TaskFeedbackEntry = {
@@ -14,6 +15,7 @@ export type TaskFeedbackCardProps = {
   contributionMethod?: string | null;
   contributionScope?: string | null;
   score: number | null;
+  isAiTask?: boolean;
   entries: TaskFeedbackEntry[];
 };
 
@@ -74,6 +76,7 @@ const TaskFeedbackCard = ({
   contributionMethod,
   contributionScope,
   score,
+  isAiTask,
   entries,
 }: TaskFeedbackCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -150,6 +153,20 @@ const TaskFeedbackCard = ({
             {taskBadge}
           </span>
         )}
+        {isAiTask && (
+          <span
+            style={{
+              fontSize: 'var(--fs-xs)',
+              fontWeight: 800,
+              color: 'var(--ai-accent)',
+              background: 'var(--ai-accent-bg)',
+              borderRadius: 4,
+              padding: '2px 7px',
+            }}
+          >
+            AI
+          </span>
+        )}
         <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{taskTitle}</span>
         {(contributionMethod || contributionScope) && (
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
@@ -195,7 +212,7 @@ const TaskFeedbackCard = ({
             <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
           </button>
 
-          {isExpanded && (
+          <AccordionMotion isOpen={isExpanded}>
             <div className="flex flex-col" style={{ marginTop: 14, gap: 14 }}>
               {older.map((entry) => (
                 <div
@@ -219,7 +236,7 @@ const TaskFeedbackCard = ({
                 </div>
               ))}
             </div>
-          )}
+          </AccordionMotion>
         </>
       )}
     </div>

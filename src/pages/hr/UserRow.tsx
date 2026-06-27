@@ -129,6 +129,26 @@ function UserRowInner({
               />
               휴직 처리
             </label>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 'var(--fs-xs)',
+                fontWeight: editForm.aiRuleExempt ? 700 : 600,
+                color: editForm.aiRuleExempt ? 'var(--ok-brown)' : 'var(--fg-muted)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="체크 시 이 피평가자는 'AI 과업 가중치 50%' 규칙을 면제받아, 비중 미달이어도 성과보고 최종제출이 가능합니다."
+            >
+              <input
+                type="checkbox"
+                checked={editForm.aiRuleExempt}
+                onChange={(event) => onUpdateEditForm('aiRuleExempt', event.target.checked)}
+              />
+              AI 50% 예외
+            </label>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>

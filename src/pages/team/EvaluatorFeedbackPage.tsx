@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { FilterChip, IconSparkle } from '@/components/brand';
+import { FilterChip } from '@/components/brand';
+import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
+import { AiKeywordChips } from '@/components/ui/AiKeywordChips';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import {
-  generateFeedbackSummaryForEvaluator,
-  type FeedbackForSummary,
-} from '@/lib/gptOss';
+import { type FeedbackForSummary } from '@/lib/gptOss';
+import { aiContentService } from '@/lib/services';
+import { AiContentText } from '@/components/ui/AiContentText';
 import TaskFeedbackCard, {
   type TaskFeedbackCardProps,
 } from '@/components/Feedback/TaskFeedbackCard';
@@ -22,7 +22,6 @@ type EmployeeTaskCards = {
   employeePosition: string;
   totalFeedbacks: number;
   cards: (TaskFeedbackCardProps & { taskId: string })[];
-  keywords: string[];
 };
 
 const buildEmployeeTaskCards = (
@@ -62,25 +61,13 @@ const buildEmployeeTaskCards = (
       taskId: task.task_id,
       taskIndex: idx,
       taskTitle: task.title,
+      isAiTask: task.is_ai_task ?? false,
       contributionMethod: task.contribution_method,
       contributionScope: task.contribution_scope,
       score: task.score,
       entries: sorted,
     };
   });
-
-  const keywordsSet = new Set<string>();
-  const keywords: string[] = [];
-  for (const task of record.tasks) {
-    if (task.contribution_method && !keywordsSet.has(task.contribution_method)) {
-      keywordsSet.add(task.contribution_method);
-      keywords.push(task.contribution_method);
-    }
-    if (task.contribution_scope && !keywordsSet.has(task.contribution_scope)) {
-      keywordsSet.add(task.contribution_scope);
-      keywords.push(task.contribution_scope);
-    }
-  }
 
   return {
     employeeId: record.employee.employee_id,
@@ -89,7 +76,6 @@ const buildEmployeeTaskCards = (
     employeePosition: record.employee.position,
     totalFeedbacks: cards.reduce((sum, c) => sum + c.entries.length, 0),
     cards,
-    keywords,
   };
 };
 
@@ -152,40 +138,40 @@ const EvaluatorFeedbackPage = () => {
     );
   }, [focusedBundle]);
 
-  const aiFeedbackSignature = useMemo(
-    () => `${focusedBundle?.employeeId ?? ''}|${aiFeedbackInputs.map((f) => f.content).join('|')}`,
-    [focusedBundle?.employeeId, aiFeedbackInputs],
-  );
+  const summaryScopeId =
+    user?.employeeId && focusedBundle && selectedPeriod?.id
+      ? `${user.employeeId}:${focusedBundle.employeeId}:${selectedPeriod.id}`
+      : null;
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiRefreshKey, setAiRefreshKey] = useState(0);
+  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
+  const [aiKeywords, setAiKeywords] = useState<string | null>(null);
+  const [aiKeywordsAt, setAiKeywordsAt] = useState<string | null>(null);
 
+  // 평가 저장 시 자동 생성·영속된 요약/키워드를 불러오기만 한다(조회 시 AI 재호출 없음).
   useEffect(() => {
-    if (!focusedBundle || aiFeedbackInputs.length === 0) {
+    if (!summaryScopeId) {
       setAiSummary(null);
-      setAiError(null);
+      setAiGeneratedAt(null);
+      setAiKeywords(null);
+      setAiKeywordsAt(null);
       return;
     }
     let cancelled = false;
-    setAiLoading(true);
-    setAiError(null);
-    generateFeedbackSummaryForEvaluator(focusedBundle.employeeName, aiFeedbackInputs)
-      .then((text) => {
-        if (!cancelled) setAiSummary(text);
-      })
-      .catch((err) => {
-        if (!cancelled) setAiError(err instanceof Error ? err.message : 'AI 요약 호출 실패');
-      })
-      .finally(() => {
-        if (!cancelled) setAiLoading(false);
-      });
+    aiContentService.get('evaluator_feedback_summary', summaryScopeId).then((rec) => {
+      if (cancelled) return;
+      setAiSummary(rec?.content ?? null);
+      setAiGeneratedAt(rec?.generated_at ?? null);
+    });
+    aiContentService.get('evaluator_feedback_keywords', summaryScopeId).then((rec) => {
+      if (cancelled) return;
+      setAiKeywords(rec?.content ?? null);
+      setAiKeywordsAt(rec?.generated_at ?? null);
+    });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiFeedbackSignature, aiRefreshKey]);
+  }, [summaryScopeId]);
 
   return (
     <>
@@ -320,6 +306,7 @@ const EvaluatorFeedbackPage = () => {
                               key={card.taskId}
                               taskIndex={card.taskIndex}
                               taskTitle={card.taskTitle}
+                              isAiTask={card.isAiTask}
                               contributionMethod={card.contributionMethod}
                               contributionScope={card.contributionScope}
                               score={card.score}
@@ -336,65 +323,65 @@ const EvaluatorFeedbackPage = () => {
 
             {/* ── Right sidebar ── */}
             <div className="flex flex-col gap-4">
-              <div className="sd-card">
-                <div className="sd-label-mini" style={{ marginBottom: 12 }}>피평가자</div>
-                {focusedBundle ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        background: 'var(--ok-orange)',
-                        color: '#fff',
-                        fontSize: 'var(--fs-h4)',
-                        fontWeight: 800,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {focusedBundle.employeeName.charAt(0)}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{focusedBundle.employeeName}</div>
-                      <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
-                        {focusedBundle.employeePosition} · {focusedBundle.employeeDepartment}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', lineHeight: 1.7 }}>
-                    팀 {aggregateStats.employees}명 · 과업 {aggregateStats.tasks}개 · 피드백{' '}
-                    {aggregateStats.feedbacks}건
-                  </div>
-                )}
+              <div className="sd-card ai-shine-border">
+                <AiSectionTitle
+                  title="AI 요약"
+                  right={
+                    aiSummary && aiGeneratedAt
+                      ? `${new Date(aiGeneratedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                      : focusedBundle
+                        ? '저장 시 자동'
+                        : undefined
+                  }
+                />
+                <div style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.7, color: 'var(--fg)', minHeight: 40 }}>
+                  {!focusedBundle ? (
+                    <span style={{ color: 'var(--fg-muted)' }}>
+                      담당 피평가자를 한 명 선택하면 저장된 AI 요약이 표시됩니다.
+                    </span>
+                  ) : aiFeedbackInputs.length === 0 ? (
+                    <span style={{ color: 'var(--fg-muted)' }}>
+                      {focusedBundle.employeeName}님에게 작성한 피드백이 아직 없습니다.
+                    </span>
+                  ) : aiSummary ? (
+                    <AiContentText text={aiSummary} accent="var(--ai-accent)" />
+                  ) : (
+                    <span style={{ color: 'var(--fg-muted)' }}>
+                      아직 생성된 요약이 없습니다. 이 피평가자의 평가를 저장하면 자동으로 생성됩니다.
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {focusedBundle && focusedBundle.keywords.length > 0 && (
-                <div className="sd-card">
-                  <div className="sd-label-mini" style={{ marginBottom: 12 }}>키워드</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {focusedBundle.keywords.map((kw) => (
-                      <span
-                        key={kw}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: 20,
-                          background: 'var(--bg-muted)',
-                          border: '1px solid var(--border)',
-                          fontSize: 'var(--fs-sm)',
-                          fontWeight: 600,
-                          color: 'var(--fg)',
-                        }}
-                      >
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
+              <div className="sd-card ai-shine-border">
+                <AiSectionTitle
+                  title="AI 키워드"
+                  right={
+                    aiKeywords && aiKeywordsAt
+                      ? `${new Date(aiKeywordsAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 생성`
+                      : focusedBundle
+                        ? '저장 시 자동'
+                        : undefined
+                  }
+                />
+                <div style={{ minHeight: 28 }}>
+                  {!focusedBundle ? (
+                    <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+                      담당 피평가자를 한 명 선택하면 키워드가 표시됩니다.
+                    </span>
+                  ) : aiFeedbackInputs.length === 0 ? (
+                    <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+                      작성한 피드백이 아직 없습니다.
+                    </span>
+                  ) : aiKeywords ? (
+                    <AiKeywordChips text={aiKeywords} />
+                  ) : (
+                    <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+                      아직 생성된 키워드가 없습니다. 이 피평가자의 평가를 저장하면 자동으로 생성됩니다.
+                    </span>
+                  )}
                 </div>
-              )}
+              </div>
 
               {focusedBundle && focusedBundle.cards.length > 0 && (
                 <div className="sd-card">
@@ -446,80 +433,6 @@ const EvaluatorFeedbackPage = () => {
                 </div>
               )}
 
-              <div
-                className="sd-card"
-                style={{
-                  background: 'linear-gradient(135deg, var(--ok-orange-50) 0%, var(--bg-card) 100%)',
-                  border: '1px solid var(--ok-orange-100)',
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div style={{ color: 'var(--ok-orange)', marginTop: 2 }}>
-                    <IconSparkle width={16} height={16} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                      }}
-                    >
-                      <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--ok-brown)' }}>
-                        AI 요약
-                      </span>
-                      {focusedBundle && aiFeedbackInputs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setAiRefreshKey((k) => k + 1)}
-                          disabled={aiLoading}
-                          title="다시 생성"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '2px 8px',
-                            borderRadius: 6,
-                            border: '1px solid var(--ok-orange-100)',
-                            background: 'transparent',
-                            color: 'var(--ok-orange-700)',
-                            fontSize: 'var(--fs-xs)',
-                            fontWeight: 700,
-                            cursor: aiLoading ? 'wait' : 'pointer',
-                            opacity: aiLoading ? 0.6 : 1,
-                          }}
-                        >
-                          <RefreshCw
-                            size={12}
-                            style={{ animation: aiLoading ? 'spin 1s linear infinite' : 'none' }}
-                          />
-                          다시 생성
-                        </button>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 'var(--fs-sm)',
-                        lineHeight: 1.7,
-                        color: 'var(--ok-brown)',
-                        marginTop: 6,
-                        minHeight: 40,
-                      }}
-                    >
-                      {!focusedBundle
-                        ? '담당 피평가자별 피드백을 한눈에 확인하고 다음 평가에 활용하세요. 한 명을 선택하면 AI 요약이 생성됩니다.'
-                        : aiFeedbackInputs.length === 0
-                          ? `${focusedBundle.employeeName}님에게 작성한 피드백이 아직 없습니다.`
-                          : aiLoading && aiSummary == null
-                            ? 'AI가 피드백을 분석 중입니다…'
-                            : aiError
-                              ? `${aiError} (다시 생성 버튼으로 재시도)`
-                              : aiSummary ?? '요약을 준비하고 있습니다…'}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         )}

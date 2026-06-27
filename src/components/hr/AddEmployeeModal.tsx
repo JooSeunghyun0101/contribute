@@ -111,7 +111,7 @@ const AddEmployeeModal = ({ evaluatorOptions, isSaving, onSubmit, onClose }: Pro
             />
           </div>
           <div>
-            <label style={labelStyle}>직급</label>
+            <label style={labelStyle}>직책</label>
             <input
               className="sd-input"
               value={position}

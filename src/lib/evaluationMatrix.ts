@@ -3,16 +3,16 @@ export const MATRIX_SCOPES = ['의존적', '독립적', '상호적', '전략적'
 
 // 기여 방식·범위 가이드 — 매트릭스 가이드 표시 및 점수표(MatrixGrid) 라벨 hover 툴팁에 사용.
 export const MATRIX_METHOD_GUIDE: Record<string, string> = {
-  총괄: '프로젝트나 업무를 전체적으로 주도하고 관리',
-  리딩: '팀이나 그룹을 이끌며 방향성 제시',
-  실무: '구체적인 업무 실행과 결과물 생성',
-  지원: '다른 업무나 팀을 보조하고 지원',
+  총괄: '과제와 목표의 최종 오너로서 방향과 자원 배분을 결정하고 성과에 대해 전적으로 책임집니다.',
+  리딩: '단위 과제의 실행 리더로서 설계·일정·이슈 해결을 주도하며 의사결정을 적극 견인합니다.',
+  실무: '핵심 산출물을 직접 생산·수행하며 본인 담당 영역의 품질·기한·정확도를 책임집니다.',
+  지원: '실행을 가능하게 하는 조율·운영·보조를 수행하며 성과에 실질적인 지원 기능을 제공합니다.',
 };
 export const MATRIX_SCOPE_GUIDE: Record<string, string> = {
-  의존적: '다른 사람의 도움이나 지시가 필요한 수준',
-  독립적: '혼자서 업무를 완수할 수 있는 수준',
-  상호적: '타 부서나 팀과 협력하여 진행하는 수준',
-  전략적: '조직 전체에 영향을 미치는 전략적 수준',
+  의존적: '상급자의 구체적인 지시와 가이드 하에 정해진 절차와 방식에 따라 과업을 수행합니다.',
+  독립적: '상급자의 세부 가이드 없이도 본인의 판단에 따라 과업을 완수하며 자기주도적으로 업무합니다.',
+  상호적: '유관 부서 및 동료와 긴밀히 협업하여 시너지를 창출하고 공동의 목표 달성을 위해 소통합니다.',
+  전략적: '전사적 관점에서 과업의 가치를 창출하며 미래 방향성을 제시하고 조직의 핵심 이익에 기여합니다.',
 };
 
 // 편집 가능한 매트릭스 가이드(기여 방식·범위 설명).
@@ -318,7 +318,7 @@ export const MATRIX_SCORE_COLORS: Record<number, string> = {
   1: '#BBB1A4',
 };
 
-// 미평가 / 기여없음(0점) 과업에 쓰는 중립 색상.
+// 미평가 / 기여미흡(0점) 과업에 쓰는 중립 색상.
 // 1점 색(#BBB1A4)보다 한 단계 더 옅게 두어 "아직 점수 없음"을 구분한다.
 // 미평가/0점 — 다크/라이트 양쪽 가독성 위해 CSS 변수 사용 (index.css에 모드별 매핑)
 export const SCORE_COLOR_UNRATED = 'var(--score-unrated-bg)';
@@ -355,7 +355,7 @@ export const formatScore = (score: number): string => floorScoreTenths(score).to
 
 export const getMatrixMethodIndex = (method?: string | null) => {
   const value = (method ?? '').trim();
-  if (!value || value === '기여없음') return -1;
+  if (!value || value === '기여미흡') return -1;
   if (value.includes('총괄') || value.includes('주도')) return 0;
   if (value.includes('리딩')) return 1;
   if (value.includes('실무') || value.includes('협업')) return 2;
@@ -365,7 +365,7 @@ export const getMatrixMethodIndex = (method?: string | null) => {
 
 export const getMatrixScopeIndex = (scope?: string | null) => {
   const value = (scope ?? '').trim();
-  if (!value || value === '기여없음') return -1;
+  if (!value || value === '기여미흡') return -1;
   if (value.includes('의존') || value.includes('개인')) return 0;
   if (value.includes('독립') || value.includes('팀')) return 1;
   if (value.includes('상호') || value.includes('본부')) return 2;
@@ -378,11 +378,62 @@ export const getMatrixScore = (
   scope?: string | null,
   matrix: EvaluationMatrixScores | readonly (readonly number[])[] = MATRIX_SCORES,
 ) => {
-  if (method === '기여없음' && scope === '기여없음') return 0;
+  if (method === '기여미흡' && scope === '기여미흡') return 0;
 
   const methodIndex = getMatrixMethodIndex(method);
   const scopeIndex = getMatrixScopeIndex(scope);
   if (methodIndex < 0 || scopeIndex < 0) return null;
 
   return matrix[methodIndex]?.[scopeIndex] ?? MATRIX_SCORES[methodIndex][scopeIndex];
+};
+
+export type MatrixCriteriaInput = {
+  matrix?: EvaluationMatrixScores | readonly (readonly number[])[];
+  guide?: MatrixGuide;
+  growth?: Record<GrowthLevel, GrowthLevelExpectation>;
+  gap?: Record<ScoreGapBucket, ScoreGapExpectation>;
+};
+
+const GAP_PROMPT_LABEL: Record<ScoreGapBucket, string> = {
+  exceed: '초과(점수>성장레벨)',
+  meet: '충족(점수=성장레벨)',
+  near: '근접(성장레벨 -1)',
+  below: '미달(성장레벨 -2 이하)',
+};
+
+// /hr/matrix(평가 매트릭스 설정)에서 관리하는 모든 기준을 AI 프롬프트용 텍스트로 변환한다.
+// 기여 방식·범위 정의 + 점수 매트릭스 + 성장레벨별 기대수준 + 점수-성장레벨 갭별 해석.
+// 이 설정들이 단일 원천이며, 여기서 생성해 평가 기준 문서(evaluation_guide)에 합성한다.
+// → HR이 /hr/matrix 에서 무엇을 바꾸든 AI 기능이 항상 최신 기준으로 답한다(하드코딩·중복 제거).
+export const formatMatrixCriteria = ({
+  matrix = MATRIX_SCORES,
+  guide = cloneDefaultMatrixGuide(),
+  growth = GROWTH_LEVEL_EXPECTATIONS,
+  gap = SCORE_GAP_EXPECTATIONS,
+}: MatrixCriteriaInput = {}): string => {
+  const methodDefs = MATRIX_METHODS.map((m) => `- ${m}: ${guide.methods[m] ?? ''}`).join('\n');
+  const scopeDefs = MATRIX_SCOPES.map((s) => `- ${s}: ${guide.scopes[s] ?? ''}`).join('\n');
+  const matrixRows = MATRIX_METHODS.map((method, mi) => {
+    const cells = MATRIX_SCOPES.map(
+      (scope, si) => `${scope}(${matrix[mi]?.[si] ?? MATRIX_SCORES[mi][si]}점)`,
+    ).join(', ');
+    return `- ${method}: ${cells}`;
+  }).join('\n');
+  const growthLines = ([1, 2, 3, 4] as GrowthLevel[])
+    .map((lv) => {
+      const g = growth[lv];
+      return `- ${g.title}: (최소 기대) ${g.minimumExpectation} / (높은 기여) ${g.stretchExpectation}`;
+    })
+    .join('\n');
+  const gapLines = (['exceed', 'meet', 'near', 'below'] as ScoreGapBucket[])
+    .map((b) => `- ${GAP_PROMPT_LABEL[b]}: ${gap[b].label} — ${gap[b].summary}. ${gap[b].detail}`)
+    .join('\n');
+
+  return [
+    `**기여 방식 정의:**\n${methodDefs}`,
+    `**기여 범위 정의:**\n${scopeDefs}`,
+    `**점수 매트릭스:** (행=기여방식, 열=기여범위 의존적→전략적)\n${matrixRows}`,
+    `**성장레벨별 기대수준:**\n${growthLines}`,
+    `**점수-성장레벨 갭별 해석:** (피평가자 성장레벨 대비 점수 차이)\n${gapLines}`,
+  ].join('\n\n');
 };

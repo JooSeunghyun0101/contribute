@@ -1,11 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { HelpCircle } from 'lucide-react';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
+import { FaqPro } from '@/components/ui/faq-pro';
 import { settingService } from '@/lib/services';
 
 interface FaqItem {
@@ -14,10 +9,17 @@ interface FaqItem {
   answer: string;
 }
 
+interface FaqSectionProps {
+  /** 카드 컨테이너 추가/덮어쓰기 스타일. 기본은 상단 여백 24px(목록 하단 배치용). */
+  style?: CSSProperties;
+  /** FAQ가 없을 때 대신 보여줄 내용. 미지정 시 아무것도 렌더하지 않는다(기존 동작 유지). */
+  emptyFallback?: ReactNode;
+}
+
 // HR이 '공지·FAQ' 화면에서 등록한 FAQ(settings: system/faq_catalog)를 직원에게 노출한다.
 // settings 읽기는 system 공유라 모든 로그인 사용자가 조회 가능(서버 requireSettingsRead).
-// FAQ가 없으면 섹션 자체를 렌더하지 않아 화면을 어지럽히지 않는다.
-export const FaqSection = () => {
+// FAQ가 없으면 기본적으로 렌더하지 않는다(emptyFallback 지정 시 그 내용을 대신 표시).
+export const FaqSection = ({ style, emptyFallback }: FaqSectionProps = {}) => {
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -43,10 +45,11 @@ export const FaqSection = () => {
     };
   }, []);
 
-  if (!loaded || faqs.length === 0) return null;
+  if (!loaded) return emptyFallback != null ? <>{emptyFallback}</> : null;
+  if (faqs.length === 0) return emptyFallback != null ? <>{emptyFallback}</> : null;
 
   return (
-    <section className="sd-card sd-card-lg" style={{ marginTop: 24 }}>
+    <section className="sd-card sd-card-lg" style={{ marginTop: 24, ...style }}>
       <h2
         style={{
           display: 'flex',
@@ -63,18 +66,12 @@ export const FaqSection = () => {
       <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginBottom: 14 }}>
         평가 진행 중 궁금한 점을 확인해 보세요.
       </p>
-      <Accordion type="single" collapsible>
-        {faqs.map((faq) => (
-          <AccordionItem key={faq.id} value={faq.id}>
-            <AccordionTrigger style={{ textAlign: 'left' }}>{faq.question}</AccordionTrigger>
-            <AccordionContent>
-              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7, color: 'var(--fg)' }}>
-                {faq.answer}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        ))}
-      </Accordion>
+      <FaqPro
+        className="mx-0 max-w-none"
+        defaultOpenFirst
+        items={faqs}
+        searchPlaceholder="질문 검색…"
+      />
     </section>
   );
 };

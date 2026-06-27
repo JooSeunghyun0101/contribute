@@ -18,9 +18,16 @@ import {
   feedbackService,
   notificationService,
   taskEvaluationEntryService,
+  aiContentService,
 } from '@/lib/services';
 import { getMatrixScore, getScoreGapBucket } from '@/lib/evaluationMatrix';
-import { reviewEvaluationFeedbacks } from '@/lib/gptOss';
+import {
+  reviewEvaluationFeedbacks,
+  generateComprehensiveGrowthSuggestion,
+  generateFeedbackSummaryForEvaluator,
+  generateFeedbackSummaryForEvaluatee,
+  generateFeedbackKeywords,
+} from '@/lib/gptOss';
 
 // 피드백 텍스트 해시 — AI 검수 결과가 어떤 피드백에 대한 것인지 기록(변경 추적용).
 const hashText = (text: string): string => {
@@ -141,6 +148,10 @@ const mapTaskEvaluationEntry = (entry: DbTaskEvaluationEntry): TaskEvaluationEnt
   cancelledAt: entry.cancelled_at,
   cancelledBy: entry.cancelled_by,
   cancelReason: entry.cancel_reason,
+  aiFlagged: entry.ai_flagged ?? null,
+  aiSummary: entry.ai_summary ?? null,
+  aiType: entry.ai_type ?? null,
+  aiReviewedAt: entry.ai_reviewed_at ?? null,
   createdAt: entry.created_at,
   updatedAt: entry.updated_at,
 });
@@ -460,6 +471,13 @@ export const useEvaluationDataDB = (
           // 이후의 후임 평가가 과거 이력으로 섞여 보이던 문제. 이전(선임) 평가자 이력은 유지.
           const previousEvaluations = evaluations.filter((item) => {
             if (!item.id || item.id === evaluation.id) return false;
+            // 같은 평가기간(전보)만 '이전 평가'로 노출 — 직전연도 등 다른 기간 평가가
+            // 섞여 "이전 평가자"로 잘못 보이지 않게 한다(기간 격리). 서버 기간필터에만
+            // 의존하지 않고 클라이언트에서도 명시적으로 같은 기간을 강제.
+            const samePeriod = item.evaluation_period_id
+              ? item.evaluation_period_id === evaluation.evaluation_period_id
+              : item.evaluation_year === evaluation.evaluation_year;
+            if (!samePeriod) return false;
             const itemAt = assignedAt(item as { evaluator_assigned_at?: string | null });
             if (currentAssignedAt != null && itemAt != null && itemAt > currentAssignedAt) return false;
             return true;
@@ -675,6 +693,7 @@ export const useEvaluationDataDB = (
             title: task.title,
             description: task.description || '',
             weight: task.weight,
+            isAiTask: task.is_ai_task ?? false,
             startDate: task.start_date || undefined,
             endDate: task.end_date || undefined,
             contributionMethod:
@@ -840,9 +859,15 @@ export const useEvaluationDataDB = (
     }
   };
 
-  const getTaskWithDraft = (task: Task) => applyTaskDraft(task, taskDrafts[task.id]);
+  const getTaskWithDraft = useCallback(
+    (task: Task) => applyTaskDraft(task, taskDrafts[task.id]),
+    [taskDrafts],
+  );
 
-  const hasTaskDraft = (taskId: string) => Boolean(sanitizeTaskDraft(taskDrafts[taskId]));
+  const hasTaskDraft = useCallback(
+    (taskId: string) => Boolean(sanitizeTaskDraft(taskDrafts[taskId])),
+    [taskDrafts],
+  );
 
   const getTasksWithDrafts = () => {
     if (!evaluationData) return [];
@@ -900,15 +925,15 @@ export const useEvaluationDataDB = (
     if (!ensurePeriodEditable()) return;
 
     updateTaskDraft(taskId, (task) => {
-      if (method === '기여없음') {
+      if (method === '기여미흡') {
         return {
-          contributionMethod: '기여없음',
-          contributionScope: '기여없음',
+          contributionMethod: '기여미흡',
+          contributionScope: '기여미흡',
           score: 0,
         };
       }
 
-      const nextScope = task.contributionScope === '기여없음' ? null : task.contributionScope;
+      const nextScope = task.contributionScope === '기여미흡' ? null : task.contributionScope;
       const nextScore = calculateMatrixScore(method, nextScope);
       return {
         contributionMethod: method,
@@ -925,15 +950,15 @@ export const useEvaluationDataDB = (
     if (!ensurePeriodEditable()) return;
 
     updateTaskDraft(taskId, (task) => {
-      if (scope === '기여없음') {
+      if (scope === '기여미흡') {
         return {
-          contributionMethod: '기여없음',
-          contributionScope: '기여없음',
+          contributionMethod: '기여미흡',
+          contributionScope: '기여미흡',
           score: 0,
         };
       }
 
-      const nextMethod = task.contributionMethod === '기여없음' ? null : task.contributionMethod;
+      const nextMethod = task.contributionMethod === '기여미흡' ? null : task.contributionMethod;
       const nextScore = calculateMatrixScore(nextMethod, scope);
       return {
         contributionMethod: nextMethod,
@@ -979,7 +1004,9 @@ export const useEvaluationDataDB = (
     
     return {
       exactScore: Math.round(totalWeightedScore * 100) / 100,
-      flooredScore: Math.floor(totalWeightedScore)
+      // float 누적 오차(예: 3.0 이 2.9999999…로) 때문에 Math.floor 가 한 단계 낮아져
+      // '3.0인데 미달성'이 되던 문제 방지 — 아주 작은 epsilon 을 더해 경계를 보정한다.
+      flooredScore: Math.floor(totalWeightedScore + 1e-9)
     };
   };
 
@@ -1102,7 +1129,10 @@ export const useEvaluationDataDB = (
             ''
           ).trim();
 
-          if (!currentFeedback || currentFeedback === previousFeedback) {
+          // 변경됐거나, '아직 한 번도 검수되지 않은'(ai_reviewed_at 없음) 피드백은 검수 대상에 포함한다.
+          // → 저장됐는데 검수 안 된 항목이 '통과'인지 '미저장'인지 구별 안 되던 문제 해소(저장 후 항상 판정).
+          const neverReviewed = !currentEntry?.ai_reviewed_at;
+          if (!currentFeedback || (currentFeedback === previousFeedback && !neverReviewed)) {
             return null;
           }
 
@@ -1352,6 +1382,123 @@ export const useEvaluationDataDB = (
       });
 
       await loadEvaluationData();
+
+      // 저장 시점 자동 AI 생성(영속) — 조회 시 재호출 없이 그대로 표시(토큰 절약·표현 일관).
+      // ⚠ 반드시 화면 리로드(loadEvaluationData) '이후'에, '순차(직렬)'로 호출한다(동시연결 점유 방지).
+      //   그리고 'isComplete(모든 과업 채점 = 완료 저장)' 일 때만 돌린다 — 중간(작성중) 저장마다 3콜씩
+      //   나가면 GitHub Models 무료티어 분당 한도를 쳐 429가 잦아진다. 완료 저장에서만 생성해 호출을 최소화.
+      if (user.role === 'evaluator' && isComplete) {
+        const evaluateeId = employeeId;
+        const periodId = selectedPeriodId ?? null;
+        const evaluateeName = evaluationData?.evaluateeName || '';
+        const tasksSnapshot = tasksToSave;
+        const anyTaskChanged = changedTasks.length > 0;       // 점수/방식/범위/피드백 등 무엇이든 변경됨
+        const anyFeedbackChanged = changedFeedbackItems.length > 0;
+        void (async () => {
+          if (!periodId || !evaluateeId) return;
+
+          // 생성 트리거 = '이번에 바뀌었거나' 또는 '아직 생성된 적이 없을 때'.
+          // 업로드/일괄적재로 등록된 평가는 점수·피드백이 이미 있어 세션 내 '변경'이 없으므로,
+          // 변경만 기준으로 하면 평가완료해도 AI가 안 생긴다. 그래서 '없으면 생성'을 함께 둬,
+          // 평가자가 평가완료(저장)하면 누락된 성장제안·요약·키워드가 채워지도록 한다(이미 있으면 건너뜀=토큰 절약).
+          const growthScope = `${evaluateeId}:${periodId}`;
+          const evaluatorSummaryScope = `${evaluatorId}:${evaluateeId}:${periodId}`;
+          const evaluateeSummaryScope = `${evaluateeId}:${periodId}`;
+          const evaluatorKeywordsScope = `${evaluatorId}:${evaluateeId}:${periodId}`;
+          const evaluateeKeywordsScope = `${evaluateeId}:${periodId}`;
+
+          const [haveGrowth, haveEvaluatorSummary, haveEvaluateeSummary, haveEvaluatorKeywords, haveEvaluateeKeywords] =
+            await Promise.all([
+              aiContentService.get('evaluatee_growth_suggestion', growthScope),
+              aiContentService.get('evaluator_feedback_summary', evaluatorSummaryScope),
+              aiContentService.get('evaluatee_feedback_summary', evaluateeSummaryScope),
+              aiContentService.get('evaluator_feedback_keywords', evaluatorKeywordsScope),
+              aiContentService.get('evaluatee_feedback_keywords', evaluateeKeywordsScope),
+            ]);
+
+          // 4개 생성 호출을 연달아 쏘면 무료티어 분당 한도를 쳐 뒤쪽 호출(특히 키워드)이 조용히 실패한다.
+          // 각 호출 자체도 백오프 재시도하지만, 호출 사이에 간격을 둬 분당 한도 압박을 줄인다.
+          const AI_GEN_GAP_MS = 1500;
+          let prevRan = false; // 직전 생성 호출이 실제로 나갔으면 다음 호출 전 간격을 둔다.
+          const spaceOut = async () => {
+            if (prevRan) await new Promise((resolve) => window.setTimeout(resolve, AI_GEN_GAP_MS));
+          };
+
+          const feedbackInputs = tasksSnapshot
+            .filter((t) => (t.feedback || '').trim())
+            .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }));
+          const hasFeedback = feedbackInputs.length > 0;
+
+          // ① 종합 성장 제안 — 과업 변경 시 또는 아직 없을 때. 점수가 하나라도 있어야 생성.
+          if ((anyTaskChanged || !haveGrowth) && tasksSnapshot.some((t) => t.score != null)) {
+            try {
+              const growth = await generateComprehensiveGrowthSuggestion({
+                tasks: tasksSnapshot.map((t) => ({
+                  taskTitle: t.title || '제목 없음',
+                  startDate: t.startDate,
+                  endDate: t.endDate,
+                  weight: t.weight,
+                  score: t.score,
+                  contributionMethod: t.contributionMethod,
+                  contributionScope: t.contributionScope,
+                  feedback: t.feedback,
+                })),
+                growthLevel,
+              });
+              if (growth && !growth.startsWith('⚠')) {
+                await aiContentService.put('evaluatee_growth_suggestion', growthScope, growth);
+              }
+            } catch {
+              /* best-effort */
+            }
+            prevRan = true;
+          }
+
+          // ② 평가자 피드백 요약 — 피드백 변경 시 또는 아직 없을 때.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluatorSummary)) {
+            await spaceOut();
+            try {
+              const summary = await generateFeedbackSummaryForEvaluator(evaluateeName, feedbackInputs);
+              if (summary && !summary.startsWith('⚠')) {
+                await aiContentService.put('evaluator_feedback_summary', evaluatorSummaryScope, summary);
+              }
+            } catch {
+              /* best-effort */
+            }
+            prevRan = true;
+          }
+
+          // ③ 피평가자 피드백 요약 — 피드백 변경 시 또는 아직 없을 때.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluateeSummary)) {
+            await spaceOut();
+            try {
+              const summary = await generateFeedbackSummaryForEvaluatee(
+                feedbackInputs.map((f) => ({ ...f, evaluatorName: user.name })),
+              );
+              if (summary && !summary.startsWith('⚠')) {
+                await aiContentService.put('evaluatee_feedback_summary', evaluateeSummaryScope, summary);
+              }
+            } catch {
+              /* best-effort */
+            }
+            prevRan = true;
+          }
+
+          // ④ AI 키워드 — 피드백 변경 시 또는 한쪽 scope 라도 아직 없을 때. 1콜로 평가자/피평가자 양쪽 저장.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluatorKeywords || !haveEvaluateeKeywords)) {
+            await spaceOut();
+            try {
+              const keywords = await generateFeedbackKeywords(feedbackInputs);
+              if (keywords && !keywords.startsWith('⚠') && keywords.trim()) {
+                await aiContentService.put('evaluator_feedback_keywords', evaluatorKeywordsScope, keywords);
+                await aiContentService.put('evaluatee_feedback_keywords', evaluateeKeywordsScope, keywords);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+        })();
+      }
 
        // Evaluator role no longer stores data in localStorage; server updates are handled above.
       return true;

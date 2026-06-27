@@ -54,7 +54,7 @@ export const TopBar = () => {
         borderColor: 'var(--border)',
       }}
     >
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-5" style={{ flexShrink: 0 }}>
         <button
           type="button"
           onClick={() => navigate(homePath)}
@@ -116,7 +116,7 @@ export const TopBar = () => {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
         <EvaluationPeriodSelector />
         <button
           className="sd-btn sd-btn-ghost"
@@ -130,23 +130,23 @@ export const TopBar = () => {
         <NotificationBell />
         <div
           className="flex items-center gap-2"
-          style={{ paddingLeft: 8, borderLeft: '1px solid var(--border)' }}
+          style={{ paddingLeft: 8, borderLeft: '1px solid var(--border)', minWidth: 0 }}
         >
           <div className="sd-avatar">{user.name[0]}</div>
-          <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>
+          <div style={{ lineHeight: 1.2, minWidth: 0 }}>
+            <div className="truncate" style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>
               {user.name}{' '}
               <span style={{ color: 'var(--fg-muted)', fontWeight: 500 }}>
                 {user.position}
               </span>
             </div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
+            <div className="truncate" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
               {user.department} · Lv.{user.growthLevel ?? 1}
             </div>
           </div>
           <button
             className="sd-btn sd-btn-ghost"
-            style={{ padding: 8 }}
+            style={{ padding: 8, flexShrink: 0 }}
             onClick={logout}
             aria-label="로그아웃"
             title="로그아웃"

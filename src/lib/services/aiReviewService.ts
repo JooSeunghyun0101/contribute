@@ -10,6 +10,10 @@ export type AiReviewItem = {
   ai_type: string | null;
   ai_summary: string | null;
   ai_reviewed_at: string | null;
+  /** 부적합 판정된 과업 식별자(= tasks.id). 평가 열람에서 해당 과업 자동 선택용. */
+  task_uuid: string | null;
+  /** 그 과업의 실제 평가 피드백 문구(검수 화면에서 함께 표시). */
+  feedback: string | null;
 };
 
 export type AiReviewRollup = {

@@ -4,7 +4,7 @@ import PageHeader from '@/components/Layout/PageHeader';
 import MatchingIntegrityBanner from '@/components/hr/MatchingIntegrityBanner';
 import { IconSearch } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
-import { employeeService, evaluationService, type OrgStructureImport } from '@/lib/services';
+import { employeeService, evaluationService, evaluationPeriodService, type OrgStructureImport } from '@/lib/services';
 import type {
   EmployeeProfileImportRowInput,
   MatchingImportRowInput,
@@ -191,7 +191,7 @@ const parseRolesFromCells = (...cells: unknown[]): UserRole[] => {
 // 프로필(대상자) 시트 식별 — 헤더명 기준(컬럼 추가에도 견고).
 const hasProfileSummaryHeaders = (sheetRows: unknown[][]) => {
   const idx = buildColIndex(sheetRows[0] ?? []);
-  return ['사번', '성명', '부서명', '직무', '권한1'].every((h) => h in idx);
+  return ['사번', '성명', '직무', '권한1'].every((h) => h in idx);
 };
 const hasProfileDetailHeaders = (sheetRows: unknown[][]) => {
   const idx = buildColIndex(sheetRows[0] ?? []);
@@ -269,6 +269,15 @@ type PendingUpload =
 type ContribPreview = Awaited<ReturnType<typeof employeeService.previewContributionRows>>;
 type ContribRow = Parameters<typeof employeeService.previewContributionRows>[0]['rows'][number];
 
+// 엑셀 날짜셀(Date 또는 'YYYYMMDD'/'YYYY-MM-DD' 문자열)을 'YYYY-MM-DD' 로 정규화.
+const toYmd = (v: unknown): string => {
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  const m = String(v ?? '').trim().match(/(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+};
+
 const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -335,7 +344,7 @@ const HrUsersPage = () => {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  const { periods, selectedPeriodId } = useEvaluationPeriod();
+  const { periods, selectedPeriodId, reloadPeriods } = useEvaluationPeriod();
   const navigate = useNavigate();
   const actorId = user?.employeeId ?? user?.id ?? null;
 
@@ -558,6 +567,7 @@ const HrUsersPage = () => {
       orgDepartment: getOrgValue(employee, 'department'),
       orgTeam: getOrgValue(employee, 'team'),
       onLeave: isOnLeave(employee),
+      aiRuleExempt: employee.ai_rule_exempt ?? false,
     });
   };
 
@@ -601,7 +611,7 @@ const HrUsersPage = () => {
     if (!name || !position || !department) {
       toast({
         title: '사용자 정보를 저장할 수 없습니다.',
-        description: '이름, 직급, 부서는 비워둘 수 없습니다.',
+        description: '이름, 직책, 부서는 비워둘 수 없습니다.',
         variant: 'destructive',
       });
       return;
@@ -653,6 +663,7 @@ const HrUsersPage = () => {
           : {}),
         // 휴직=‘휴직’, 복직(휴직→재직)=null 로 해제, 그 외 일반 편집은 미전송(기존값 유지).
         matching_result: editForm.onLeave ? '휴직' : isOnLeave(employee) ? null : undefined,
+        ai_rule_exempt: editForm.aiRuleExempt,
         changed_by: actorId,
       });
       await reload();
@@ -1082,6 +1093,44 @@ const HrUsersPage = () => {
   };
 
   // 조직정보 엑셀(T-Level 트리) 업로드 → 부서코드→상위조직(법인/본부/부/팀) 파생 + employees.org_* 자동 매칭.
+  // 업로드 전 가드: 업로드 대상(selectedPeriodId)을 '단일 활성 평가기간'으로 만든다.
+  // 다른 기간이 함께 active 면(둘 다 열림 = create_default 트리거가 엉뚱한 기간에 평가 생성)
+  // 그 기간들을 마감(closed)하고 대상 기간을 활성화한 뒤 진행. 사용자에게 사전 고지·동의를 받는다.
+  const ensureUploadPeriod = useCallback(async (): Promise<boolean> => {
+    const target = periods.find((p) => p.id === selectedPeriodId);
+    if (!target) {
+      toast({ title: '평가기간을 먼저 선택하세요.', variant: 'destructive' });
+      return false;
+    }
+    const otherActive = periods.filter((p) => p.id !== target.id && p.status === 'active');
+    const alreadyOk = otherActive.length === 0 && target.status === 'active' && target.is_default === true;
+    if (alreadyOk) return true;
+    const otherNames = otherActive.map((p) => p.name).join(', ');
+    const ok = await confirm({
+      title: '평가기간 정리 후 업로드',
+      description:
+        `정확한 적재를 위해 업로드 대상 '${target.name}'을(를) 현재(활성) 평가기간으로 설정합니다.` +
+        (otherActive.length ? ` 함께 열려 있는 '${otherNames}'은(는) 마감(closed) 처리됩니다.` : '') +
+        ' 평가기간이 둘 이상 열려 있으면 평가가 엉뚱한 기간에 생성될 수 있어 막는 절차입니다.',
+      confirmText: '마감하고 업로드',
+    });
+    if (!ok) return false;
+    try {
+      for (const p of otherActive) await evaluationPeriodService.closePeriod(p.id);
+      await evaluationPeriodService.activatePeriod(target.id);
+      await reloadPeriods();
+      toast({
+        title: `'${target.name}'을(를) 현재 평가기간으로 설정했습니다.`,
+        description: otherActive.length ? `${otherNames} → 마감 처리됨` : undefined,
+      });
+      return true;
+    } catch (error) {
+      console.error('업로드 전 평가기간 정리 실패:', error);
+      toast({ title: '평가기간 정리 실패', description: '다시 시도해 주세요.', variant: 'destructive' });
+      return false;
+    }
+  }, [periods, selectedPeriodId, confirm, toast, reloadPeriods]);
+
   const importOrgStructureFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1094,6 +1143,7 @@ const HrUsersPage = () => {
       });
       return;
     }
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingOrg(true);
     try {
       const XLSX = await import('xlsx');
@@ -1101,18 +1151,42 @@ const HrUsersPage = () => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 시트를 찾을 수 없습니다.');
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' }) as unknown[][];
-      // 조직정보 양식: 2줄 헤더 + 데이터(행2~). col1=부서명 · col2=T-Level · col3=부서ID · col10=조직종류.
+      // 조직정보 양식: 헤더가 1~2줄이고 열 위치가 바뀔 수 있어, 하드코딩 인덱스 대신
+      // '헤더명'으로 열을 찾는다(부서명 / T-Level / 부서ID(부서코드) / 조직종류).
+      const norm = (v: unknown) => String(v ?? '').replace(/[@\s-]/g, '').toUpperCase();
+      const findCol = (keywords: string[]) => {
+        for (let i = 0; i < Math.min(3, aoa.length); i += 1) {
+          const row = aoa[i] ?? [];
+          for (let j = 0; j < row.length; j += 1) {
+            const h = norm(row[j]);
+            if (h && keywords.some((k) => h.includes(k))) return j;
+          }
+        }
+        return -1;
+      };
+      const levelCol = findCol(['TLEVEL']);
+      const codeCol = findCol(['부서ID', '부서코드', '부서아이디']);
+      const kindCol = findCol(['조직종류']);
+      let nameCol = findCol(['부서명']);
+      if (nameCol < 0) nameCol = findCol(['부서']);
+      const missing: string[] = [];
+      if (levelCol < 0) missing.push('T-Level');
+      if (codeCol < 0) missing.push('부서ID(부서코드)');
+      if (missing.length > 0) {
+        throw new Error(`조직정보 양식에서 ${missing.join(', ')} 컬럼을 찾지 못했습니다. 헤더명을 확인해 주세요.`);
+      }
+      // 헤더 1~2줄은 level 이 숫자가 아니므로 필터에서 자연히 제외된다(슬라이스 불필요).
       const rows = aoa
-        .slice(2)
         .map((r) => ({
-          name: String(r[1] ?? '').trim(),
-          level: Number(r[2]),
-          code: String(r[3] ?? '').trim(),
-          kind: String(r[10] ?? '').trim(),
+          name: String(r[nameCol] ?? '').trim(),
+          level: Number(r[levelCol]),
+          code: String(r[codeCol] ?? '').trim(),
+          kind: kindCol >= 0 ? String(r[kindCol] ?? '').trim() : '',
         }))
-        .filter((r) => r.code && Number.isFinite(r.level));
+        // T-Level 은 1부터. Number('')===0 이므로 빈 헤더행이 끼지 않도록 level>=1 로 거른다.
+        .filter((r) => r.code && Number.isFinite(r.level) && r.level >= 1);
       if (rows.length === 0) {
-        throw new Error('조직 노드를 찾지 못했습니다(부서코드·T-Level 컬럼 확인).');
+        throw new Error('조직 노드를 찾지 못했습니다(부서코드·T-Level 값이 비어 있는지 확인).');
       }
       // 바로 반영하지 않고 '어느 평가기간 기준인지' 물어본다(조직구조는 기간별로 다름).
       setPendingOrgUpload({ fileName: file.name, rows });
@@ -1144,7 +1218,7 @@ const HrUsersPage = () => {
         : '';
       const empNote = r.is_default_period
         ? ` · 직원 ${r.employees_updated}명 상위조직 갱신`
-        : ' · (과거 기간이라 현재 직원 org는 유지)';
+        : ' · (현재 기간이 아니라 직원 org는 유지)';
       toast({
         title: '조직정보 업로드가 완료되었습니다.',
         description: `${r.period_name} · 부서 ${r.node_count}개${empNote}${warn}`,
@@ -1215,6 +1289,7 @@ const HrUsersPage = () => {
       });
       return;
     }
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingContribution(true);
     try {
       const XLSX = await import('xlsx');
@@ -1222,15 +1297,24 @@ const HrUsersPage = () => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 시트를 찾을 수 없습니다.');
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' }) as unknown[][];
-      const header = (aoa[0] ?? []).map((h) => String(h).replace(/\s+/g, ' ').trim());
-      const ix: Record<string, number> = {};
-      header.forEach((h, i) => { if (!(h in ix)) ix[h] = i; });
-      if (!('사번' in ix) || !('TASK' in ix)) {
-        throw new Error('기여도 양식이 아닙니다(사번·TASK 헤더 필요).');
+      // 헤더 행 자동 탐지: 상단 몇 줄 중 '사번'과 'TASK'를 모두 가진 행을 헤더로 본다
+      // (제목행이 위에 있어도 견고). 못 찾으면 첫 행 헤더를 에러에 표시해 원인 파악을 돕는다.
+      const normH = (h: unknown) => String(h ?? '').replace(/\s+/g, ' ').trim();
+      let headerRowIdx = -1;
+      for (let i = 0; i < Math.min(6, aoa.length); i += 1) {
+        const hs = (aoa[i] ?? []).map(normH);
+        if (hs.includes('사번') && hs.includes('TASK')) { headerRowIdx = i; break; }
       }
+      if (headerRowIdx < 0) {
+        const found = (aoa[0] ?? []).map(normH).filter(Boolean).slice(0, 24).join(', ');
+        throw new Error(`기여도 양식이 아닙니다(사번·TASK 헤더 필요). 첫 행 헤더: ${found || '(빈 행)'}`);
+      }
+      const header = (aoa[headerRowIdx] ?? []).map(normH);
+      const ix: Record<string, number> = Object.create(null);
+      header.forEach((h, i) => { if (h && !(h in ix)) ix[h] = i; });
       const col = (r: unknown[], n: string) => (ix[n] != null ? r[ix[n]] : '');
       const rows: ContribRow[] = aoa
-        .slice(1)
+        .slice(headerRowIdx + 1)
         .filter((r) => !/PL/i.test(String(col(r, '평가기준명'))))
         .map((r) => ({
           sabun: String(col(r, '사번') ?? '').trim(),
@@ -1244,6 +1328,8 @@ const HrUsersPage = () => {
           scope: String(col(r, '기여범위') ?? '').trim(),
           description: String(col(r, '설명1') ?? '').trim(),
           remark: String(col(r, '비고') ?? '').trim(),
+          startDate: toYmd(col(r, '시작일')),
+          endDate: toYmd(col(r, '종료일')),
         }))
         .filter((r) => r.sabun);
       if (rows.length === 0) throw new Error('기여도 데이터 행이 없습니다.');
@@ -1347,6 +1433,7 @@ const HrUsersPage = () => {
       return;
     }
 
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingProfiles(true);
     try {
       const XLSX = await import('xlsx');
@@ -1401,6 +1488,7 @@ const HrUsersPage = () => {
       return;
     }
 
+    if (!(await ensureUploadPeriod())) return;
     setIsImportingMatching(true);
     try {
       const XLSX = await import('xlsx');
@@ -1650,8 +1738,8 @@ const HrUsersPage = () => {
             className="sd-card"
             style={{ padding: '12px 16px', background: 'var(--ok-orange-50)', color: 'var(--ok-brown)', fontSize: 'var(--fs-sm)', fontWeight: 600 }}
           >
-            현재 평가기간이 아닌 과거 기간을 보고 있습니다. 표시·검색·필터는 이 기간 기준이며,
-            <strong> 조직(법인/본부/부/팀) 인라인 편집은 현재 기간에서만</strong> 가능합니다(과거 기간 조직은 조직정보 업로드로 관리).
+            현재(기본) 평가기간이 아닌 다른 기간을 보고 있습니다. 표시·검색·필터는 이 기간 기준이며,
+            <strong> 조직(법인/본부/부/팀) 인라인 편집은 현재(기본) 기간에서만</strong> 가능합니다(다른 기간 조직은 조직정보 업로드로 관리).
           </div>
         )}
 
@@ -2028,7 +2116,7 @@ const HrUsersPage = () => {
                 ))}
               </select>
               <p style={{ fontSize: 12, color: 'var(--fg-subtle, #888)', margin: 0 }}>
-                활성(기본) 평가기간이면 직원의 현재 상위조직도 함께 갱신됩니다. 과거 기간이면 그 기간 스냅샷만 저장합니다.
+                활성(기본) 평가기간이면 직원의 현재 상위조직도 함께 갱신됩니다. 그 외 기간이면 그 기간 스냅샷만 저장합니다.
               </p>
             </div>
             <DialogFooter>

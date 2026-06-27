@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "nodemon server.js",
+    "start": "node server.js",
     "start:server": "node server.js",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "test": "vitest run",
+    "test": "vitest run && npm run smoke:server",
     "test:watch": "vitest",
+    "smoke:server": "node scripts/smoke-server.mjs",
     "lint": "eslint .",
     "db-test": "node src/lib/dbConnectTest.js",
     "preview": "vite preview"

@@ -98,16 +98,22 @@ export const useTeamDashboardRecords = (
 export const useFormerTeamDashboardRecords = (
   evaluatorId: string,
   includeFeedbackHistory = false,
-): DashboardState =>
+): DashboardState => {
+  // '이전 담당 피평가자'는 선택한 평가기간 내 전보만 — 직전연도(타 기간) 이력이 섞이지 않게.
+  const { selectedPeriodId } = useEvaluationPeriod();
   // 과거 평가자 화면에서는 evaluation 을 evaluator 필터 없이 조회한다.
   // (본인이 직접 매긴 entry 가 없어도 정정으로 ownership 이 옮겨졌거나
   //  다른 평가자가 매긴 점수도 그대로 보여야 한다. "평가이력 없음"으로 표시되는 문제 해소.)
-  useRecordsLoader(
-    () => (evaluatorId ? employeeService.getFormerEvaluateesByEvaluator(evaluatorId) : Promise.resolve([])),
-    `former-team:${evaluatorId}`,
+  return useRecordsLoader(
+    () =>
+      evaluatorId
+        ? employeeService.getFormerEvaluateesByEvaluator(evaluatorId, selectedPeriodId)
+        : Promise.resolve([]),
+    `former-team:${evaluatorId}:${selectedPeriodId ?? ''}`,
     includeFeedbackHistory,
     null,
   );
+};
 
 // 직전연도(또는 임의 기간) 비교용 레코드 로딩. 주어진 직원들의 특정 기간 평가를 불러온다.
 // bulk: HR 전사 화면(직원 ~수백 명)에서만 true — 직전연도 레코드도 벌크 2회로 모아 N+1·429 제거.

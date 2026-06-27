@@ -2,7 +2,9 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { UserRole } from '@/types';
 import {
   CountdownCard,
@@ -38,6 +40,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/my/schedule', label: '과업 일정', icon: IconCalendar },
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
     { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
+    { to: '/my/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   evaluator: [
     { to: '/team', label: '팀 통계', icon: IconChart, end: true },
@@ -52,10 +55,11 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
     { to: '/hr/insights', label: '평가 인사이트', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
     { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
     { to: '/hr/audit-logs', label: '감사 로그', icon: IconFile, group: '운영' },
-    { to: '/hr/reminders', label: '독려·리마인드', icon: IconBell, group: '운영' },
+    { to: '/hr/reminders', label: '리마인드·AI검수', icon: IconBell, group: '운영' },
     { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
@@ -83,6 +87,30 @@ export const Sidebar = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+
+  // 좌하단 평가기간 카드 — 하드코딩이 아니라 '현재 선택한 평가기간'을 그대로 반영한다.
+  const { selectedPeriod } = useEvaluationPeriod();
+  const countdownProps = useMemo(() => {
+    if (!selectedPeriod) return { cycle: '평가 기간', remaining: '불러오는 중…', progress: 0 };
+    const cycle = `${selectedPeriod.evaluation_year} 연간`;
+    const fmtDate = (value: string | null) => {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    };
+    if (selectedPeriod.status === 'closed') return { cycle, remaining: '마감됨', progress: 100 };
+    if (selectedPeriod.status === 'locked') return { cycle, remaining: '잠금됨', progress: 100 };
+    if (selectedPeriod.status === 'draft') return { cycle, remaining: '작성 전', progress: 0 };
+    // active — 시작~종료 기준 진행률.
+    const end = fmtDate(selectedPeriod.ends_on);
+    const startMs = selectedPeriod.starts_on ? new Date(selectedPeriod.starts_on).getTime() : NaN;
+    const endMs = selectedPeriod.ends_on ? new Date(selectedPeriod.ends_on).getTime() : NaN;
+    let progress = 0;
+    if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs > startMs) {
+      progress = Math.max(0, Math.min(100, Math.round(((Date.now() - startMs) / (endMs - startMs)) * 100)));
+    }
+    return { cycle, remaining: end ? `~ ${end}` : '진행 중', progress };
+  }, [selectedPeriod]);
 
   const list = user ? menus[user.role] ?? menus.evaluatee : [];
   const hasGroups = list.some((item) => item.group);
@@ -174,7 +202,10 @@ export const Sidebar = () => {
                 }}
               />
             )}
-            <Icon size={18} />
+            <Icon
+              size={18}
+              style={{ color: isActive ? 'var(--ok-orange)' : 'var(--fg-muted)', flexShrink: 0 }}
+            />
             <span>{item.label}</span>
           </span>
         )}
@@ -196,16 +227,26 @@ export const Sidebar = () => {
       }}
     >
       {!hasGroups && (
-        <div className="sd-label-mini" style={{ padding: '6px 10px 10px' }}>
-          MENU
+        <div
+          style={{
+            padding: '6px 8px 8px',
+            fontSize: 'var(--fs-xs)',
+            fontWeight: 700,
+            color: 'var(--fg-subtle)',
+            letterSpacing: '0.09em',
+            textTransform: 'uppercase',
+          }}
+        >
+          메뉴
         </div>
       )}
 
       {hasGroups
-        ? groups.map(({ group, items }) => {
+        ? groups.map(({ group, items }, idx) => {
             const isCollapsed = collapsed.has(group);
             return (
               <Fragment key={group}>
+                {/* 카테고리 헤딩 — 항목과 명확히 구분되는 섹션 라벨(작고·흐리고·자간 넓게). 그룹 사이 구분선. */}
                 <button
                   type="button"
                   onClick={() => toggleGroup(group)}
@@ -216,41 +257,49 @@ export const Sidebar = () => {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     width: '100%',
-                    padding: '14px 10px 7px',
-                    marginTop: 2,
+                    padding: idx > 0 ? '14px 8px 6px' : '6px 8px 6px',
+                    marginTop: idx > 0 ? 8 : 0,
                     background: 'none',
                     border: 'none',
+                    borderTop: idx > 0 ? '1px solid var(--border)' : 'none',
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
                 >
                   <span
                     style={{
-                      fontSize: 'var(--fs-sm)',
-                      fontWeight: 800,
-                      color: 'var(--fg-muted)',
-                      letterSpacing: '0.01em',
+                      fontSize: 'var(--fs-xs)',
+                      fontWeight: 700,
+                      color: 'var(--fg-subtle)',
+                      letterSpacing: '0.09em',
+                      textTransform: 'uppercase',
                     }}
                   >
                     {group}
                   </span>
                   <ChevronDown
-                    size={16}
+                    size={13}
                     style={{
                       color: 'var(--fg-subtle)',
+                      opacity: 0.6,
                       transform: isCollapsed ? 'rotate(-90deg)' : 'none',
                       transition: 'transform 160ms',
                       flexShrink: 0,
                     }}
                   />
                 </button>
-                {!isCollapsed && items.map(renderLink)}
+                <AccordionMotion
+                  isOpen={!isCollapsed}
+                  contentStyle={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+                >
+                  {items.map(renderLink)}
+                </AccordionMotion>
               </Fragment>
             );
           })
         : list.map(renderLink)}
 
-      <CountdownCard />
+      <CountdownCard {...countdownProps} />
     </aside>
   );
 };

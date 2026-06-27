@@ -24,6 +24,11 @@ export interface TaskEvaluationEntry {
   cancelledAt?: string | null;
   cancelledBy?: string | null;
   cancelReason?: string | null;
+  // 저장 시점 1차 AI 검수 결과(조회 시 재호출 없이 이 저장값만 표시). flagged 일 때만 summary/type 채워짐.
+  aiFlagged?: boolean | null;
+  aiSummary?: string | null;
+  aiType?: string | null;
+  aiReviewedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -45,6 +50,8 @@ export interface Task {
   title: string;
   description: string;
   weight: number;
+  /** 'AI 과업' 표시 여부(AI 과업 50% 규칙 집계 대상). */
+  isAiTask?: boolean;
   startDate?: string;
   endDate?: string;
   contributionMethod?: string | null;

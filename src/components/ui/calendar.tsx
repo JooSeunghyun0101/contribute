@@ -18,6 +18,9 @@ function Calendar({
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
+      // 매월 항상 6주를 렌더해 달력 높이를 고정한다 — 화살표로 월 이동 시 주 수(4~6)에 따라
+      // 높이가 들쭉날쭉해 화살표가 움직이던 문제 방지(마우스 고정한 채 연속 클릭 가능).
+      fixedWeeks
       locale={ko}
       className={cn("p-3 pointer-events-auto w-fit", className)}
       classNames={{

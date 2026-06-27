@@ -57,6 +57,8 @@ const EvaluatorSchedulePage = () => {
     0,
     Math.min(1, (today.getMonth() + (today.getDate() - 1) / todayDaysInMonth) / MONTH_SPAN),
   );
+  // 오늘 세로줄은 '현재 연도' 평가기간을 볼 때만 표시. 지난 연도 조회 시엔 숨긴다.
+  const showTodayMarker = (selectedPeriod?.evaluation_year ?? today.getFullYear()) === today.getFullYear();
 
   const visibleRecords = useMemo(
     () =>
@@ -310,7 +312,7 @@ const EvaluatorSchedulePage = () => {
                               >
                                 T{String(index + 1).padStart(2, '0')}
                               </div>
-                              <div style={{ minWidth: 0 }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
                                 <div
                                   style={{
                                     fontSize: 'var(--fs-body)',
@@ -326,6 +328,21 @@ const EvaluatorSchedulePage = () => {
                                   {formatDate(task.start_date)} – {formatDate(task.end_date)}
                                 </div>
                               </div>
+                              {task.is_ai_task && (
+                                <span
+                                  style={{
+                                    flexShrink: 0,
+                                    padding: '0 5px',
+                                    borderRadius: 999,
+                                    fontSize: 'var(--fs-2xs)',
+                                    fontWeight: 800,
+                                    color: 'var(--ai-accent)',
+                                    background: 'var(--ai-accent-bg)',
+                                  }}
+                                >
+                                  AI
+                                </span>
+                              )}
                             </div>
 
                             <div
@@ -350,18 +367,20 @@ const EvaluatorSchedulePage = () => {
                                   }}
                                 />
                               ))}
-                              {/* 오늘 표시 */}
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  bottom: 0,
-                                  left: `${todayFrac * 100}%`,
-                                  width: 2,
-                                  background: 'var(--ok-orange-brand)',
-                                  zIndex: 2,
-                                }}
-                              />
+                              {/* 오늘 표시 — 현재 연도 조회 시에만 */}
+                              {showTodayMarker && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: `${todayFrac * 100}%`,
+                                    width: 2,
+                                    background: 'var(--ok-orange-brand)',
+                                    zIndex: 2,
+                                  }}
+                                />
+                              )}
                               {/* 과업 막대 — 날짜가 있을 때만. 없으면 기간 미정 */}
                               {hasSchedule ? (
                                 <div

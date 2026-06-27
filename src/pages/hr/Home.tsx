@@ -165,7 +165,7 @@ const HrHome = () => {
   const summary = useMemo(() => {
     const records = scopedRecords;
     const totalMembers = records.length;
-    const completedMembers = records.filter((r) => r.status === 'completed').length;
+    const completedMembers = records.filter((r) => isFinalizedRec(r)).length;
     const achievedMembers = records.filter((r) => r.achieved).length;
     const inProgress = records.filter((r) => r.status !== 'completed').length;
     const completionRate =
@@ -203,7 +203,7 @@ const HrHome = () => {
           acc[id] = { id, name, total: 0, completed: 0, achieved: 0, totalProgress: 0, navKeys: new Set([id]) };
         }
         acc[id].total += 1;
-        if (r.status === 'completed') {
+        if (isFinalizedRec(r)) {
           acc[id].completed += 1;
           if (r.achieved) acc[id].achieved += 1;
         }
@@ -234,11 +234,11 @@ const HrHome = () => {
     // 상태 분포(완료/진행중/미시작)
     const statusCounts = {
       completed: completedMembers,
-      inProgress: records.filter((r) => r.status === 'in-progress').length,
+      inProgress: records.filter((r) => r.status !== 'not-started' && !isFinalizedRec(r)).length,
       notStarted: records.filter((r) => r.status === 'not-started').length,
     };
     // 달성 분포(완료자 기준): 달성 / 미달성 / 미평가
-    const achievedCompleted = records.filter((r) => r.status === 'completed' && r.achieved).length;
+    const achievedCompleted = records.filter((r) => isFinalizedRec(r) && r.achieved).length;
     const achievement = {
       achieved: achievedCompleted,
       missed: Math.max(0, completedMembers - achievedCompleted),
@@ -248,7 +248,7 @@ const HrHome = () => {
     // 성장레벨별(Lv.1~4) 달성/미달성/미평가 — 레벨 필터와 무관하게 항상 전체 분포 표시
     const levelDist = [1, 2, 3, 4].map((level) => {
       const inLevel = filteredRecords.filter((r) => (r.employee.growth_level ?? 1) === level);
-      const completed = inLevel.filter((r) => r.status === 'completed');
+      const completed = inLevel.filter((r) => isFinalizedRec(r));
       const achieved = completed.filter((r) => r.achieved).length;
       return {
         label: `Lv.${level}`,
@@ -263,7 +263,7 @@ const HrHome = () => {
       label: `${s}점`,
       score: s,
       count: records.filter(
-        (r) => r.status === 'completed' && Math.min(4, Math.max(1, Math.round(r.weightedScore))) === s,
+        (r) => isFinalizedRec(r) && Math.min(4, Math.max(1, Math.round(r.weightedScore))) === s,
       ).length,
     }));
 
@@ -288,7 +288,7 @@ const HrHome = () => {
     () =>
       scopedRecords.map((r) => ({
         tasks:
-          r.reviewStatus === 'completed' || r.reviewStatus === 'locked'
+          isFinalizedRec(r)
             ? r.tasks.map((t) => ({
                 score: t.score,
                 weight: t.weight,
@@ -314,7 +314,7 @@ const HrHome = () => {
       .filter((r) => selectedLevel === 'all' || (r.employee.growth_level ?? 1) === selectedLevel)
       .map((r) => ({
         tasks:
-          r.reviewStatus === 'completed' || r.reviewStatus === 'locked'
+          isFinalizedRec(r)
             ? r.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date }))
             : [],
         growthLevel: Math.max(1, r.employee.growth_level ?? 1),
@@ -488,7 +488,7 @@ const HrHome = () => {
                       title: `${score}점`,
                       records: scopedRecords.filter(
                         (r) =>
-                          r.status === 'completed' &&
+                          isFinalizedRec(r) &&
                           Math.min(4, Math.max(1, Math.round(r.weightedScore))) === score,
                       ),
                     })
@@ -646,8 +646,11 @@ const DASH_STATUS_TONE: Record<
   completed: 'success',
   locked: 'neutral',
 };
+// '완료/달성 집계·점수 표시' 대상 = 평가자가 확정(제출/완료/잠금)한 평가만.
+// 점수만 들어간 draft(매트릭스 자동점수)는 미확정 → 미평가로 집계(차트·드릴다운·다운로드 공통 기준).
+const FINALIZED_STATUSES = new Set(['submitted', 'completed', 'locked']);
 const isFinalizedRec = (r: EmployeeEvaluationRecord) =>
-  r.reviewStatus === 'completed' || r.reviewStatus === 'locked';
+  FINALIZED_STATUSES.has(r.reviewStatus);
 
 // 성장레벨·점수 막대 클릭 시 뜨는 대상자 명단 모달(+엑셀 다운로드).
 const DashboardMemberModal = ({
@@ -743,7 +746,7 @@ const DashboardMemberModal = ({
                 <TableRow>
                   <TableHead>사번</TableHead>
                   <TableHead>이름</TableHead>
-                  <TableHead>직급</TableHead>
+                  <TableHead>직책</TableHead>
                   <TableHead>부서</TableHead>
                   <TableHead>레벨</TableHead>
                   <TableHead>평가자</TableHead>

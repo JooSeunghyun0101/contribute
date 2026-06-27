@@ -62,9 +62,6 @@ const MyTasksPage = () => {
     // reloadKey 또는 선택 평가기간 변경 시 다시 로드(기간 전환 시 해당 기간 평가를 새로 가져옴)
   }, [employeeId, reloadKey, selectedPeriod?.id]);
 
-  // current evaluator로 분류
-  const employeeEvaluatorId = employee?.evaluator_id ?? null;
-
   // 근무기간은 선택한 평가기간(evaluation_period_id) 단위로 계산 — 연도를 넘어 한 구간으로 합쳐지지 않게.
   const scopedPeriods = useMemo(
     () => buildEvaluatorPeriods(history, { periodId: selectedPeriod?.id ?? null }),
@@ -118,21 +115,17 @@ const MyTasksPage = () => {
 
         {!isLoading && !loadError &&
           visibleEvaluations.map((ev, index) => {
-            const isCurrent = Boolean(
-              ev.evaluator_id && employeeEvaluatorId && ev.evaluator_id === employeeEvaluatorId,
-            );
+            // 선택한 평가기간 안에서 가장 최근 배정(목록 최상단)이 그 기간의 '현재 평가', 이전 배정은 '이전 평가'.
+            // (전역 현재 평가자와 비교하면, 과거 연도를 보는데도 그 해 평가자가 '이전'으로 잘못 표시된다.)
+            const isCurrent = index === 0;
             const rawPeriod = ev.evaluator_id ? scopedPeriods.get(ev.evaluator_id) : null;
-            // 마감/잠금된 평가기간은 마지막 평가자도 '현재(진행중)'가 아니라 기간 종료일로 끝낸다.
-            // (buildEvaluatorPeriods는 마지막 구간을 end=null로 두는데, 이는 활성기간에서만 '~현재'가 맞다.)
-            const closedPeriodEnd =
-              selectedPeriod &&
-              (selectedPeriod.status === 'closed' || selectedPeriod.status === 'locked')
-                ? selectedPeriod.ends_on ?? null
-                : null;
+            // 특정 평가기간을 한정해 보는 중이면, 열린 구간(end=null)의 종료를 그 기간의 종료일로 끝낸다.
+            // (buildEvaluatorPeriods는 마지막 구간을 end=null로 두는데, 기간 한정 조회에서는 '~현재'가 아니라 기간 종료일이 맞다.)
+            const periodEnd = selectedPeriod?.ends_on ?? null;
             const periodLabel = rawPeriod
               ? formatEvaluatorPeriod(
-                  rawPeriod.end === null && closedPeriodEnd
-                    ? { start: rawPeriod.start, end: closedPeriodEnd }
+                  rawPeriod.end === null && periodEnd
+                    ? { start: rawPeriod.start, end: periodEnd }
                     : rawPeriod,
                 )
               : null;

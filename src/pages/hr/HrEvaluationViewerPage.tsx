@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
@@ -18,7 +19,7 @@ import {
   type EvaluatorTaskView,
 } from '@/components/Evaluation/EvaluatorReview';
 import type { Task as DbTask, TaskEvaluationEntry as DbEntry } from '@/types';
-import type { Task } from '@/types/evaluation';
+import type { Task, TaskEvaluationEntry } from '@/types/evaluation';
 
 const STATUS_LABEL: Record<string, string> = {
   'not-started': '시작 전',
@@ -55,8 +56,11 @@ type GroupMeta = { group: EvaluatorGroup; status: string };
 const HrEvaluationViewerPage = () => {
   const { records, isLoading } = useCompanyDashboardRecords();
   const { selectedPeriod } = useEvaluationPeriod();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('evaluatee'));
+  // AI검수 등에서 특정 과업을 지정해 들어온 경우 — 그 과업을 자동 선택하고 '뒤로' 버튼을 보여준다.
+  const initialTaskId = searchParams.get('task');
 
   const candidates = useMemo(() => records.filter((r) => r.evaluation != null), [records]);
   const options = useMemo(
@@ -73,6 +77,7 @@ const HrEvaluationViewerPage = () => {
     const next = new URLSearchParams(searchParams);
     if (employeeId) next.set('evaluatee', employeeId);
     else next.delete('evaluatee');
+    next.delete('task'); // 수동으로 다른 피평가자를 고르면 과업 지정(자동선택·뒤로가기)은 해제.
     setSearchParams(next, { replace: true });
   };
 
@@ -85,7 +90,26 @@ const HrEvaluationViewerPage = () => {
   return (
     <>
       <PageHeader
-        title="피평가자 평가 열람"
+        title={
+          initialTaskId ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                title="직전 화면(AI 검수)으로 돌아가기"
+                aria-label="뒤로 가기"
+                style={{ flexShrink: 0 }}
+              >
+                <ArrowLeft size={16} aria-hidden="true" />
+                뒤로
+              </button>
+              <span>피평가자 평가 열람</span>
+            </span>
+          ) : (
+            '피평가자 평가 열람'
+          )
+        }
         subtitle="피평가자를 선택해 평가자 화면(읽기 전용)을 그대로 봅니다. 전보로 평가자가 여럿이면 평가자별로 모두 표시되며, 각 평가자에게 따로 수정요청을 보낼 수 있습니다."
         actions={<Pill tone="neutral">{periodLabel}</Pill>}
         filters={
@@ -105,7 +129,7 @@ const HrEvaluationViewerPage = () => {
 
       <div style={{ padding: '20px 32px 32px' }}>
         {selectedId ? (
-          <EvaluationReadonlyView key={selectedId} evaluateeId={selectedId} />
+          <EvaluationReadonlyView key={selectedId} evaluateeId={selectedId} initialTaskId={initialTaskId} />
         ) : (
           <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
             상단에서 피평가자를 선택하면 평가 내역(읽기 전용)이 표시됩니다.
@@ -118,7 +142,13 @@ const HrEvaluationViewerPage = () => {
 
 type EvaluateeMeta = { name: string; position: string; department: string; growthLevel: number };
 
-const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
+const EvaluationReadonlyView = ({
+  evaluateeId,
+  initialTaskId,
+}: {
+  evaluateeId: string;
+  initialTaskId?: string | null;
+}) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const askReason = useReason();
@@ -170,6 +200,7 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
                 title: dbt.title,
                 description: dbt.description ?? '',
                 weight: dbt.weight,
+                isAiTask: dbt.is_ai_task ?? false,
                 startDate: dbt.start_date ?? undefined,
                 endDate: dbt.end_date ?? undefined,
                 contributionMethod: latest ? latest.contribution_method ?? undefined : dbt.contribution_method ?? undefined,
@@ -179,7 +210,29 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
                 feedbackDate: latest ? latest.feedback_date ?? undefined : dbt.feedback_date ?? undefined,
                 evaluatorName: latest ? latest.evaluator_name ?? undefined : dbt.evaluator_name ?? undefined,
               };
-              return { task, displayTask: task, score: resolveTaskScore(task, matrix), hasDraft: false };
+              // 저장 시점 AI 검수 결과(ai_*)를 camelCase entry 로 매핑해 검수 카드에 그대로 전달한다.
+              // 이게 없으면 HR 열람에서 '검수 완료' 항목도 '아직 검수 전'으로 잘못 표시된다.
+              const entry: TaskEvaluationEntry | null = latest
+                ? {
+                    id: latest.id,
+                    taskUuid: latest.task_uuid,
+                    taskId: dbt.task_id,
+                    evaluationId: ev.id,
+                    evaluatorId: latest.evaluator_id ?? ev.evaluator_id ?? '',
+                    evaluatorName: latest.evaluator_name ?? ev.evaluator_name ?? '',
+                    status: (latest.status as 'active' | 'cancelled' | undefined) ?? 'active',
+                    contributionMethod: latest.contribution_method ?? null,
+                    contributionScope: latest.contribution_scope ?? null,
+                    score: latest.score ?? null,
+                    feedback: latest.feedback ?? null,
+                    feedbackDate: latest.feedback_date ?? null,
+                    aiFlagged: latest.ai_flagged ?? null,
+                    aiSummary: latest.ai_summary ?? null,
+                    aiType: latest.ai_type ?? null,
+                    aiReviewedAt: latest.ai_reviewed_at ?? null,
+                  }
+                : null;
+              return { task, displayTask: task, score: resolveTaskScore(task, matrix), hasDraft: false, entry };
             });
             const summary = toScoreSummary(views);
             const isCurrent = idx === 0; // 엔드포인트가 현재(최신 배정/draft) 평가를 먼저 정렬해 반환.
@@ -214,8 +267,17 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
             : null,
         );
         setGroups(built);
-        setExpandedKeys(new Set(built.length ? [built[0].group.key] : []));
-        setSelectedByGroup({});
+        // 특정 과업으로 진입(AI검수 등)했으면 그 과업이 든 평가자 그룹을 펼치고 해당 과업을 선택한다.
+        const targetGroup = initialTaskId
+          ? built.find((b) => b.group.tasks.some((t) => t.task.id === initialTaskId))
+          : undefined;
+        if (targetGroup) {
+          setExpandedKeys(new Set([targetGroup.group.key]));
+          setSelectedByGroup({ [targetGroup.group.key]: initialTaskId as string });
+        } else {
+          setExpandedKeys(new Set(built.length ? [built[0].group.key] : []));
+          setSelectedByGroup({});
+        }
       } catch (err) {
         console.error('평가 열람 로드 실패:', err);
         if (!cancelled) {
@@ -230,7 +292,7 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
     return () => {
       cancelled = true;
     };
-  }, [evaluateeId, selectedPeriodId, matrix]);
+  }, [evaluateeId, selectedPeriodId, matrix, initialTaskId]);
 
   const handleRequestEdit = async (evaluationId: string | undefined, evaluatorName: string) => {
     if (!evaluationId) {

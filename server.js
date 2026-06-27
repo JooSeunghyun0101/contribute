@@ -4,8 +4,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
-import { Pool } from 'pg';
+import pg, { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+
+// PostgreSQL `date`(OID 1082) 컬럼은 시간·타임존이 없는 '날짜 그 자체'다.
+// node-postgres 기본 파서는 이를 '로컬 자정 Date'로 바꾸는데, 그 Date 를 JSON 직렬화하면
+// UTC 기준 ISO(예: KST 2026-06-01 → '2026-05-31T15:00:00Z')가 되어 화면/편집폼에서 하루 밀려 보인다.
+// 그래서 date 는 변환 없이 'YYYY-MM-DD' 문자열 그대로 반환한다(타임존 밀림 원천 차단).
+// timestamp/timestamptz(생성일시 등)는 영향받지 않는다.
+pg.types.setTypeParser(1082, (value) => value);
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -70,6 +77,31 @@ const sendDbUnavailable = (res) =>
 
 // Initialize PostgreSQL pool
 const connectionString = process.env.DATABASE_URL;
+// 기본 프롬프트 시드 — 빈 DB(내부망 반입 등)에 프론트/서버 공용 기본 프롬프트를 채운다.
+// 단일 원천: src/lib/defaultPrompts.json (프론트 gptOss.ts 도 동일 파일을 import).
+// ON CONFLICT DO NOTHING 이라 HR이 편집한 행은 보존하고, 없는 키만 새로 넣는다.
+const defaultPromptsPath = path.resolve(__dirname, 'src/lib/defaultPrompts.json');
+const DEFAULT_PROMPTS_SEED = fs.existsSync(defaultPromptsPath)
+  ? JSON.parse(fs.readFileSync(defaultPromptsPath, 'utf8'))
+  : [];
+async function seedDefaultPrompts() {
+  if (!isDbAvailable || !pool?.query) return;
+  try {
+    let inserted = 0;
+    for (const p of DEFAULT_PROMPTS_SEED) {
+      const r = await pool.query(
+        `INSERT INTO prompt_templates (key, description, content)
+         VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
+        [p.key, p.description, p.content],
+      );
+      inserted += r.rowCount || 0;
+    }
+    console.log(`[seed] prompt_templates: ${inserted} new (of ${DEFAULT_PROMPTS_SEED.length} defaults)`);
+  } catch (e) {
+    console.error('[seed] prompt seed failed:', e.message);
+  }
+}
+
 let pool;
 if (connectionString) {
   pool = new Pool({ 
@@ -88,6 +120,7 @@ if (connectionString) {
     .then(() => {
       isDbAvailable = true;
       console.log('PostgreSQL 연결 성공 (API 서버)');
+      seedDefaultPrompts();
     })
     .catch(err => {
       console.error('PostgreSQL 연결 실패 (API 서버):', err.message);
@@ -213,6 +246,7 @@ const EMPLOYEE_UPDATE_FIELDS = new Set([
   'org_department',
   'org_team',
   'matching_result', // 복직 처리 시 '휴직' 해제 등
+  'ai_rule_exempt', // AI 과업 50% 규칙 면제(HR 지정)
 ]);
 // 보안(P0): 평가 생성/수정 시 허용 컬럼 화이트리스트(동적 키 보간·mass-assignment 차단).
 const EVALUATION_INSERT_FIELDS = new Set([
@@ -231,6 +265,8 @@ const TASK_STRUCTURE_FIELDS = new Set([
   'title',
   'description',
   'weight',
+  'is_ai_task',
+  'isAiTask',
   'start_date',
   'end_date',
   'startDate',
@@ -382,18 +418,17 @@ const normalizeMatchingImportRow = (row = {}, index = 0) => {
 };
 
 const compareMatchingImportRows = (a, b) => {
-  // 매칭파일에서 가장 큰 소속순번 = 가장 최근 투어 = 현재 상태
-  // (과거 투어는 빈 end_date, 현재 투어는 평가기간 만료일이 채워져 있어
-  //  end_date 유무로는 현재를 식별할 수 없음)
+  // 같은 직원의 발령 이력 여러 행 중 '가장 마지막 근무시작일' 행을 현재 상태로 본다.
+  // (부서코드·평가자 등 현재값의 출처. 날짜가 같으면 소속순번 큰 쪽, 그다음 평가자 있는 쪽.)
   const score = (row) => ({
-    sequence: Number(row.org_sequence) || 0,
     startTime: row.work_start_date ? Date.parse(row.work_start_date) || 0 : 0,
+    sequence: Number(row.org_sequence) || 0,
     hasEvaluator: row.evaluator_id ? 1 : 0,
   });
   const left = score(a);
   const right = score(b);
-  if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   if (left.startTime !== right.startTime) return left.startTime - right.startTime;
+  if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   return left.hasEvaluator - right.hasEvaluator;
 };
 
@@ -919,7 +954,7 @@ const createHistoricalTourEvaluation = async (
     [
       employee.employee_id,
       employee.name,
-      employee.position ?? '미등록',
+      employee.position ?? '',
       historicalRow.department_name ?? employee.department ?? '미지정',
       employee.growth_level ?? 0,
       evaluationYear,
@@ -2109,7 +2144,7 @@ const aiConfigured = Boolean(process.env.AI_BASE_URL) || aiApiKey.length > 0;
 const aiIsExternal = !process.env.AI_BASE_URL || aiBaseUrl.startsWith('https://models.github.ai');
 
 // 인증 도입(Phase S) 전 임시 레이트리밋: IP별 분당 호출 수 제한. 인증 후 세션 주체 기준으로 교체.
-const AI_RATE_LIMIT_PER_MINUTE = 20;
+const AI_RATE_LIMIT_PER_MINUTE = 40;
 const aiRateBuckets = new Map();
 const aiRateLimited = (key) => {
   const now = Date.now();
@@ -2176,14 +2211,16 @@ app.post('/api/ai/chat', async (req, res) => {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(55_000),
     });
 
     const text = await upstream.text();
     if (!upstream.ok) {
       // 업스트림 에러 본문은 서버 로그에만 남긴다(키·내부 정보 노출 방지).
       console.error('AI upstream error:', upstream.status, text.slice(0, 500));
-      return res.status(502).json({ error: 'AI upstream error', status: upstream.status });
+      // 레이트리밋(429)은 상태코드를 그대로 전달 → 클라이언트가 재시도/안내할 수 있게 한다.
+      const passthrough = upstream.status === 429 ? 429 : 502;
+      return res.status(passthrough).json({ error: 'AI upstream error', status: upstream.status });
     }
     res.type('application/json').send(text);
   } catch (err) {
@@ -2968,31 +3005,57 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
   }
 
   try {
+    // periodId 지정 시 해당 평가기간 내 전보(이전 담당)만 — 직전연도 이력이 2026 화면에 섞이지 않게.
+    const periodId =
+      typeof req.query.periodId === 'string' && req.query.periodId.trim()
+        ? req.query.periodId.trim()
+        : null;
+    // 기간 판정은 changed_at 연도로 한다(evaluation_period_id 태그가 발령 업로드에서
+    // 직전연도 발령을 당해 기간으로 잘못 적재한 케이스가 있어 신뢰 불가). $2 없으면 전 기간.
     const { rows } = await pool.query(
       `
         SELECT DISTINCT e.*
         FROM employees e
+        LEFT JOIN evaluation_periods p ON p.id::text = $2::text
         WHERE e.evaluator_id IS DISTINCT FROM $1
-          AND EXISTS (
-            SELECT 1
-            FROM evaluator_assignment_history h
-            WHERE h.employee_id = e.employee_id
-              AND h.new_evaluator_id = $1
-              AND h.status = 'applied'
-              AND h.change_type <> 'cancel'
-              AND EXISTS (
-                SELECT 1
-                FROM evaluator_assignment_history later
-                WHERE later.employee_id = e.employee_id
-                  AND later.status = 'applied'
-                  AND later.change_type <> 'cancel'
-                  AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
-                  AND later.new_evaluator_id IS DISTINCT FROM $1
-              )
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM evaluator_assignment_history h
+              WHERE h.employee_id = e.employee_id
+                AND h.new_evaluator_id = $1
+                AND h.status = 'applied'
+                AND h.change_type <> 'cancel'
+                AND ($2::text IS NULL OR EXTRACT(YEAR FROM h.changed_at) = p.evaluation_year)
+                AND EXISTS (
+                  SELECT 1
+                  FROM evaluator_assignment_history later
+                  WHERE later.employee_id = e.employee_id
+                    AND later.status = 'applied'
+                    AND later.change_type <> 'cancel'
+                    AND ($2::text IS NULL OR EXTRACT(YEAR FROM later.changed_at) = p.evaluation_year)
+                    AND (later.changed_at, later.id::text) > (h.changed_at, h.id::text)
+                    AND later.new_evaluator_id IS DISTINCT FROM $1
+                )
+            )
+            -- 근본 차단: 전보로 마스터 포인터(employees.evaluator_id)가 옮겨가도, '그 기간 평가'에
+            -- 이 평가자의 active 엔트리가 남아 있으면 과거 담당으로 노출한다. (엔드포인트 주석의
+            -- "or have entries owned by that evaluator" 를 실제로 구현 — 전보 이력 누락/단일배정 케이스에서
+            -- 과거 평가자가 자기 평가를 못 보던 문제 해결.)
+            OR EXISTS (
+              SELECT 1
+              FROM task_evaluation_entries tee
+              JOIN evaluations ev ON ev.id = tee.evaluation_id
+              WHERE ev.evaluatee_id = e.employee_id
+                AND tee.evaluator_id = $1
+                AND COALESCE(tee.status, 'active') = 'active'
+                AND COALESCE(ev.record_status, 'active') = 'active'
+                AND ($2::text IS NULL OR ev.evaluation_period_id::text = $2::text)
+            )
           )
         ORDER BY e.department, e.name
       `,
-      [req.params.evaluatorId]
+      [req.params.evaluatorId, periodId]
     );
     res.json(stripAuthFields(rows));
   } catch (err) {
@@ -3343,7 +3406,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           ON CONFLICT (employee_id) DO UPDATE SET
             name = COALESCE(EXCLUDED.name, employees.name),
             position = CASE
-              WHEN employees.position IN ('평가자', '미등록') THEN COALESCE(EXCLUDED.position, employees.position)
+              WHEN employees.position IS NULL OR employees.position IN ('평가자', '미등록', '') THEN COALESCE(EXCLUDED.position, employees.position)
               ELSE employees.position
             END,
             available_roles = (
@@ -3397,9 +3460,9 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
-            position = EXCLUDED.position,
-            department = EXCLUDED.department,
-            department_id = EXCLUDED.department_id,
+            position = COALESCE(NULLIF(EXCLUDED.position, ''), employees.position),
+            department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
+            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
             growth_level = EXCLUDED.growth_level,
             available_roles = CASE
               WHEN $16::boolean THEN (
@@ -3431,16 +3494,16 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             job_role = EXCLUDED.job_role,
             target_status = EXCLUDED.target_status,
             last_profile_batch_id = EXCLUDED.last_profile_batch_id,
-            org_corporation = EXCLUDED.org_corporation,
-            org_division = EXCLUDED.org_division,
-            org_department = EXCLUDED.org_department,
-            org_team = EXCLUDED.org_team,
+            org_corporation = COALESCE(EXCLUDED.org_corporation, employees.org_corporation),
+            org_division = COALESCE(EXCLUDED.org_division, employees.org_division),
+            org_department = COALESCE(EXCLUDED.org_department, employees.org_department),
+            org_team = COALESCE(EXCLUDED.org_team, employees.org_team),
             updated_at = NOW()
         `,
         [
           row.employee_id,
           row.employee_name,
-          row.position ?? '미등록',
+          row.position ?? '',
           row.department_name ?? '미지정',
           row.department_id,
           row.growth_level,
@@ -3718,6 +3781,35 @@ const reconcileEmployeeMatchingStages = async (
     releasedEvaluators: [],
   };
 
+  // 발령을 연도별로 정확히 귀속한다(연도 혼재 파일이 직전연도 발령을 당해 기간 이력으로
+  // 잘못 적재해 '이전 담당'에 노출되던 문제 방지):
+  //  - allStages : 원본(이전평가자 carry-forward 링크 계산용)
+  //  - carryStages: 이 기간까지(<= periodYear) — '현재 평가자'(기간 시작 시점 담당) 계산용
+  //  - stages     : 이 기간 연도(=== periodYear)에 발효된 발령만 — 이 기간의 평가/이력 생성용
+  const stageYearOf = (s) => (s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN);
+  const allStages = stages;
+  const carryStages = Number.isFinite(periodYear)
+    ? allStages.filter((s) => {
+        const y = stageYearOf(s);
+        return !Number.isFinite(y) || y <= periodYear;
+      })
+    : allStages;
+  if (Number.isFinite(periodYear)) {
+    stages = allStages.filter((s) => {
+      const y = stageYearOf(s);
+      return !Number.isFinite(y) || y === periodYear;
+    });
+  }
+  // 당해 연도 발령이 없는 사람도 이 기간 평가가 있어야 한다(직전연도 담당 이월).
+  // 당해 발령이 없으면 이월 담당으로 기간 시작 시점 단계 1건을 시드한다 — carry-only
+  // 인원이 2026 평가에서 누락되지 않게(빈 draft 삭제 후 신규 미생성 회귀 방지).
+  if (Number.isFinite(periodYear) && stages.length === 0) {
+    const carry = carryStages.filter((s) => s.evaluatorId).slice(-1)[0];
+    if (carry?.evaluatorId) {
+      stages = [{ startDate: `${periodYear}-01-01`, evaluatorId: carry.evaluatorId }];
+    }
+  }
+
   // ── 빈 중복 평가 정리 ─────────────────────────────────────────
   // 프로필 업로드가 "평가기간 노출용"으로 만들어둔 빈 draft 평가가 있으면
   // reconcile 들어오기 전에 제거한다. 매칭이 들어왔다는 건 이 사람의
@@ -3741,8 +3833,9 @@ const reconcileEmployeeMatchingStages = async (
     `SELECT id, evaluation_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
        FROM evaluator_assignment_history
       WHERE employee_id=$1 AND status='applied' AND change_type<>'cancel'
+        AND COALESCE(evaluation_period_id::text,'') = COALESCE($2::text,'')
       ORDER BY changed_at ASC, id ASC`,
-    [employeeId]
+    [employeeId, periodId ?? null]
   );
   const reason = `Matching reconcile: ${sourceFileName}`;
   const existingMatched = new Array(existing.length).fill(false);
@@ -3814,7 +3907,10 @@ const reconcileEmployeeMatchingStages = async (
   for (let si = 0; si < stages.length; si += 1) {
     if (stageMatched[si]) continue;
     const fs = stages[si];
-    const prevStage = stages.slice(0, si).reverse().find((s) => s.evaluatorId);
+    // 이전 평가자 링크는 carry-forward 포함(직전연도 마지막 평가자까지) — 당해 연도 첫
+    // 발령의 '이전 평가자'가 직전연도 담당으로 올바르게 이어지게 한다.
+    const prevStage =
+      allStages.filter((s) => s.evaluatorId && s.startDate < fs.startDate).slice(-1)[0] ?? null;
     const evaluation = await createDraftEvaluationForEmployeeAssignment(client, employee, periodId);
     const hist = await insertEvaluatorAssignmentHistory(client, {
       employeeId,
@@ -3872,8 +3968,12 @@ const reconcileEmployeeMatchingStages = async (
     result.removed += 1;
   }
 
-  // 현재 평가자 = 마지막(가장 늦은 발령일) 단계의 평가자. prev 링크 일관화.
-  const orderedStages = stages.filter((s) => s.evaluatorId);
+  // 현재 평가자 = 이 평가기간까지(로드된) 발령 중 마지막 단계의 평가자.
+  // 파일에 미래 연도 발령이 있어도 그 기간이 로드되기 전엔 현재 평가자로 삼지 않는다
+  // (그래야 이 기간 실제 담당 평가자 보드에 피평가자가 보인다). prev 링크 일관화.
+  // 현재 평가자는 이 기간까지(carry-forward) 발령 중 마지막 — 당해 연도 발령이 없으면
+  // 직전연도 담당이 그대로 이어진다(현재평가자가 null 로 끊기지 않게).
+  const orderedStages = carryStages.filter((s) => s.evaluatorId);
   const lastStage = orderedStages.length ? orderedStages[orderedStages.length - 1] : null;
   await client.query(`UPDATE employees SET evaluator_id=$2, updated_at=NOW() WHERE employee_id=$1`, [
     employeeId,
@@ -4108,6 +4208,8 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
           VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
+            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             available_roles = (
               SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
               FROM (
@@ -4123,10 +4225,10 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             confirmer_id = EXCLUDED.confirmer_id,
             confirmer_name = EXCLUDED.confirmer_name,
             last_matching_batch_id = EXCLUDED.last_matching_batch_id,
-            org_corporation = EXCLUDED.org_corporation,
-            org_division = EXCLUDED.org_division,
-            org_department = EXCLUDED.org_department,
-            org_team = EXCLUDED.org_team,
+            org_corporation = COALESCE(EXCLUDED.org_corporation, employees.org_corporation),
+            org_division = COALESCE(EXCLUDED.org_division, employees.org_division),
+            org_department = COALESCE(EXCLUDED.org_department, employees.org_department),
+            org_team = COALESCE(EXCLUDED.org_team, employees.org_team),
             updated_at = NOW()
           RETURNING *
         `,
@@ -5176,6 +5278,7 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
         final_assessment,
         employee_profile_import_rows,
         matching_import_rows,
+        ai_generated_content,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -5234,6 +5337,7 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
         notifications,
         final_assessment,
         matching_import_rows,
+        ai_generated_content,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -5263,6 +5367,87 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error in reset/matching:', err);
+    res.status(500).json({ error: 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 평가기간별 초기화: 선택한 평가기간(evaluation_period_id)에 묶인 데이터만 비운다.
+// 삭제 대상: 그 기간의 평가·과업·평가엔트리·피드백·최종평가·알림·평가자배정이력·
+//            평가자변경요청·매칭/대상자 임포트(배치+행)·조직정보(org_structure).
+// 보존: 직원 명부(employees)·다른 평가기간·평가기간 설정·시스템 설정·감사로그.
+// (직원은 기간 공유 자원이라 유지한다. 직원까지 지우려면 '대상자 일괄삭제'를 쓴다.)
+app.post('/api/admin/reset/period', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const actorId = req.session.employeeId;
+  const periodId = String(req.body?.evaluation_period_id ?? '').trim();
+  if (!periodId) return res.status(400).json({ error: 'evaluation_period_id 가 필요합니다.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: periodRows } = await client.query(
+      'SELECT code FROM evaluation_periods WHERE id = $1',
+      [periodId]
+    );
+    if (periodRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '평가기간을 찾을 수 없습니다.' });
+    }
+    const periodCode = periodRows[0].code;
+    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록.
+    await client.query(
+      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_period', $1, $2)`,
+      [actorId, `평가기간 초기화: ${periodCode} (actor: ${actorId})`]
+    );
+    const inPeriodEvals = '(SELECT id FROM evaluations WHERE evaluation_period_id = $1)';
+    // 0) AI 생성물(성장제안·요약·키워드) — scope_id 가 FK 가 아니라 cascade 로 안 지워진다. 이 기간 것만 정리.
+    //    과업 성장제안(scope=과업 uuid)은 과업 삭제 '전에' 매칭해 지운다.
+    await client.query(
+      `DELETE FROM ai_generated_content
+        WHERE kind = 'task_growth_suggestion'
+          AND scope_id IN (SELECT t.id::text FROM tasks t WHERE t.evaluation_period_id = $1)`,
+      [periodId]
+    );
+    //    나머지(피평가자/평가자 요약·성장·키워드)는 scope 가 '…:<periodId>' 로 끝난다.
+    await client.query(`DELETE FROM ai_generated_content WHERE scope_id LIKE '%:' || $1`, [periodId]);
+    // 1) 평가/과업의 자식부터 (FK 역순)
+    await client.query(`DELETE FROM feedback_history WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM task_evaluation_entries WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM final_assessment WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query(`DELETE FROM notifications WHERE related_evaluation_id IN ${inPeriodEvals}`, [periodId]);
+    await client.query('DELETE FROM tasks WHERE evaluation_period_id = $1', [periodId]);
+    // 2) 배정이력 — 평가의 참조를 먼저 끊고 삭제
+    await client.query('UPDATE evaluations SET assignment_history_id = NULL WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM evaluator_assignment_history WHERE evaluation_period_id = $1', [periodId]);
+    // 3) 평가 본체 + 변경요청
+    const evalDel = await client.query('DELETE FROM evaluations WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM evaluator_change_requests WHERE evaluation_period_id = $1', [periodId]);
+    // 4) 임포트 — employees의 배치 참조를 끊고 행→배치 순으로 삭제
+    await client.query(
+      'UPDATE employees SET last_matching_batch_id = NULL WHERE last_matching_batch_id IN (SELECT id FROM matching_import_batches WHERE evaluation_period_id = $1)',
+      [periodId]
+    );
+    await client.query(
+      'UPDATE employees SET last_profile_batch_id = NULL WHERE last_profile_batch_id IN (SELECT id FROM employee_profile_import_batches WHERE evaluation_period_id = $1)',
+      [periodId]
+    );
+    await client.query('DELETE FROM matching_import_rows WHERE batch_id IN (SELECT id FROM matching_import_batches WHERE evaluation_period_id = $1)', [periodId]);
+    await client.query('DELETE FROM employee_profile_import_rows WHERE batch_id IN (SELECT id FROM employee_profile_import_batches WHERE evaluation_period_id = $1)', [periodId]);
+    await client.query('DELETE FROM matching_import_batches WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('DELETE FROM employee_profile_import_batches WHERE evaluation_period_id = $1', [periodId]);
+    // 5) 그 기간의 조직정보
+    await client.query('DELETE FROM org_structure WHERE evaluation_period_id = $1', [periodId]);
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      period_code: periodCode,
+      deleted_evaluations: evalDel.rowCount,
+      message: `'${periodCode}' 평가기간의 평가·과업·매칭·조직정보를 삭제했습니다. 직원 명부는 유지됩니다.`,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error in reset/period:', err);
     res.status(500).json({ error: 'Database error' });
   } finally {
     client.release();
@@ -5638,6 +5823,22 @@ const CONTRIB_SCOPES = new Set(['의존적', '독립적', '상호적', '전략�
 const contribScope = (v) => { const s = String(v ?? '').replace(/\s+/g, '').replace(/기여$/, '').trim(); return CONTRIB_SCOPES.has(s) ? s : null; };
 const contribMethod = (v) => { const m = String(v ?? '').trim(); return CONTRIB_METHODS.has(m) ? m : null; };
 const contribScoreNorm = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 1 ? Math.round(n) : null; };
+// 가중치는 정수 컬럼(tasks.weight). 소수(33.3 등)·범위초과 값을 그대로 넣으면 파라미터 INSERT가
+// 'invalid input syntax for type integer'/'out of range'로 500. 반올림+클램프로 방어한다.
+const contribWeight = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(0, Math.min(100000, n)) : 0; };
+// 과업 수행기간(시작일/종료일): 'YYYYMMDD'/'YYYY-MM-DD'/ISO → 'YYYY-MM-DD'.
+// 실제 유효한 날짜만 통과(엑셀에 25251231·20250229(비윤년)·99990909 같은 오타가 있어
+// 느슨하게 두면 date 컬럼 INSERT가 실패→업로드 전체 500). 연도 2000~2100 + 월별 실제 일수 검증.
+const contribDate = (v) => {
+  const m = String(v ?? '').trim().match(/^(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1) return null;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const dim = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (d > dim[mo - 1]) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
+};
 const contribSabun = (v) => String(v ?? '').replace(/^[A-Za-z]+/, '').trim();
 
 function groupContribRows(rows) {
@@ -5656,12 +5857,14 @@ function groupContribRows(rows) {
     if (!grp.deptCode && String(r.deptCode ?? '').trim()) grp.deptCode = String(r.deptCode).trim();
     grp.tasks.push({
       title: String(r.title ?? '').trim() || '(과업)',
-      weight: Number(r.weight) || 0,
+      weight: contribWeight(r.weight),
       score: contribScoreNorm(r.score),
       method: contribMethod(r.method),
       scope: contribScope(r.scope),
       description: String(r.description ?? '').trim() || null,
       remark: String(r.remark ?? '').trim() || null,
+      startDate: contribDate(r.startDate),
+      endDate: contribDate(r.endDate),
     });
   }
   return groups;
@@ -5780,20 +5983,46 @@ app.post('/api/contribution-imports', requireHr, async (req, res) => {
       for (const t of group.tasks) {
         const taskUuid = randomUUID();
         const taskId = randomUUID();
+        // 'AI활용' 제목 과업은 AI 과업으로 자동 체크(업로드 엑셀엔 AI과업 플래그가 없어 제목으로 판별).
+        const isAiTask = typeof t.title === 'string' && t.title.includes('AI활용');
         await client.query(
-          `INSERT INTO tasks (id, task_id, evaluation_id, title, weight, description, contribution_method, contribution_scope, score, feedback, evaluator_name, evaluation_year, evaluation_period_id, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, NOW())`,
-          [taskUuid, taskId, ev.id, t.title, t.weight, t.description, t.method, t.scope, t.score, t.remark, evrName, ev.evaluation_year, ev.evaluation_period_id],
+          `INSERT INTO tasks (id, task_id, evaluation_id, title, weight, description, contribution_method, contribution_scope, score, feedback, evaluator_name, evaluation_year, evaluation_period_id, start_date, end_date, is_ai_task, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())`,
+          [taskUuid, taskId, ev.id, t.title, t.weight, t.description, t.method, t.scope, t.score, t.remark, evrName, ev.evaluation_year, ev.evaluation_period_id, t.startDate ?? null, t.endDate ?? null, isAiTask],
         );
         tasksInserted += 1;
         if (t.score != null) scored += 1;
         if (ev.evaluator_id) {
-          await client.query(
+          const entryRes = await client.query(
             `INSERT INTO task_evaluation_entries (task_uuid, task_id, evaluation_id, evaluator_id, evaluator_name, contribution_method, contribution_scope, score, feedback, feedback_date, assignment_history_id, status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,$10,'active')`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,$10,'active')
+             RETURNING id`,
             [taskUuid, taskId, ev.id, ev.evaluator_id, evrName, t.method, t.scope, t.score, t.remark, ev.assignment_history_id],
           );
+          // 피드백 이력(feedback_history)에도 적재 — 피드백 이력/코멘트 화면이 이 테이블을 읽는다.
+          // (엔트리에만 넣으면 평가자 화면엔 보여도 '피드백 이력'은 0건으로 비어 보인다.)
+          const fbText = typeof t.remark === 'string' ? t.remark.trim() : '';
+          if (fbText) {
+            await client.query(
+              `INSERT INTO feedback_history (id, task_id, content, evaluator_name, created_at, task_uuid, evaluation_id, evaluator_id, task_evaluation_entry_id, status)
+               VALUES (gen_random_uuid(), $1, $2, $3, NOW(), $4, $5, $6, $7, 'active')`,
+              [taskId, t.remark, evrName, taskUuid, ev.id, ev.evaluator_id, entryRes.rows[0].id],
+            );
+          }
         }
+      }
+      // 적재된 점수 충족도에 따라 평가 상태를 올린다.
+      // 업로드는 HR이 최종 평가데이터를 일괄 주입하는 것이므로, 점수가 다 채워졌으면 '완료'로 마감한다.
+      // (이게 없으면 draft 로 남아 평가자 보드·통계·AI검수에서 안 보이고 AI 생성도 안 됨.)
+      const scoredCount = group.tasks.filter((t) => t.score != null).length;
+      const nextStatus =
+        group.tasks.length > 0 && scoredCount === group.tasks.length
+          ? 'completed'
+          : scoredCount > 0
+            ? 'evaluating'
+            : null;
+      if (nextStatus) {
+        await client.query(`UPDATE evaluations SET evaluation_status = $2 WHERE id = $1`, [ev.id, nextStatus]);
       }
       appliedEvals += 1;
     }
@@ -7387,7 +7616,8 @@ app.get('/api/tasks/evaluation/:evaluationId', guardEvaluationParam('evaluationI
           t.created_at,
           t.deleted_at,
           t.evaluation_year,
-          t.evaluation_period_id
+          t.evaluation_period_id,
+          t.is_ai_task
         FROM tasks t
         INNER JOIN evaluations ev ON ev.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history h
@@ -7477,7 +7707,8 @@ app.get('/api/tasks/current-year', requireHr, async (req, res) => {
           t.created_at,
           t.deleted_at,
           t.evaluation_year,
-          t.evaluation_period_id
+          t.evaluation_period_id,
+          t.is_ai_task
         FROM tasks t
         INNER JOIN evaluations ev ON ev.id = t.evaluation_id
         LEFT JOIN evaluator_assignment_history h
@@ -7875,7 +8106,8 @@ app.get('/api/ai-reviews', requireHr, async (req, res) => {
     );
     const items = await pool.query(
       `SELECT tee.evaluation_id, ev.evaluatee_id, ev.evaluatee_name,
-              tee.evaluator_name, t.title AS task_title, tee.ai_type, tee.ai_summary, tee.ai_reviewed_at
+              tee.evaluator_name, t.title AS task_title, tee.ai_type, tee.ai_summary, tee.ai_reviewed_at,
+              tee.task_uuid, tee.feedback
        FROM task_evaluation_entries tee
        JOIN evaluations ev ON ev.id = tee.evaluation_id
        LEFT JOIN tasks t ON t.id = tee.task_uuid
@@ -7897,6 +8129,198 @@ app.get('/api/ai-reviews', requireHr, async (req, res) => {
   } catch (err) {
     console.error('Error fetching AI review rollup:', err);
     res.json({ total: 0, reviewed: 0, flagged: 0, byEvaluator: [], items: [] });
+  }
+});
+
+// ============================================================
+// 조회 시 재호출 없는 AI 결과물(요약·제안) 영속 저장소 — /api/ai-content
+// 조회 때마다 AI를 돌리던 항목을 '트리거 시 1회 생성 → DB 저장 → 조회 시 그대로 출력'으로 전환.
+// kind/scope_id 규약은 db_mig/add_ai_generated_content.sql 주석 참조. 생성은 클라이언트(/api/ai/chat),
+// 여기서는 저장/조회만 하며 AI를 호출하지 않는다.
+// ============================================================
+const AI_CONTENT_KINDS = new Set([
+  'evaluatee_feedback_summary',
+  'evaluator_feedback_summary',
+  'task_growth_suggestion',
+  'evaluatee_growth_suggestion',
+  'evaluatee_feedback_keywords',
+  'evaluator_feedback_keywords',
+]);
+
+// 이 사용자가 해당 (kind, scopeId)를 읽기/쓰기할 수 있는지. HR은 전부 허용.
+async function authorizeAiContent(req, kind, scopeId) {
+  const me = req.session?.employeeId;
+  if (!me) return false;
+  if (await requesterIsHr(req).catch(() => false)) return true;
+  const parts = String(scopeId).split(':');
+  if (
+    kind === 'evaluatee_feedback_summary' ||
+    kind === 'evaluatee_growth_suggestion' ||
+    kind === 'evaluatee_feedback_keywords'
+  ) {
+    // '<evaluatee_id>:<period_id>' — 본인(피평가자, 읽기) 또는 그 피평가자의 평가자(평가 저장 시 쓰기).
+    // evaluations 엔 평가자 컬럼이 없어, 평가자 연결은 task_evaluation_entries.evaluator_id 로 판정한다
+    // (평가 저장 시 엔트리가 먼저 생성되므로 저장 시점 쓰기 권한이 성립).
+    if (parts[0] === me) return true;
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM evaluations ev
+         JOIN task_evaluation_entries tee
+           ON tee.evaluation_id = ev.id
+          AND COALESCE(tee.status, 'active') = 'active'
+          AND tee.evaluator_id = $3
+        WHERE ev.evaluatee_id = $1 AND ev.evaluation_period_id = $2
+        LIMIT 1`,
+      [parts[0], parts[1], me],
+    );
+    return rows.length > 0;
+  }
+  if (kind === 'evaluator_feedback_summary' || kind === 'evaluator_feedback_keywords') {
+    // '<evaluator_id>:<evaluatee_id>:<period_id>' — 그 평가자만.
+    return parts[0] === me;
+  }
+  if (kind === 'task_growth_suggestion') {
+    // '<task_uuid>' — 그 과업의 피평가자(본인) 또는 평가자만.
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM tasks t
+         JOIN evaluations ev ON ev.id = t.evaluation_id
+         LEFT JOIN task_evaluation_entries tee
+           ON tee.task_uuid = t.id AND COALESCE(tee.status, 'active') = 'active'
+        WHERE t.id = $1 AND (ev.evaluatee_id = $2 OR tee.evaluator_id = $2)
+        LIMIT 1`,
+      [parts[0], me],
+    );
+    return rows.length > 0;
+  }
+  return false;
+}
+
+// 배치 조회 — ?scopeIds=a,b,c (피평가자 과업 성장제안 일괄 로드 등). 1세그먼트 라우트.
+app.get('/api/ai-content/:kind', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const { kind } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!req.session?.employeeId) return res.status(401).json({ error: 'unauthorized' });
+  const ids = String(req.query.scopeIds ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  if (ids.length === 0) return res.json([]);
+  try {
+    const allowed = [];
+    for (const sid of ids) {
+      if (await authorizeAiContent(req, kind, sid)) allowed.push(sid);
+    }
+    if (allowed.length === 0) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT scope_id, content, generated_at FROM ai_generated_content WHERE kind = $1 AND scope_id = ANY($2::text[])`,
+      [kind, allowed],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('ai-content batch get failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 단건 조회 — 2세그먼트 라우트.
+app.get('/api/ai-content/:kind/:scopeId', async (req, res) => {
+  if (!isDbAvailable) return res.json(null);
+  const { kind, scopeId } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!(await authorizeAiContent(req, kind, scopeId))) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT content, generated_at, generated_by FROM ai_generated_content WHERE kind = $1 AND scope_id = $2 LIMIT 1`,
+      [kind, scopeId],
+    );
+    res.json(rows[0] ?? null);
+  } catch (err) {
+    console.error('ai-content get failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 생성/갱신(upsert) — 본인 소유 scope 만.
+app.put('/api/ai-content/:kind/:scopeId', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const { kind, scopeId } = req.params;
+  if (!AI_CONTENT_KINDS.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+  if (!(await authorizeAiContent(req, kind, scopeId))) return res.status(403).json({ error: 'forbidden' });
+  const content = normalizeOptionalText(req.body?.content);
+  if (!content) return res.status(400).json({ error: 'content required' });
+  const meta = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO ai_generated_content (kind, scope_id, content, generated_by, meta, generated_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       ON CONFLICT (kind, scope_id)
+       DO UPDATE SET content = EXCLUDED.content, generated_by = EXCLUDED.generated_by, meta = EXCLUDED.meta, generated_at = now()
+       RETURNING content, generated_at, generated_by`,
+      [kind, scopeId, content, req.session.employeeId, meta],
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('ai-content put failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 자연어 인물검색(HR 전용) — 클라이언트가 질의를 AI로 키워드 파싱한 뒤 호출. 여기서는 SQL 검색만(LLM 호출 없음).
+// 피드백 본문(tee.feedback)을 키워드로 매칭해 평가대상별로 집계·랭킹하고, 그 인물의 AI 키워드를 첨부한다.
+// periodIds(다중) 범위로 한정. ILIKE 패턴은 LLM이 만든 한국어 명사라 와일드카드 위험 낮음.
+app.post('/api/people-search', requireHr, async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const rawKeywords = Array.isArray(req.body?.keywords) ? req.body.keywords : [];
+  const keywords = [
+    ...new Set(rawKeywords.map((k) => String(k).trim()).filter((k) => k.length >= 1 && k.length <= 40)),
+  ].slice(0, 12);
+  const rawPeriods = Array.isArray(req.body?.periodIds) ? req.body.periodIds : [];
+  const periodIds = [...new Set(rawPeriods.map((p) => String(p).trim()).filter(Boolean))].slice(0, 20);
+  if (keywords.length === 0 || periodIds.length === 0) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `WITH kw AS (SELECT DISTINCT trim(t) AS term FROM unnest($1::text[]) AS t WHERE trim(t) <> ''),
+       fb AS (
+         SELECT ev.evaluatee_id AS emp,
+                count(DISTINCT kw.term) AS kw_hits,
+                count(*)::int AS fb_hits,
+                array_agg(DISTINCT kw.term) AS terms,
+                (array_agg(left(tee.feedback, 160) ORDER BY tee.score DESC NULLS LAST))[1:3] AS snippets,
+                round(avg(tee.score)::numeric, 1) AS avg_score
+           FROM kw
+           JOIN task_evaluation_entries tee
+             ON tee.feedback ILIKE '%' || kw.term || '%'
+            AND COALESCE(tee.status, 'active') = 'active'
+            AND COALESCE(tee.feedback, '') <> ''
+           JOIN tasks t ON t.id = tee.task_uuid
+           JOIN evaluations ev ON ev.id = t.evaluation_id
+          WHERE ev.evaluation_period_id::text = ANY($2::text[])
+          GROUP BY ev.evaluatee_id
+       )
+       SELECT fb.emp AS employee_id, e.name, e.department,
+              e.org_corporation, e.org_division, e.org_department, e.org_team,
+              fb.kw_hits::int AS kw_hits, fb.fb_hits, fb.terms, fb.snippets, fb.avg_score,
+              kwc.content AS ai_keywords
+         FROM fb
+         JOIN employees e ON e.employee_id = fb.emp
+         LEFT JOIN LATERAL (
+           SELECT content FROM ai_generated_content agc
+            WHERE agc.kind = 'evaluatee_feedback_keywords'
+              AND split_part(agc.scope_id, ':', 1) = fb.emp
+              AND split_part(agc.scope_id, ':', 2) = ANY($2::text[])
+            ORDER BY agc.generated_at DESC LIMIT 1
+         ) kwc ON true
+        ORDER BY fb.kw_hits DESC, fb.fb_hits DESC, e.name
+        LIMIT 25`,
+      [keywords, periodIds],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('people-search failed:', err.message);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
@@ -8845,6 +9269,34 @@ app.get('/api/evaluator-qna-logs', requireHr, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+/* ==================== Static SPA (production) ==================== */
+// 프런트 빌드물(dist)을 같은 서버에서 서빙한다. dist 가 있을 때만 활성화하므로
+// 로컬 dev(vite 5173 + 이 서버 5000 분리)에는 영향이 없다. Render 등 단일 서비스 배포용.
+// 모든 /api 라우트 정의 뒤에 위치해야 한다(API 가 먼저 매칭되도록).
+const distPath = path.resolve(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  // 정적 자산(해시 파일명)은 장기 캐시, index.html 은 캐시 금지(새 배포 즉시 반영).
+  app.use(express.static(distPath, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+
+  // SPA 폴백: /api 가 아닌 GET 요청은 index.html 로 돌려 클라이언트 라우팅에 맡긴다.
+  // Express 5 는 '*' 문자열 라우트를 못 쓰므로 경로 없는 미들웨어로 처리한다.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+  console.log('[static] dist 서빙 활성화 (단일 서비스 모드)');
+} else {
+  console.log('[static] dist 없음 — API 전용 모드 (프런트는 vite dev 서버)');
+}
+
 /* ==================== Server Start ==================== */
 
 const PORT = Number(process.env.PORT) || 5000;

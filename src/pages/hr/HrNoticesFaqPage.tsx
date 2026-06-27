@@ -99,6 +99,12 @@ const fmtDateTime = (v: string | null) => {
   }).format(d);
 };
 
+// 대상자 검색용 — 이름 외에 소속(법인·본부·부·팀)도 매칭한다. 부서 컬럼 표시는 '부 · 팀'.
+const orgSearchText = (o: OrgFields) =>
+  [o.org_corporation, o.org_division, o.org_department, o.org_team].filter(Boolean).join(' ');
+const orgDeptLabel = (o: OrgFields) =>
+  [o.org_department, o.org_team].filter(Boolean).join(' · ') || '-';
+
 const HrNoticesFaqPage = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -109,6 +115,7 @@ const HrNoticesFaqPage = () => {
   /* ── 공지 발송 상태 ─────────────────────────────────────────────── */
   const [audience, setAudience] = useState<AudienceKey>('evaluators');
   const [orgFilter, setOrgFilter] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -117,6 +124,9 @@ const HrNoticesFaqPage = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+
+  /* ── 탭: 공지 발송 / 공통 FAQ ───────────────────────────────────── */
+  const [tab, setTab] = useState<'notice' | 'faq'>('notice');
 
   /* ── FAQ 상태 ───────────────────────────────────────────────────── */
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
@@ -240,6 +250,25 @@ const HrNoticesFaqPage = () => {
 
   const selectableIds = useMemo(() => recipients.map((r) => r.id), [recipients]);
 
+  // 이름·부서 검색으로 후보를 좁혀 선택한다(긴 목록 스크롤 대체). 선택은 검색을 바꿔도 유지된다.
+  const filteredRecipients = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return recipients;
+    return recipients.filter(
+      (r) => r.name.toLowerCase().includes(q) || orgSearchText(r.org).toLowerCase().includes(q),
+    );
+  }, [recipients, search]);
+  const filteredIds = useMemo(() => filteredRecipients.map((r) => r.id), [filteredRecipients]);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const toggleAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) for (const id of filteredIds) next.delete(id);
+      else for (const id of filteredIds) next.add(id);
+      return next;
+    });
+  };
+
   // 범위/필터가 바뀌면 더 이상 후보에 없는 선택은 정리한다.
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -261,12 +290,6 @@ const HrNoticesFaqPage = () => {
       else next.add(id);
       return next;
     });
-  };
-
-  const toggleAll = () => {
-    setSelectedIds((prev) =>
-      prev.size === selectableIds.length ? new Set() : new Set(selectableIds),
-    );
   };
 
   const selectedRows = useMemo(
@@ -457,8 +480,39 @@ const HrNoticesFaqPage = () => {
         }
       />
 
+      {/* ── 탭 바 ───────────────────────────────────────────────── */}
+      <div style={{ padding: '12px 32px 0', display: 'flex', gap: 8, borderBottom: '1px solid var(--border)' }}>
+        {([
+          { key: 'notice', label: '공지 발송' },
+          { key: 'faq', label: '공통 FAQ' },
+        ] as const).map(({ key, label }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              style={{
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                padding: '10px 14px',
+                fontSize: 'var(--fs-body)',
+                fontWeight: active ? 800 : 600,
+                color: active ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                borderBottom: active ? '2px solid var(--ok-orange)' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
       <div style={{ padding: '20px 32px', display: 'flex', flexDirection: 'column', gap: 24 }}>
         {/* ── 일괄 공지 발송 ─────────────────────────────────────── */}
+        {tab === 'notice' && (
         <section>
           <h2 style={sectionTitle}>일괄 공지 발송</h2>
 
@@ -519,32 +573,117 @@ const HrNoticesFaqPage = () => {
           {/* 요약 + 발송 버튼 */}
           <div
             className="sd-card"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 16,
-              padding: 16,
-              marginBottom: 16,
-              flexWrap: 'wrap',
-            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 16, marginBottom: 16 }}
           >
-            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-              {AUDIENCE_LABEL[audience]}{' '}
-              <strong style={{ color: 'var(--fg)' }}>{recipients.length}</strong>명 · 선택{' '}
-              <strong style={{ color: 'var(--ok-orange)' }}>{selectedRows.length}</strong>명
-            </div>
-            <button
-              className="sd-btn sd-btn-primary sd-btn-sm"
-              disabled={!canOpenConfirm}
-              onClick={() => setConfirmOpen(true)}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 16,
+                flexWrap: 'wrap',
+              }}
             >
-              {sending ? '발송 중…' : `선택한 ${selectedRows.length}명에게 공지 발송`}
-            </button>
+              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
+                {AUDIENCE_LABEL[audience]}{' '}
+                <strong style={{ color: 'var(--fg)' }}>{recipients.length}</strong>명 · 선택{' '}
+                <strong style={{ color: 'var(--ok-orange)' }}>{selectedRows.length}</strong>명
+              </div>
+              <button
+                className="sd-btn sd-btn-primary sd-btn-sm"
+                disabled={!canOpenConfirm}
+                onClick={() => setConfirmOpen(true)}
+              >
+                {sending ? '발송 중…' : `선택한 ${selectedRows.length}명에게 공지 발송`}
+              </button>
+            </div>
+            {selectedRows.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  alignItems: 'center',
+                  paddingTop: 10,
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginRight: 2 }}>선택된 대상자</span>
+                {selectedRows.map((r) => (
+                  <span
+                    key={r.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 4px 3px 9px',
+                      borderRadius: 999,
+                      fontSize: 'var(--fs-xs)',
+                      fontWeight: 600,
+                      background: 'var(--ok-orange-50)',
+                      color: 'var(--ok-orange)',
+                    }}
+                  >
+                    {r.name}
+                    <button
+                      type="button"
+                      onClick={() => toggle(r.id)}
+                      disabled={sending}
+                      aria-label={`${r.name} 제외`}
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        lineHeight: 1,
+                        padding: '0 2px',
+                        fontSize: 'var(--fs-body)',
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 수신자 목록 */}
           <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+            {!isLoading && !error && recipients.length > 0 && (
+              <div
+                style={{
+                  padding: 12,
+                  borderBottom: '1px solid var(--border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <input
+                  className="sd-input"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="이름 또는 부서로 검색해 대상자 추가"
+                  style={{ flex: 1, minWidth: 220 }}
+                  disabled={sending}
+                />
+                <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                  검색 {filteredRecipients.length}명 · 선택 {selectedRows.length}명
+                </span>
+                {selectedRows.length > 0 && (
+                  <button
+                    type="button"
+                    className="sd-btn sd-btn-outline sd-btn-sm"
+                    onClick={() => setSelectedIds(new Set())}
+                    disabled={sending}
+                  >
+                    선택 비우기
+                  </button>
+                )}
+              </div>
+            )}
             {isLoading ? (
               <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
             ) : error ? (
@@ -561,19 +700,27 @@ const HrNoticesFaqPage = () => {
                       <th style={th}>
                         <input
                           type="checkbox"
-                          aria-label="전체 선택"
-                          checked={selectedIds.size > 0 && selectedIds.size === selectableIds.length}
-                          onChange={toggleAll}
+                          aria-label="검색 결과 전체 선택"
+                          checked={allFilteredSelected}
+                          onChange={toggleAllFiltered}
                           disabled={sending}
                         />
                       </th>
                       <th style={th}>이름</th>
+                      <th style={th}>부서</th>
                       <th style={th}>식별자</th>
                       <th style={th}>최근 발송(24h)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recipients.map((row) => {
+                    {filteredRecipients.length === 0 && (
+                      <tr>
+                        <td style={{ ...td, color: 'var(--fg-muted)' }} colSpan={5}>
+                          검색 결과가 없습니다.
+                        </td>
+                      </tr>
+                    )}
+                    {filteredRecipients.map((row) => {
                       const checked = selectedIds.has(row.id);
                       const recentlySent = row.lastNoticeAt !== null;
                       return (
@@ -590,6 +737,7 @@ const HrNoticesFaqPage = () => {
                           <td style={td}>
                             <strong>{row.name}</strong>
                           </td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{orgDeptLabel(row.org)}</td>
                           <td style={{ ...td, color: 'var(--fg-muted)' }}>{row.id}</td>
                           <td style={td}>
                             {recentlySent ? (
@@ -609,8 +757,10 @@ const HrNoticesFaqPage = () => {
             )}
           </div>
         </section>
+        )}
 
         {/* ── 공통 FAQ 관리 ──────────────────────────────────────── */}
+        {tab === 'faq' && (
         <section>
           <h2 style={sectionTitle}>공통 FAQ 관리</h2>
           <div
@@ -732,6 +882,7 @@ const HrNoticesFaqPage = () => {
             </div>
           </div>
         </section>
+        )}
       </div>
 
       {/* ── 발송 확인 다이얼로그 ─────────────────────────────────── */}

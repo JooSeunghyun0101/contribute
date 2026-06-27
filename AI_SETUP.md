@@ -29,3 +29,9 @@ AI_MODEL=
 - `.env` 는 로컬 전용이며 Git 에서 무시된다(`.gitignore`).
 - `.env.example` 에는 자리표시자(placeholder)만 둔다.
 - 과거에 커밋/공유된 키가 있으면 즉시 폐기·교체한다.
+
+## GPT-OSS 전환(내부망)
+
+내부망 이식 후 GPT-OSS 전환은 **env 교체 + 서버 재시작**이 기본이지만, OpenAI 호환성·인증·
+속도 등 확인할 항목이 있다. 실행 절차·체크리스트·코드 수정 포인트는 별도 런북 참조:
+**`docs/gpt-oss-migration-guide.md`** (내부망 LLM이 읽고 마이그레이션을 수행하도록 작성됨).

@@ -16,7 +16,11 @@ export const AppLayout = ({ children }: Props) => (
     <TopBar />
     <div className="flex-1 flex overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      {/* overflow-auto(가로+세로): 창이 --content-min-w 보다 좁아지면 본문만 가로 스크롤된다.
+          내부 래퍼의 minWidth 바닥이 고정 그리드의 으스러짐·글자 줄바뀜 깨짐을 일괄 차단한다. */}
+      <main className="flex-1 overflow-auto">
+        <div style={{ minWidth: 'var(--content-min-w)' }}>{children}</div>
+      </main>
     </div>
   </div>
 );

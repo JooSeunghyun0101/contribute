@@ -4,6 +4,7 @@ export type TaskDraft = {
   title: string;
   description: string;
   weight: number;
+  isAiTask: boolean;
   startDate: string;
   endDate: string;
 };
@@ -28,6 +29,7 @@ export const EMPTY_DRAFT: TaskDraft = {
   title: '',
   description: '',
   weight: 0,
+  isAiTask: false,
   startDate: '',
   endDate: '',
 };
@@ -36,9 +38,16 @@ export const EVALUATEE_TASK_LOCKED_STATUSES = new Set(['submitted', 'evaluating'
 
 export const toDateInput = (value?: string) => {
   if (!value) return '';
+  // 이미 'YYYY-MM-DD…' 형식이면 날짜 부분만 그대로 사용한다(Date 변환 시 타임존으로 하루 밀리는 문제 차단).
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toISOString().slice(0, 10);
+  // 폴백: UTC(toISOString) 대신 로컬 날짜 구성요소로 포맷해 날짜가 밀리지 않게 한다.
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
 };
 
 export const formatDate = (value?: string) => {

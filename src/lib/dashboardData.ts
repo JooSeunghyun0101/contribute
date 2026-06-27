@@ -161,7 +161,8 @@ const assembleEvaluationRecord = (
     }
     return sum + toNumber(task.score) * (toNumber(task.weight) / 100);
   }, 0);
-  const flooredScore = Math.floor(weightedScore);
+  // float 누적 오차(3.0 → 2.9999999…)로 Math.floor 가 한 단계 낮아지는 것 방지(epsilon 보정).
+  const flooredScore = Math.floor(weightedScore + 1e-9);
   const growthLevel = Math.max(1, toNumber(employee.growth_level, 1));
   const achieved = flooredScore >= growthLevel;
   const feedbackSnapshots = sortByDateDesc(tasks.flatMap((task) => buildFeedbackSnapshots(task)));

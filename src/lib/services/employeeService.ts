@@ -197,6 +197,8 @@ export interface ContributionImportRow {
   scope?: string;
   description?: string;
   remark?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface ContributionPreviewResult {
@@ -249,9 +251,11 @@ export const employeeService = {
     }
   },
 
-  async getFormerEvaluateesByEvaluator(evaluatorId: string): Promise<Employee[]> {
+  async getFormerEvaluateesByEvaluator(evaluatorId: string, periodId?: string | null): Promise<Employee[]> {
     try {
-      return await apiFetch<Employee[]>(`/api/employees/former-evaluator/${evaluatorId}`);
+      // periodId 지정 시 해당 평가기간의 전보(이전 담당)만 — 타 연도 이력이 섞이지 않게.
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
+      return await apiFetch<Employee[]>(`/api/employees/former-evaluator/${evaluatorId}${qs}`);
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }
@@ -523,6 +527,27 @@ export const employeeService = {
         cleared_employees: number;
         message: string;
       }>('/api/admin/reset/matching', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가기간별 초기화: 선택한 평가기간에 묶인 평가·과업·매칭·조직정보만 삭제. 직원 명부는 유지.
+  async resetPeriod(payload: {
+    evaluation_period_id: string;
+    actor_id?: string | null;
+  }): Promise<{ ok: boolean; period_code: string; deleted_evaluations: number; message: string }> {
+    try {
+      return await apiFetch<{
+        ok: boolean;
+        period_code: string;
+        deleted_evaluations: number;
+        message: string;
+      }>('/api/admin/reset/period', {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'application/json' },

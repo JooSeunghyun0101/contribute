@@ -21,12 +21,12 @@ import type {
   TaskEvaluationEntry,
 } from '@/types';
 
+// 공통 평가대상자 양식(업로드/다운로드 동일). 부서명·평가그룹은 제거:
+// 부서명(표시명)은 매칭 업로드의 부서명에서 채운다.
 const PROFILE_SUMMARY_HEADERS = [
-  '평가그룹',
   '사번',
   '성명',
   '성장레벨(직급)',
-  '부서명',
   '직책',
   '권한1',
   '권한2',
@@ -59,12 +59,12 @@ const EVALUATION_SUMMARY_HEADERS = [
   '평가연도',
   '피평가자사번',
   '피평가자명',
-  '직급',
+  '직책',
   '부서',
   '성장레벨',
   '평가자사번',
   '평가자명',
-  '평가자직급',
+  '평가자직책',
   '평가자부서',
   '평가상태',
   '과업수',
@@ -376,11 +376,9 @@ const buildProfileSummaryRows = (
     const sourceRow = sourceRowsByEmployee.get(employee.employee_id);
     const roles = getRoleCells(employee, sourceRow);
     return [
-      getEvaluationGroupCell(employee, sourceRow),
       employee.employee_id,
       employee.name,
       getGrowthLevelCell(employee),
-      employee.department ?? '',
       employee.position ?? '',
       roles[0] ?? '',
       roles[1] ?? '',
@@ -993,12 +991,12 @@ const buildEvaluationSummaryRows = (bundles: LoadedEvaluationBundle[]) =>
       평가연도: bundle.evaluation.evaluation_year ?? '',
       피평가자사번: bundle.employee.employee_id,
       피평가자명: bundle.employee.name,
-      직급: bundle.employee.position ?? bundle.evaluation.evaluatee_position ?? '',
+      직책: bundle.employee.position ?? bundle.evaluation.evaluatee_position ?? '',
       부서: bundle.employee.department ?? bundle.evaluation.evaluatee_department ?? '',
       성장레벨: bundle.evaluation.growth_level ?? bundle.employee.growth_level ?? '',
       평가자사번: bundle.evaluation.evaluator_id ?? '',
       평가자명: bundle.evaluation.evaluator_name ?? '',
-      평가자직급: bundle.evaluation.evaluator_position ?? '',
+      평가자직책: bundle.evaluation.evaluator_position ?? '',
       평가자부서: bundle.evaluation.evaluator_department ?? '',
       평가상태: evaluationStatusLabel(bundle.evaluation.evaluation_status),
       과업수: bundle.tasks.length,
@@ -1310,7 +1308,7 @@ export const downloadHrBackupWorkbook = async (
 const DEPARTMENT_MEMBER_HEADERS = [
   '사번',
   '이름',
-  '직급',
+  '직책',
   '부서',
   '직무',
   '성장레벨',
@@ -1344,7 +1342,7 @@ export const downloadDepartmentMembersWorkbook = (
   const rows = members.map((m) => ({
     사번: m.employeeId,
     이름: m.name,
-    직급: m.position,
+    직책: m.position,
     부서: m.department,
     직무: m.jobRole ?? '',
     성장레벨: m.growthLevel ?? '',
@@ -1576,7 +1574,7 @@ const buildIndividualSummaryRows = (data: IndividualReportData) => [
   INDIVIDUAL_SUMMARY_HEADERS,
   ['성명', data.name],
   ['사번', data.employeeId],
-  ['직급', data.position],
+  ['직책', data.position],
   ['부서', data.department],
   ['조직 경로', data.orgPath],
   ['성장레벨', data.growthLevel == null ? '' : `Lv.${data.growthLevel} · ${data.growthLevelTitle}`],

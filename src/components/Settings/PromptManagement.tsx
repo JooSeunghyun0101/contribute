@@ -29,20 +29,39 @@ import {
 // prompt key → 실제 사용되는 화면/기능 매핑.
 // 새 AI 기능을 추가하면 여기에도 같이 등록해 HR이 어디 영향이 가는지 알 수 있게 한다.
 const PROMPT_USAGE: Record<string, { screen: string; route?: string }[]> = {
-  evaluation_guide: [{ screen: '공통 평가 기준 (다른 프롬프트에 합성)' }],
+  // ── 사용 중 ──
+  evaluation_guide: [{ screen: '평가 기준 문서 — 성과보고·피드백의견·성장제안·요약보고서·AI도움말에 공통 합성' }],
   feedback_recommendation: [{ screen: '평가 화면 · 평가자 피드백 의견 AI 작성', route: '/evaluation/:id' }],
   performance_report_draft: [{ screen: '피평가자 과업 입력 · 성과보고 AI 작성', route: '/my' }],
-  feedback_improvement: [{ screen: '평가 화면 · 피드백 문장 교정', route: '/evaluation/:id' }],
-  ai_feedback_chat: [{ screen: '평가 화면 · AI 대화형 도우미', route: '/evaluation/:id' }],
-  feedback_generic_review: [{ screen: '평가 저장 · 피드백 일반성 검수', route: '/evaluation/:id' }],
-  feedback_similarity_review: [{ screen: '평가 저장 · 피드백 유사도 검수', route: '/evaluation/:id' }],
-  evaluation_feedback_review: [{ screen: '평가 저장 · AI 피드백 검수(구체성·성의·복붙·점수논조)', route: '/evaluation/:id' }],
-  feedback_sentiment_gap_review: [{ screen: '(미사용) 점수-의견 정합성 — 저장 검수로 통합됨' }],
-  ai_connection_test: [{ screen: '시스템 · AI 연결 테스트' }],
-  evaluator_qna_assistant: [{ screen: '평가자 AI 도움말', route: '/team/ai' }],
-  growth_suggestion: [{ screen: '피평가자 대시보드 · AI 성장 제안', route: '/my' }],
+  evaluation_feedback_review: [{ screen: '평가 저장 · AI 피드백 검수(구체성·성실성·중복성·정합성)', route: '/evaluation/:id' }],
+  growth_suggestion_comprehensive: [{ screen: '피평가자 대시보드 · AI 성장 제안', route: '/my' }],
   feedback_summary_evaluatee: [{ screen: '피평가자 피드백 이력 · AI 요약', route: '/my/feedback' }],
   feedback_summary_evaluator: [{ screen: '평가자 피드백 내역 · AI 요약', route: '/team/feedback' }],
+  feedback_keywords: [
+    { screen: '피평가자 피드백 이력 · AI 키워드', route: '/my/feedback' },
+    { screen: '평가자 피드백 내역 · AI 키워드', route: '/team/feedback' },
+  ],
+  people_search_parse: [{ screen: 'HR 인물검색 · 질의 키워드 변환', route: '/hr/people-search' }],
+  people_search_rank: [{ screen: 'HR 인물검색 · 후보 방향성 판단·추천', route: '/hr/people-search' }],
+  evaluator_qna_assistant: [{ screen: '평가자 AI 도움말', route: '/team/ai' }],
+  ai_connection_test: [{ screen: '시스템 · AI 연결 테스트' }],
+};
+
+// prompt key → 이 프롬프트에 '코드가 자동으로 덧붙이는 데이터'. {변수} 치환이 아니라,
+// 저장된 지시문 '뒤에' 아래 데이터가 붙어 AI 에 전달된다(편집자가 데이터 연결을 확인하도록 안내).
+const PROMPT_AUTO_DATA: Record<string, string[]> = {
+  evaluation_guide: ['/hr/matrix 의 모든 기준(점수 매트릭스·기여방식범위 정의·성장레벨/갭 기대수준)이 자동 합성됨 — 이 문서엔 적지 않음', '이 문서 자체가 5개 AI 기능에 공통 합성'],
+  feedback_recommendation: ['공통 평가 기준', '과업명·과업내용', '기여방식·기여범위·점수', '기존 피드백(있으면)'],
+  performance_report_draft: ['공통 평가 기준', '과업명·기간·가중치', '기존 작성 내용(있으면)'],
+  evaluation_feedback_review: ['변경된 피드백 항목들(taskId·과업명·피드백·점수·gapBucket)', '복붙 검사용 비교 피드백'],
+  growth_suggestion_comprehensive: ['공통 평가 기준', '전체 과업(일정·비중·기여방식/범위·점수·받은 피드백)', '성장레벨'],
+  feedback_summary_evaluatee: ['피평가자가 받은 피드백 목록(과업·점수·내용)'],
+  feedback_summary_evaluator: ['피평가자명', '평가자가 작성한 피드백 목록(과업·점수·내용)'],
+  feedback_keywords: ['피드백 목록(과업·점수·내용)'],
+  people_search_parse: ['HR 이 입력한 자연어 질의'],
+  people_search_rank: ['검색 조건(질의)', '1차 검색된 후보 목록과 피드백 근거'],
+  evaluator_qna_assistant: ['공통 평가 기준(evaluation_guide)', '이전 대화 맥락', '평가자의 질문'],
+  ai_connection_test: ['(데이터 없음 — 고정 문구)'],
 };
 
 // 목록·편집기 제목에 쓸 친절한 한글 라벨(영문 key 대신). 등록된 화면명 → 설명 → 마지막으로 key.
@@ -422,6 +441,23 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                     placeholder="AI에게 지시할 프롬프트 내용을 입력하세요..."
                   />
                 </div>
+
+                {(PROMPT_AUTO_DATA[selectedPrompt.key] ?? []).length > 0 && (
+                  <div className="rounded-md border border-border bg-muted/40 p-3">
+                    <div className="text-xs font-semibold mb-1.5 flex items-center gap-1.5">
+                      <Bot className="h-3.5 w-3.5" /> 이 프롬프트에 자동 첨부되는 데이터
+                    </div>
+                    <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                      {(PROMPT_AUTO_DATA[selectedPrompt.key] ?? []).map((d, i) => (
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                    <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                      위 데이터는 저장된 지시문 <b>뒤에 코드가 자동으로 붙여서</b> AI 에 전달됩니다. 프롬프트 안에 별도 변수
+                      표기는 필요 없습니다.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="test-input">테스트 입력 (선택)</Label>

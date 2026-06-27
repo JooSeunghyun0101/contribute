@@ -1,6 +1,9 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp, CircleHelp, Clock3 } from 'lucide-react';
+import { ChevronDown, CircleHelp, Clock3 } from 'lucide-react';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
+import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
+import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
+import { AiContentText } from '@/components/ui/AiContentText';
 import { NumBadge, Pill } from '@/components/brand';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import {
@@ -10,7 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { generateFeedbackRecommendation } from '@/lib/gptOss';
-import { Task } from '@/types/evaluation';
+import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import {
   MATRIX_METHODS,
   MATRIX_SCOPES,
@@ -32,7 +35,8 @@ export const SCORE_BG = MATRIX_SCORE_COLORS;
 export type EvaluatorTaskView = {
   task: Task;
   displayTask: Task;
-  entry?: unknown;
+  /** 이 평가자가 이 과업에 매긴 저장된 평가 항목(저장 시점 AI 검수 결과 ai_* 포함). */
+  entry?: TaskEvaluationEntry | null;
   score: number | null;
   hasDraft: boolean;
 };
@@ -298,55 +302,56 @@ export const EvaluatorAccordion = ({
             {group.completedCount}/{group.tasks.length} 과업
           </div>
         </div>
-        {isExpanded ? (
-          <ChevronUp size={24} color={group.accent} aria-hidden="true" />
-        ) : (
-          <ChevronDown size={24} color={group.accent} aria-hidden="true" />
-        )}
+        <ChevronDown
+          size={24}
+          color={group.accent}
+          aria-hidden="true"
+          className={chevronRotateClass(isExpanded)}
+        />
       </div>
     </button>
 
-    {isExpanded && group.tasks.length === 0 && (
-      <div
-        style={{
-          borderTop: `1px solid ${group.accent}`,
-          minHeight: 220,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--fg-muted)',
-          fontSize: 'var(--fs-body)',
-          fontWeight: 700,
-          background: 'var(--bg-muted)',
-        }}
-      >
-        피평가자가 과업을 제출하기 전입니다.
-      </div>
-    )}
-
-    {isExpanded && selectedItem && (
-      <div
-        style={{
-          borderTop: `1px solid ${group.accent}`,
-          display: 'grid',
-          gridTemplateColumns: '420px minmax(0, 1fr)',
-          // 펼친 영역 높이를 고정해 과업이 많아도 좌측 목록·우측 상세가 각자 내부 스크롤.
-          height: 'min(720px, calc(100vh - 220px))',
-          minHeight: 420,
-        }}
-      >
-        <TaskTabs group={group} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
-        <TaskDetail
-          group={group}
-          item={selectedItem}
-          matrix={matrix}
-          growthLevel={growthLevel}
-          onCellClick={onCellClick}
-          onNoContributionClick={onNoContributionClick}
-          onFeedbackChange={onFeedbackChange}
-        />
-      </div>
-    )}
+    <AccordionMotion isOpen={isExpanded}>
+      {group.tasks.length === 0 ? (
+        <div
+          style={{
+            borderTop: `1px solid ${group.accent}`,
+            minHeight: 220,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--fg-muted)',
+            fontSize: 'var(--fs-body)',
+            fontWeight: 700,
+            background: 'var(--bg-muted)',
+          }}
+        >
+          피평가자가 과업을 제출하기 전입니다.
+        </div>
+      ) : selectedItem ? (
+        <div
+          style={{
+            borderTop: `1px solid ${group.accent}`,
+            display: 'grid',
+            gridTemplateColumns: '420px minmax(0, 1fr)',
+            // 펼친 영역 높이를 고정해 과업이 많아도 좌측 목록·우측 상세가 각자 내부 스크롤.
+            height: 'min(720px, calc(100vh - 220px))',
+            minHeight: 420,
+          }}
+        >
+          <TaskTabs group={group} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
+          <TaskDetail
+            group={group}
+            item={selectedItem}
+            matrix={matrix}
+            growthLevel={growthLevel}
+            onCellClick={onCellClick}
+            onNoContributionClick={onNoContributionClick}
+            onFeedbackChange={onFeedbackChange}
+          />
+        </div>
+      ) : null}
+    </AccordionMotion>
   </section>
 );
 
@@ -409,7 +414,20 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
               </div>
               {item.score != null && <NumBadge score={item.score} size={28} />}
             </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)' }}>
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)', alignItems: 'center' }}>
+              {item.task.isAiTask && (
+                <span
+                  style={{
+                    padding: '0 6px',
+                    borderRadius: 999,
+                    fontWeight: 800,
+                    color: 'var(--ai-accent)',
+                    background: 'var(--ai-accent-bg)',
+                  }}
+                >
+                  AI
+                </span>
+              )}
               <span>{item.displayTask.contributionMethod || '방식 미정'}</span>
               <span>·</span>
               <span>{item.displayTask.contributionScope || '범위 미정'}</span>
@@ -426,6 +444,78 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
     })}
   </nav>
 );
+
+// AI 검수 유형(저장값) → 칩 색. AiReviewRollup 의 typeTone 과 동일 매핑.
+const AI_TYPE_TONE: Record<string, 'orange' | 'info' | 'warning'> = {
+  복붙: 'orange',
+  논조: 'info',
+  성의: 'warning',
+  구체성: 'warning',
+};
+// 저장값(구어체)을 공식적인 표기로 바꿔 표시한다. 저장 데이터는 그대로 두고 라벨만 매핑.
+const AI_TYPE_LABEL: Record<string, string> = {
+  구체성: '구체성',
+  성의: '성실성',
+  복붙: '중복성',
+  논조: '정합성',
+};
+
+// 저장 시점에 기록된 AI 검수 결과를 '조회 시 재호출 없이' 그대로 표시한다(평가 저장 → ai_* 영속 → 여기 출력).
+// 평가자가 자기 피드백 품질을 바로 확인하고, 부적합이면 수정 후 재저장(재검수)하도록 유도하는 안내를 함께 보여준다.
+const AiReviewResultCard = ({ entry }: { entry?: TaskEvaluationEntry | null }) => {
+  const reviewed = Boolean(entry?.aiReviewedAt);
+  const flagged = entry?.aiFlagged === true;
+  const tone = !reviewed
+    ? { bg: 'var(--bg-muted)', border: 'var(--border)', fg: 'var(--fg-muted)' }
+    : flagged
+      ? { bg: 'var(--warning-bg)', border: 'var(--warning)', fg: 'var(--warning)' }
+      : { bg: 'var(--success-bg)', border: 'var(--success)', fg: 'var(--success)' };
+
+  return (
+    <div style={{ padding: 14, borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <AiSectionTitle
+        title="AI 검수 결과"
+        right={reviewed && entry?.aiReviewedAt ? `${formatDate(entry.aiReviewedAt)} 검수` : undefined}
+        style={{ marginBottom: 8 }}
+      />
+
+      {!reviewed ? (
+        <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+          아직 검수 전입니다. 피드백을 저장하면 AI가 품질(구체성·성실성·중복성·정합성)을 자동 검수합니다.
+        </p>
+      ) : flagged ? (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {entry?.aiType && (
+              <Pill tone={AI_TYPE_TONE[entry.aiType] ?? 'warning'}>{AI_TYPE_LABEL[entry.aiType] ?? entry.aiType}</Pill>
+            )}
+            <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: tone.fg }}>확인 필요</span>
+          </div>
+          {entry?.aiSummary && (
+            <p style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg)', lineHeight: 1.6 }}>{entry.aiSummary}</p>
+          )}
+        </div>
+      ) : (
+        <p style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: tone.fg, lineHeight: 1.6 }}>
+          이상 없음 — 검수 통과
+        </p>
+      )}
+
+      <p
+        style={{
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: '1px solid var(--border)',
+          fontSize: 'var(--fs-xs)',
+          color: 'var(--fg-muted)',
+          lineHeight: 1.6,
+        }}
+      >
+        구체적 행동 → 성과 → 영향 → 개선 방향 순으로 작성하면 품질 검수를 통과하기 쉽습니다.
+      </p>
+    </div>
+  );
+};
 
 type TaskDetailProps = {
   group: EvaluatorGroup;
@@ -451,7 +541,7 @@ const TaskDetail = ({
   const selectedMethodIdx = (METHODS as readonly string[]).indexOf(displayTask.contributionMethod ?? '');
   const selectedScopeIdx = (SCOPES as readonly string[]).indexOf(displayTask.contributionScope ?? '');
   const noContribSelected =
-    displayTask.contributionMethod === '기여없음' && displayTask.contributionScope === '기여없음';
+    displayTask.contributionMethod === '기여미흡' && displayTask.contributionScope === '기여미흡';
   const [feedbackAiLoading, setFeedbackAiLoading] = useState(false);
   const [feedbackAiSuggestion, setFeedbackAiSuggestion] = useState<string | null>(null);
 
@@ -556,7 +646,7 @@ const TaskDetail = ({
                 opacity: group.canEdit ? 1 : 0.55,
               }}
             >
-              기여없음 (0점)
+              기여미흡 (0점)
             </button>
           </div>
 
@@ -674,6 +764,7 @@ const TaskDetail = ({
               }}
             />
             <div
+              className={feedbackAiSuggestion ? 'ai-shine-border' : undefined}
               onCopy={(event) => {
                 event.preventDefault();
                 toast({ title: 'AI 의견은 복사할 수 없습니다.' });
@@ -684,23 +775,23 @@ const TaskDetail = ({
                 minHeight: 178,
                 padding: '12px 14px',
                 borderRadius: 8,
-                border: '1px solid var(--ok-orange-100)',
-                background: 'var(--ok-orange-50)',
-                color: 'var(--ok-brown)',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-muted)',
+                color: 'var(--fg)',
                 fontSize: 'var(--fs-sm)',
                 lineHeight: 1.7,
-                whiteSpace: 'pre-wrap',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
                 cursor: 'default',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <span style={{ fontWeight: 900 }}>AI 의견</span>
-              </div>
-              {feedbackAiLoading
-                ? '생성 중입니다...'
-                : feedbackAiSuggestion ?? 'AI 의견 초안을 생성하면 여기에 표시됩니다.'}
+              {feedbackAiLoading ? (
+                <span style={{ color: 'var(--fg-muted)' }}>생성 중입니다...</span>
+              ) : feedbackAiSuggestion ? (
+                <AiContentText text={feedbackAiSuggestion} accent="var(--ai-accent)" />
+              ) : (
+                <span style={{ color: 'var(--fg-muted)' }}>AI 의견 초안을 생성하면 여기에 표시됩니다.</span>
+              )}
             </div>
           </div>
         </div>
@@ -765,6 +856,8 @@ const TaskDetail = ({
             이 평가는 {group.evaluatorName} 평가자의 기록입니다. 해당 평가자만 수정할 수 있습니다.
           </div>
         )}
+
+        <AiReviewResultCard entry={item.entry} />
       </aside>
     </div>
   );

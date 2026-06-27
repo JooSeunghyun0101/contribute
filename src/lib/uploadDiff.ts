@@ -127,7 +127,7 @@ export const diffProfileRows = (
     }
     const changes: FieldChange[] = [];
     if (m.name && m.name !== emp.name) changes.push({ field: '이름', before: fmt(emp.name), after: fmt(m.name) });
-    if (m.position != null && m.position !== emp.position) changes.push({ field: '직급', before: fmt(emp.position), after: fmt(m.position) });
+    if (m.position != null && m.position !== emp.position) changes.push({ field: '직책', before: fmt(emp.position), after: fmt(m.position) });
     if (m.department != null && m.department !== emp.department) changes.push({ field: '부서', before: fmt(emp.department), after: fmt(m.department) });
     for (const level of ORG_LEVELS) {
       const field = ORG_FIELD[level];
