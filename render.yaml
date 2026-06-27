@@ -18,7 +18,9 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm install && npm run build
+    # Render 는 Node 서비스를 NODE_ENV=production 으로 빌드하므로 npm install 이 devDependencies
+    # (vite·typescript 등 빌드 도구)를 건너뛴다. --include=dev 로 강제 설치해야 vite build 가 동작.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node server.js
     healthCheckPath: /health
     envVars:
