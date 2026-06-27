@@ -57,6 +57,8 @@ const EvaluatorSchedulePage = () => {
     0,
     Math.min(1, (today.getMonth() + (today.getDate() - 1) / todayDaysInMonth) / MONTH_SPAN),
   );
+  // 오늘 세로줄은 '현재 연도' 평가기간을 볼 때만 표시. 지난 연도 조회 시엔 숨긴다.
+  const showTodayMarker = (selectedPeriod?.evaluation_year ?? today.getFullYear()) === today.getFullYear();
 
   const visibleRecords = useMemo(
     () =>
@@ -365,18 +367,20 @@ const EvaluatorSchedulePage = () => {
                                   }}
                                 />
                               ))}
-                              {/* 오늘 표시 */}
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  bottom: 0,
-                                  left: `${todayFrac * 100}%`,
-                                  width: 2,
-                                  background: 'var(--ok-orange-brand)',
-                                  zIndex: 2,
-                                }}
-                              />
+                              {/* 오늘 표시 — 현재 연도 조회 시에만 */}
+                              {showTodayMarker && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: `${todayFrac * 100}%`,
+                                    width: 2,
+                                    background: 'var(--ok-orange-brand)',
+                                    zIndex: 2,
+                                  }}
+                                />
+                              )}
                               {/* 과업 막대 — 날짜가 있을 때만. 없으면 기간 미정 */}
                               {hasSchedule ? (
                                 <div

@@ -1,6 +1,7 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp, CircleHelp, Clock3 } from 'lucide-react';
+import { ChevronDown, CircleHelp, Clock3 } from 'lucide-react';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
+import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { AiContentText } from '@/components/ui/AiContentText';
 import { NumBadge, Pill } from '@/components/brand';
@@ -301,55 +302,56 @@ export const EvaluatorAccordion = ({
             {group.completedCount}/{group.tasks.length} 과업
           </div>
         </div>
-        {isExpanded ? (
-          <ChevronUp size={24} color={group.accent} aria-hidden="true" />
-        ) : (
-          <ChevronDown size={24} color={group.accent} aria-hidden="true" />
-        )}
+        <ChevronDown
+          size={24}
+          color={group.accent}
+          aria-hidden="true"
+          className={chevronRotateClass(isExpanded)}
+        />
       </div>
     </button>
 
-    {isExpanded && group.tasks.length === 0 && (
-      <div
-        style={{
-          borderTop: `1px solid ${group.accent}`,
-          minHeight: 220,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--fg-muted)',
-          fontSize: 'var(--fs-body)',
-          fontWeight: 700,
-          background: 'var(--bg-muted)',
-        }}
-      >
-        피평가자가 과업을 제출하기 전입니다.
-      </div>
-    )}
-
-    {isExpanded && selectedItem && (
-      <div
-        style={{
-          borderTop: `1px solid ${group.accent}`,
-          display: 'grid',
-          gridTemplateColumns: '420px minmax(0, 1fr)',
-          // 펼친 영역 높이를 고정해 과업이 많아도 좌측 목록·우측 상세가 각자 내부 스크롤.
-          height: 'min(720px, calc(100vh - 220px))',
-          minHeight: 420,
-        }}
-      >
-        <TaskTabs group={group} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
-        <TaskDetail
-          group={group}
-          item={selectedItem}
-          matrix={matrix}
-          growthLevel={growthLevel}
-          onCellClick={onCellClick}
-          onNoContributionClick={onNoContributionClick}
-          onFeedbackChange={onFeedbackChange}
-        />
-      </div>
-    )}
+    <AccordionMotion isOpen={isExpanded}>
+      {group.tasks.length === 0 ? (
+        <div
+          style={{
+            borderTop: `1px solid ${group.accent}`,
+            minHeight: 220,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--fg-muted)',
+            fontSize: 'var(--fs-body)',
+            fontWeight: 700,
+            background: 'var(--bg-muted)',
+          }}
+        >
+          피평가자가 과업을 제출하기 전입니다.
+        </div>
+      ) : selectedItem ? (
+        <div
+          style={{
+            borderTop: `1px solid ${group.accent}`,
+            display: 'grid',
+            gridTemplateColumns: '420px minmax(0, 1fr)',
+            // 펼친 영역 높이를 고정해 과업이 많아도 좌측 목록·우측 상세가 각자 내부 스크롤.
+            height: 'min(720px, calc(100vh - 220px))',
+            minHeight: 420,
+          }}
+        >
+          <TaskTabs group={group} selectedTaskId={selectedTaskId} onSelectTask={onSelectTask} />
+          <TaskDetail
+            group={group}
+            item={selectedItem}
+            matrix={matrix}
+            growthLevel={growthLevel}
+            onCellClick={onCellClick}
+            onNoContributionClick={onNoContributionClick}
+            onFeedbackChange={onFeedbackChange}
+          />
+        </div>
+      ) : null}
+    </AccordionMotion>
   </section>
 );
 

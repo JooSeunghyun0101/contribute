@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
 import { AiReviewRollup } from '@/components/Feedback/AiReviewRollup';
 import type { OrgFields } from '@/lib/orgHierarchy';
@@ -90,7 +91,15 @@ const buildMessage = (row: EvaluatorRow, periodName: string, endsOn: string | nu
 
 const RemindersPage = () => {
   const { user } = useAuth();
-  const [tab, setTab] = useState<ReminderTab>('remind');
+  // 활성 탭을 URL(?tab=ai)에 반영 — 평가 열람으로 갔다가 '뒤로' 오면 AI검수 탭이 그대로 복원된다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: ReminderTab = searchParams.get('tab') === 'ai' ? 'ai' : 'remind';
+  const setTab = (next: ReminderTab) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'ai') params.set('tab', 'ai');
+    else params.delete('tab');
+    setSearchParams(params, { replace: true });
+  };
   const [search, setSearch] = useState('');
   const { toast } = useToast();
   const { selectedPeriod, selectedPeriodStatus } = useEvaluationPeriod();

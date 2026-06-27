@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -38,6 +39,9 @@ const typeTone = (type: string | null): 'warning' | 'orange' | 'info' | 'neutral
   }
 };
 
+// 펼친 평가자×사유 선택을 세션에 보관 — 평가 열람으로 갔다가 '뒤로' 돌아오면 그 펼친 상태를 복원한다.
+const SELECTED_STORAGE_KEY = 'aiReviewRollup.selected';
+
 // HR AI검수 롤업 — 평가자가 저장 시 쌓아둔 1차 검수 결과만 읽어 보여준다(여기서 AI 재호출 없음).
 // 평가자가 부적합 알림 후 고쳐서 통과하면 자동으로 '이상없음'으로 갱신되어 여기서 빠진다.
 export const AiReviewRollup = () => {
@@ -48,8 +52,25 @@ export const AiReviewRollup = () => {
   const [data, setData] = useState<Rollup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<{ ev: string; type: string } | null>(null);
+  const [selected, setSelected] = useState<{ ev: string; type: string } | null>(() => {
+    try {
+      const raw = sessionStorage.getItem(SELECTED_STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as { ev: string; type: string }) : null;
+    } catch {
+      return null;
+    }
+  });
   const [sending, setSending] = useState<string | null>(null);
+
+  // 펼친 선택을 세션에 보존(뒤로가기 복원용).
+  useEffect(() => {
+    try {
+      if (selected) sessionStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify(selected));
+      else sessionStorage.removeItem(SELECTED_STORAGE_KEY);
+    } catch {
+      /* 세션스토리지 접근 불가 시 무시 */
+    }
+  }, [selected]);
 
   useEffect(() => {
     let cancelled = false;
@@ -229,6 +250,15 @@ export const AiReviewRollup = () => {
                               {expanded && (
                                 <TableRow>
                                   <TableCell colSpan={colCount} style={{ padding: 0, background: 'var(--bg-subtle)' }}>
+                                   <motion.div
+                                     initial={{ height: 0, opacity: 0 }}
+                                     animate={{ height: 'auto', opacity: 1 }}
+                                     style={{ overflow: 'hidden' }}
+                                     transition={{
+                                       height: { type: 'spring', stiffness: 150, damping: 26, mass: 1.05 },
+                                       opacity: { duration: 0.28, ease: [0.16, 1, 0.3, 1], delay: 0.04 },
+                                     }}
+                                   >
                                     <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                                       <span style={{ fontWeight: 800 }}>
                                         {r.ev} · {typeLabel(selected!.type)}{' '}
@@ -264,8 +294,14 @@ export const AiReviewRollup = () => {
                                         <button
                                           key={`${it.evaluation_id}-${idx}`}
                                           type="button"
-                                          onClick={() => navigate(`/hr/evaluation-viewer?evaluatee=${encodeURIComponent(it.evaluatee_id)}`)}
-                                          title="평가 열람"
+                                          onClick={() =>
+                                            navigate(
+                                              `/hr/evaluation-viewer?evaluatee=${encodeURIComponent(it.evaluatee_id)}${
+                                                it.task_uuid ? `&task=${encodeURIComponent(it.task_uuid)}` : ''
+                                              }`,
+                                            )
+                                          }
+                                          title="평가 열람 — 이 과업이 선택된 상태로 이동"
                                           style={{ width: '100%', textAlign: 'left', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', padding: '10px 12px', cursor: 'pointer' }}
                                         >
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -273,12 +309,34 @@ export const AiReviewRollup = () => {
                                             {it.ai_type && <Pill tone={typeTone(it.ai_type)}>{typeLabel(canonType(it.ai_type))}</Pill>}
                                             {it.task_title && <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>· {it.task_title}</span>}
                                           </div>
+                                          {it.feedback && (
+                                            <div
+                                              style={{
+                                                marginTop: 6,
+                                                fontSize: 'var(--fs-xs)',
+                                                color: 'var(--fg)',
+                                                whiteSpace: 'pre-wrap',
+                                                lineHeight: 1.55,
+                                                background: 'var(--bg-card)',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: 6,
+                                                padding: '6px 8px',
+                                              }}
+                                            >
+                                              <span style={{ fontWeight: 700, color: 'var(--fg-muted)' }}>피드백 · </span>
+                                              {it.feedback}
+                                            </div>
+                                          )}
                                           {it.ai_summary && (
-                                            <div style={{ marginTop: 4, fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{it.ai_summary}</div>
+                                            <div style={{ marginTop: 4, fontSize: 'var(--fs-xs)', color: 'var(--ok-orange)' }}>
+                                              <span style={{ fontWeight: 700 }}>부적합 사유 · </span>
+                                              {it.ai_summary}
+                                            </div>
                                           )}
                                         </button>
                                       ))}
                                     </div>
+                                   </motion.div>
                                   </TableCell>
                                 </TableRow>
                               )}

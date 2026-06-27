@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import { PencilLine } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, PencilLine } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -79,6 +79,7 @@ const getTaskForEntry = (task: Task, entry: TaskEvaluationEntry): Task => ({
 
 const Evaluation = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { matrix } = useEvaluationMatrix();
   const { toast } = useToast();
@@ -527,7 +528,22 @@ const Evaluation = () => {
   return (
     <>
       <PageHeader
-        title={`성과 평가 · ${evaluationData.evaluateeName}`}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              title="직전 화면으로 돌아가기"
+              aria-label="뒤로 가기"
+              style={{ flexShrink: 0 }}
+            >
+              <ArrowLeft size={16} aria-hidden="true" />
+              뒤로
+            </button>
+            <span>{`성과 평가 · ${evaluationData.evaluateeName}`}</span>
+          </span>
+        }
         subtitle={[
           evaluationData.evaluateePosition,
           evaluationData.evaluateeDepartment,

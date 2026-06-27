@@ -19,8 +19,9 @@ database_connect_information.yml
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-# One-shot seeding/migration scripts kept locally
-scripts/
+# One-shot seeding/migration scripts kept locally (단, 부팅 스모크는 추적)
+scripts/*
+!scripts/smoke-server.mjs
 
 # Editor directories and files
 .vscode/*

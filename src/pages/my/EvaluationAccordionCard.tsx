@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Plus, Save, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -701,7 +702,7 @@ const EvaluationAccordionCard = ({
         </div>
       </button>
 
-      {expanded && (
+      <AccordionMotion isOpen={expanded}>
         <div
           style={{
             display: 'flex',
@@ -1398,7 +1399,7 @@ const EvaluationAccordionCard = ({
             )}
           </section>
         </div>
-      )}
+      </AccordionMotion>
     </section>
   );
 };

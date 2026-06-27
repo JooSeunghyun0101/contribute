@@ -1,6 +1,7 @@
 import PageHeader from '@/components/Layout/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { getScoreColor } from '@/lib/evaluationMatrix';
 
 const monthLabels = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
@@ -23,10 +24,13 @@ const toMonthFraction = (value?: string) => {
 const MySchedulePage = () => {
   const { user } = useAuth();
   const { evaluationData, isLoading } = useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
+  const { selectedPeriod } = useEvaluationPeriod();
   const tasks = evaluationData?.tasks ?? [];
 
   const today = new Date();
   const todayFrac = Math.max(0, Math.min(1, (today.getMonth() + (today.getDate() - 1) / 31) / MONTH_SPAN));
+  // 오늘 세로줄은 '현재 연도' 평가기간을 볼 때만 의미가 있다. 지난 연도 조회 시엔 표시하지 않는다.
+  const showTodayMarker = (selectedPeriod?.evaluation_year ?? today.getFullYear()) === today.getFullYear();
 
   return (
     <>
@@ -144,18 +148,20 @@ const MySchedulePage = () => {
                           }}
                         />
                       ))}
-                      {/* Today marker */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          bottom: 0,
-                          left: `${todayFrac * 100}%`,
-                          width: 2,
-                          background: 'var(--ok-orange-brand)',
-                          zIndex: 2,
-                        }}
-                      />
+                      {/* Today marker — 현재 연도 조회 시에만 */}
+                      {showTodayMarker && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            bottom: 0,
+                            left: `${todayFrac * 100}%`,
+                            width: 2,
+                            background: 'var(--ok-orange-brand)',
+                            zIndex: 2,
+                          }}
+                        />
+                      )}
                       {/* Task bar */}
                       <div
                         style={{

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
@@ -55,8 +56,11 @@ type GroupMeta = { group: EvaluatorGroup; status: string };
 const HrEvaluationViewerPage = () => {
   const { records, isLoading } = useCompanyDashboardRecords();
   const { selectedPeriod } = useEvaluationPeriod();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('evaluatee'));
+  // AI검수 등에서 특정 과업을 지정해 들어온 경우 — 그 과업을 자동 선택하고 '뒤로' 버튼을 보여준다.
+  const initialTaskId = searchParams.get('task');
 
   const candidates = useMemo(() => records.filter((r) => r.evaluation != null), [records]);
   const options = useMemo(
@@ -73,6 +77,7 @@ const HrEvaluationViewerPage = () => {
     const next = new URLSearchParams(searchParams);
     if (employeeId) next.set('evaluatee', employeeId);
     else next.delete('evaluatee');
+    next.delete('task'); // 수동으로 다른 피평가자를 고르면 과업 지정(자동선택·뒤로가기)은 해제.
     setSearchParams(next, { replace: true });
   };
 
@@ -85,7 +90,26 @@ const HrEvaluationViewerPage = () => {
   return (
     <>
       <PageHeader
-        title="피평가자 평가 열람"
+        title={
+          initialTaskId ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="sd-btn sd-btn-outline sd-btn-sm"
+                title="직전 화면(AI 검수)으로 돌아가기"
+                aria-label="뒤로 가기"
+                style={{ flexShrink: 0 }}
+              >
+                <ArrowLeft size={16} aria-hidden="true" />
+                뒤로
+              </button>
+              <span>피평가자 평가 열람</span>
+            </span>
+          ) : (
+            '피평가자 평가 열람'
+          )
+        }
         subtitle="피평가자를 선택해 평가자 화면(읽기 전용)을 그대로 봅니다. 전보로 평가자가 여럿이면 평가자별로 모두 표시되며, 각 평가자에게 따로 수정요청을 보낼 수 있습니다."
         actions={<Pill tone="neutral">{periodLabel}</Pill>}
         filters={
@@ -105,7 +129,7 @@ const HrEvaluationViewerPage = () => {
 
       <div style={{ padding: '20px 32px 32px' }}>
         {selectedId ? (
-          <EvaluationReadonlyView key={selectedId} evaluateeId={selectedId} />
+          <EvaluationReadonlyView key={selectedId} evaluateeId={selectedId} initialTaskId={initialTaskId} />
         ) : (
           <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
             상단에서 피평가자를 선택하면 평가 내역(읽기 전용)이 표시됩니다.
@@ -118,7 +142,13 @@ const HrEvaluationViewerPage = () => {
 
 type EvaluateeMeta = { name: string; position: string; department: string; growthLevel: number };
 
-const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
+const EvaluationReadonlyView = ({
+  evaluateeId,
+  initialTaskId,
+}: {
+  evaluateeId: string;
+  initialTaskId?: string | null;
+}) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const askReason = useReason();
@@ -237,8 +267,17 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
             : null,
         );
         setGroups(built);
-        setExpandedKeys(new Set(built.length ? [built[0].group.key] : []));
-        setSelectedByGroup({});
+        // 특정 과업으로 진입(AI검수 등)했으면 그 과업이 든 평가자 그룹을 펼치고 해당 과업을 선택한다.
+        const targetGroup = initialTaskId
+          ? built.find((b) => b.group.tasks.some((t) => t.task.id === initialTaskId))
+          : undefined;
+        if (targetGroup) {
+          setExpandedKeys(new Set([targetGroup.group.key]));
+          setSelectedByGroup({ [targetGroup.group.key]: initialTaskId as string });
+        } else {
+          setExpandedKeys(new Set(built.length ? [built[0].group.key] : []));
+          setSelectedByGroup({});
+        }
       } catch (err) {
         console.error('평가 열람 로드 실패:', err);
         if (!cancelled) {
@@ -253,7 +292,7 @@ const EvaluationReadonlyView = ({ evaluateeId }: { evaluateeId: string }) => {
     return () => {
       cancelled = true;
     };
-  }, [evaluateeId, selectedPeriodId, matrix]);
+  }, [evaluateeId, selectedPeriodId, matrix, initialTaskId]);
 
   const handleRequestEdit = async (evaluationId: string | undefined, evaluatorName: string) => {
     if (!evaluationId) {

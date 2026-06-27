@@ -203,7 +203,7 @@ const HrPeopleSearchPage = () => {
                       color: on ? 'var(--ok-orange)' : 'var(--fg)',
                     }}
                   >
-                    {p.evaluation_year} {p.name}
+                    {p.name}
                   </button>
                 );
               })

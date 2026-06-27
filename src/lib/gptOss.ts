@@ -99,6 +99,23 @@ async function fetchEvaluationGuide(): Promise<string> {
   return `${guide}\n\n${criteria}`;
 }
 
+// HR이 '공지·FAQ' 화면에서 등록한 FAQ(settings: system/faq_catalog)를 AI 도움말 근거로 합성한다.
+// FAQ를 한 곳(공지·FAQ)에서만 관리하면 직원 노출(FaqSection)과 AI 답변이 같은 원천을 쓴다(단일 원천).
+// 미설정/오류 시 빈 문자열 → 호출부에서 FAQ 블록을 생략.
+async function fetchFaqContext(): Promise<string> {
+  try {
+    const data = (await fetchCompanySetting('faq_catalog')) as { faqs?: Array<{ question?: string; answer?: string }> } | null;
+    const faqs = Array.isArray(data?.faqs) ? data!.faqs : [];
+    const lines = faqs
+      .map((f) => ({ q: (f.question ?? '').trim(), a: (f.answer ?? '').trim() }))
+      .filter((f) => f.q && f.a)
+      .map((f) => `Q. ${f.q}\nA. ${f.a}`);
+    return lines.length ? lines.join('\n\n') : '';
+  } catch {
+    return '';
+  }
+}
+
 export function fetchAllPrompts(): Promise<PromptTemplate[]> {
   return fetch('/api/prompts')
     .then(res => {
@@ -209,8 +226,10 @@ async function callGptOss(
   prompt: string,
   options: { timeoutMs?: number; fullLength?: boolean; maxTokens?: number; retries?: number } = {},
 ): Promise<string> {
-  const maxAttempts = (options.retries ?? 2) + 1;
+  // 기본 재시도 3회(총 4회 시도). 무료티어 레이트리밋(429)이 잦아 기본값을 높였다.
+  const maxAttempts = (options.retries ?? 3) + 1;
   let lastError: unknown;
+  let retryAfterMs = 0; // 429 응답의 Retry-After(초)를 다음 대기에 반영.
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -235,6 +254,9 @@ async function callGptOss(
       // 레이트리밋(429)·업스트림 일시오류(502/504) → 재시도 대상.
       if (response.status === 429 || response.status === 502 || response.status === 504) {
         lastError = new Error(`retriable ${response.status}`);
+        // Retry-After 헤더가 있으면(초 단위) 그 시간만큼 기다린다(최대 30초로 제한).
+        const ra = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
+        retryAfterMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 30000) : 0;
       } else if (!response.ok) {
         return '⚠️ GPT‑OSS 호출에 실패했습니다. 관리자에게 문의해 주세요.';
       } else {
@@ -250,8 +272,12 @@ async function callGptOss(
     }
 
     if (attempt < maxAttempts) {
-      // 지수 백오프(700ms, 1400ms…) — 레이트리밋 창이 풀릴 시간을 준다.
-      await new Promise((resolve) => window.setTimeout(resolve, 700 * attempt));
+      // 지수 백오프(1s, 2s, 4s…, 최대 8s) + 지터 — 레이트리밋 창이 풀릴 시간을 준다.
+      // Retry-After 가 명시되면 그 값을 우선한다(서버가 알려준 대기시간이 가장 정확).
+      const backoff = Math.min(1000 * 2 ** (attempt - 1), 8000);
+      const jitter = Math.floor(Math.random() * 400);
+      await new Promise((resolve) => window.setTimeout(resolve, Math.max(retryAfterMs, backoff) + jitter));
+      retryAfterMs = 0;
     }
   }
 
@@ -371,32 +397,55 @@ export async function generateFeedbackRecommendation(
  */
 export type EvaluatorQnaTurn = { role: 'user' | 'assistant'; content: string };
 
-export async function askEvaluatorQuestion(
+// 평가자/피평가자 AI 도움말 공통 본체. 시스템 프롬프트 키와 질문자 호칭만 역할별로 달라지고,
+// 근거(평가 기준 + FAQ)는 동일한 단일 원천을 합성한다.
+async function askQnaQuestion(
+  promptKey: string,
+  askerLabel: string,
   question: string,
   history: EvaluatorQnaTurn[] = [],
 ): Promise<string> {
-  const systemPrompt = await fetchPrompt('evaluator_qna_assistant');
-  const guide = await fetchEvaluationGuide(); // 공통 평가 기준 문서를 근거로 합성(단일 기준).
+  const [systemPrompt, guide, faq] = await Promise.all([
+    fetchPrompt(promptKey),
+    fetchEvaluationGuide(), // 공통 평가 기준 문서를 근거로 합성(단일 기준).
+    fetchFaqContext(), // HR이 등록한 FAQ를 근거로 합성(있을 때만).
+  ]);
   const recent = history.slice(-6);
 
   const transcript = recent
-    .map((turn) => `${turn.role === 'user' ? '평가자' : 'AI'}: ${turn.content}`)
+    .map((turn) => `${turn.role === 'user' ? askerLabel : 'AI'}: ${turn.content}`)
     .join('\n');
+
+  const faqBlock = faq ? `\n\n[자주 묻는 질문(FAQ)]\n${faq}` : '';
 
   const prompt = `${systemPrompt}
 
 [평가 기준]
-${guide}
+${guide}${faqBlock}
 
 이전 대화:
 ${transcript || '(없음)'}
 
-평가자 질문:
+${askerLabel} 질문:
 ${question.trim()}
 
 답변:`;
 
   return await callGptOss(prompt, { timeoutMs: 60000 });
+}
+
+export async function askEvaluatorQuestion(
+  question: string,
+  history: EvaluatorQnaTurn[] = [],
+): Promise<string> {
+  return askQnaQuestion('evaluator_qna_assistant', '평가자', question, history);
+}
+
+export async function askEvaluateeQuestion(
+  question: string,
+  history: EvaluatorQnaTurn[] = [],
+): Promise<string> {
+  return askQnaQuestion('evaluatee_qna_assistant', '피평가자', question, history);
 }
 
 /**

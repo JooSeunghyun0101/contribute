@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { UserRole } from '@/types';
@@ -39,6 +40,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/my/schedule', label: '과업 일정', icon: IconCalendar },
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
     { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
+    { to: '/my/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   evaluator: [
     { to: '/team', label: '팀 통계', icon: IconChart, end: true },
@@ -270,7 +272,12 @@ export const Sidebar = () => {
                     }}
                   />
                 </button>
-                {!isCollapsed && items.map(renderLink)}
+                <AccordionMotion
+                  isOpen={!isCollapsed}
+                  contentStyle={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+                >
+                  {items.map(renderLink)}
+                </AccordionMotion>
               </Fragment>
             );
           })

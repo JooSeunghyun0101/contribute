@@ -4,8 +4,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
-import { Pool } from 'pg';
+import pg, { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+
+// PostgreSQL `date`(OID 1082) 컬럼은 시간·타임존이 없는 '날짜 그 자체'다.
+// node-postgres 기본 파서는 이를 '로컬 자정 Date'로 바꾸는데, 그 Date 를 JSON 직렬화하면
+// UTC 기준 ISO(예: KST 2026-06-01 → '2026-05-31T15:00:00Z')가 되어 화면/편집폼에서 하루 밀려 보인다.
+// 그래서 date 는 변환 없이 'YYYY-MM-DD' 문자열 그대로 반환한다(타임존 밀림 원천 차단).
+// timestamp/timestamptz(생성일시 등)는 영향받지 않는다.
+pg.types.setTypeParser(1082, (value) => value);
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -73,7 +80,10 @@ const connectionString = process.env.DATABASE_URL;
 // 기본 프롬프트 시드 — 빈 DB(내부망 반입 등)에 프론트/서버 공용 기본 프롬프트를 채운다.
 // 단일 원천: src/lib/defaultPrompts.json (프론트 gptOss.ts 도 동일 파일을 import).
 // ON CONFLICT DO NOTHING 이라 HR이 편집한 행은 보존하고, 없는 키만 새로 넣는다.
-const DEFAULT_PROMPTS_SEED = require('./src/lib/defaultPrompts.json');
+const defaultPromptsPath = path.resolve(__dirname, 'src/lib/defaultPrompts.json');
+const DEFAULT_PROMPTS_SEED = fs.existsSync(defaultPromptsPath)
+  ? JSON.parse(fs.readFileSync(defaultPromptsPath, 'utf8'))
+  : [];
 async function seedDefaultPrompts() {
   if (!isDbAvailable || !pool?.query) return;
   try {
@@ -8058,7 +8068,8 @@ app.get('/api/ai-reviews', requireHr, async (req, res) => {
     );
     const items = await pool.query(
       `SELECT tee.evaluation_id, ev.evaluatee_id, ev.evaluatee_name,
-              tee.evaluator_name, t.title AS task_title, tee.ai_type, tee.ai_summary, tee.ai_reviewed_at
+              tee.evaluator_name, t.title AS task_title, tee.ai_type, tee.ai_summary, tee.ai_reviewed_at,
+              tee.task_uuid, tee.feedback
        FROM task_evaluation_entries tee
        JOIN evaluations ev ON ev.id = tee.evaluation_id
        LEFT JOIN tasks t ON t.id = tee.task_uuid

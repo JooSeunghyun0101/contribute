@@ -28,6 +28,7 @@ const MyHome = lazy(() => import("./pages/my/Home"));
 const MyTasksPage = lazy(() => import("./pages/my/MyTasksPage"));
 const MySchedulePage = lazy(() => import("./pages/my/MySchedulePage"));
 const MyFeedbackPage = lazy(() => import("./pages/my/MyFeedbackPage"));
+const MyQnaPage = lazy(() => import("./pages/my/MyQnaPage"));
 const EvaluatorRequestPage = lazy(() => import("./pages/EvaluatorRequestPage"));
 
 const TeamHome = lazy(() => import("./pages/team/Home"));
@@ -150,6 +151,14 @@ const App = () => (
                   element={
                     <ProtectedRoute allowedRoles={["evaluatee"]}>
                       <EvaluatorRequestPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/my/ai"
+                  element={
+                    <ProtectedRoute allowedRoles={["evaluatee"]}>
+                      <MyQnaPage />
                     </ProtectedRoute>
                   }
                 />

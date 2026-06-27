@@ -1397,8 +1397,40 @@ export const useEvaluationDataDB = (
         void (async () => {
           if (!periodId || !evaluateeId) return;
 
-          // ① 종합 성장 제안 — '과업에 변경이 있을 때만' 재생성(불필요한 토큰 소모 방지). 점수가 하나라도 있어야 생성.
-          if (anyTaskChanged && tasksSnapshot.some((t) => t.score != null)) {
+          // 생성 트리거 = '이번에 바뀌었거나' 또는 '아직 생성된 적이 없을 때'.
+          // 업로드/일괄적재로 등록된 평가는 점수·피드백이 이미 있어 세션 내 '변경'이 없으므로,
+          // 변경만 기준으로 하면 평가완료해도 AI가 안 생긴다. 그래서 '없으면 생성'을 함께 둬,
+          // 평가자가 평가완료(저장)하면 누락된 성장제안·요약·키워드가 채워지도록 한다(이미 있으면 건너뜀=토큰 절약).
+          const growthScope = `${evaluateeId}:${periodId}`;
+          const evaluatorSummaryScope = `${evaluatorId}:${evaluateeId}:${periodId}`;
+          const evaluateeSummaryScope = `${evaluateeId}:${periodId}`;
+          const evaluatorKeywordsScope = `${evaluatorId}:${evaluateeId}:${periodId}`;
+          const evaluateeKeywordsScope = `${evaluateeId}:${periodId}`;
+
+          const [haveGrowth, haveEvaluatorSummary, haveEvaluateeSummary, haveEvaluatorKeywords, haveEvaluateeKeywords] =
+            await Promise.all([
+              aiContentService.get('evaluatee_growth_suggestion', growthScope),
+              aiContentService.get('evaluator_feedback_summary', evaluatorSummaryScope),
+              aiContentService.get('evaluatee_feedback_summary', evaluateeSummaryScope),
+              aiContentService.get('evaluator_feedback_keywords', evaluatorKeywordsScope),
+              aiContentService.get('evaluatee_feedback_keywords', evaluateeKeywordsScope),
+            ]);
+
+          // 4개 생성 호출을 연달아 쏘면 무료티어 분당 한도를 쳐 뒤쪽 호출(특히 키워드)이 조용히 실패한다.
+          // 각 호출 자체도 백오프 재시도하지만, 호출 사이에 간격을 둬 분당 한도 압박을 줄인다.
+          const AI_GEN_GAP_MS = 1500;
+          let prevRan = false; // 직전 생성 호출이 실제로 나갔으면 다음 호출 전 간격을 둔다.
+          const spaceOut = async () => {
+            if (prevRan) await new Promise((resolve) => window.setTimeout(resolve, AI_GEN_GAP_MS));
+          };
+
+          const feedbackInputs = tasksSnapshot
+            .filter((t) => (t.feedback || '').trim())
+            .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }));
+          const hasFeedback = feedbackInputs.length > 0;
+
+          // ① 종합 성장 제안 — 과업 변경 시 또는 아직 없을 때. 점수가 하나라도 있어야 생성.
+          if ((anyTaskChanged || !haveGrowth) && tasksSnapshot.some((t) => t.score != null)) {
             try {
               const growth = await generateComprehensiveGrowthSuggestion({
                 tasks: tasksSnapshot.map((t) => ({
@@ -1414,75 +1446,55 @@ export const useEvaluationDataDB = (
                 growthLevel,
               });
               if (growth && !growth.startsWith('⚠')) {
-                await aiContentService.put('evaluatee_growth_suggestion', `${evaluateeId}:${periodId}`, growth);
+                await aiContentService.put('evaluatee_growth_suggestion', growthScope, growth);
               }
             } catch {
               /* best-effort */
             }
+            prevRan = true;
           }
 
-          // ② 평가자 피드백 요약 — '피드백이 바뀐 경우만' 재생성.
-          const writtenInputs = anyFeedbackChanged
-            ? tasksSnapshot
-                .filter((t) => (t.feedback || '').trim())
-                .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }))
-            : [];
-          if (writtenInputs.length > 0) {
+          // ② 평가자 피드백 요약 — 피드백 변경 시 또는 아직 없을 때.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluatorSummary)) {
+            await spaceOut();
             try {
-              const summary = await generateFeedbackSummaryForEvaluator(evaluateeName, writtenInputs);
+              const summary = await generateFeedbackSummaryForEvaluator(evaluateeName, feedbackInputs);
               if (summary && !summary.startsWith('⚠')) {
-                await aiContentService.put(
-                  'evaluator_feedback_summary',
-                  `${evaluatorId}:${evaluateeId}:${periodId}`,
-                  summary,
-                );
+                await aiContentService.put('evaluator_feedback_summary', evaluatorSummaryScope, summary);
               }
             } catch {
               /* best-effort */
             }
+            prevRan = true;
           }
 
-          // ③ 피평가자 피드백 요약 — '피드백이 바뀐 경우만' 재생성.
-          const receivedInputs = anyFeedbackChanged
-            ? tasksSnapshot
-                .filter((t) => (t.feedback || '').trim())
-                .map((t) => ({
-                  taskTitle: t.title,
-                  content: (t.feedback || '').trim(),
-                  score: t.score ?? null,
-                  evaluatorName: user.name,
-                }))
-            : [];
-          if (receivedInputs.length > 0) {
+          // ③ 피평가자 피드백 요약 — 피드백 변경 시 또는 아직 없을 때.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluateeSummary)) {
+            await spaceOut();
             try {
-              const summary = await generateFeedbackSummaryForEvaluatee(receivedInputs);
+              const summary = await generateFeedbackSummaryForEvaluatee(
+                feedbackInputs.map((f) => ({ ...f, evaluatorName: user.name })),
+              );
               if (summary && !summary.startsWith('⚠')) {
-                await aiContentService.put('evaluatee_feedback_summary', `${evaluateeId}:${periodId}`, summary);
+                await aiContentService.put('evaluatee_feedback_summary', evaluateeSummaryScope, summary);
               }
             } catch {
               /* best-effort */
             }
+            prevRan = true;
           }
 
-          // ④ AI 키워드 — 피드백 기반 핵심 키워드(인물검색 인덱스 겸용). 1콜로 평가자/피평가자 양쪽 scope 에 저장.
-          if (anyFeedbackChanged) {
-            const keywordInputs = tasksSnapshot
-              .filter((t) => (t.feedback || '').trim())
-              .map((t) => ({ taskTitle: t.title, content: (t.feedback || '').trim(), score: t.score ?? null }));
-            if (keywordInputs.length > 0) {
-              try {
-                const keywords = await generateFeedbackKeywords(keywordInputs);
-                if (keywords && !keywords.startsWith('⚠') && keywords.trim()) {
-                  await aiContentService.put(
-                    'evaluator_feedback_keywords',
-                    `${evaluatorId}:${evaluateeId}:${periodId}`,
-                    keywords,
-                  );
-                  await aiContentService.put('evaluatee_feedback_keywords', `${evaluateeId}:${periodId}`, keywords);
-                }
-              } catch {
-                /* best-effort */
+          // ④ AI 키워드 — 피드백 변경 시 또는 한쪽 scope 라도 아직 없을 때. 1콜로 평가자/피평가자 양쪽 저장.
+          if (hasFeedback && (anyFeedbackChanged || !haveEvaluatorKeywords || !haveEvaluateeKeywords)) {
+            await spaceOut();
+            try {
+              const keywords = await generateFeedbackKeywords(feedbackInputs);
+              if (keywords && !keywords.startsWith('⚠') && keywords.trim()) {
+                await aiContentService.put('evaluator_feedback_keywords', evaluatorKeywordsScope, keywords);
+                await aiContentService.put('evaluatee_feedback_keywords', evaluateeKeywordsScope, keywords);
               }
+            } catch {
+              /* best-effort */
             }
           }
         })();

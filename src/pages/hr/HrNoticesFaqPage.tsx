@@ -125,6 +125,9 @@ const HrNoticesFaqPage = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
+  /* ── 탭: 공지 발송 / 공통 FAQ ───────────────────────────────────── */
+  const [tab, setTab] = useState<'notice' | 'faq'>('notice');
+
   /* ── FAQ 상태 ───────────────────────────────────────────────────── */
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
   const [faqLoading, setFaqLoading] = useState(true);
@@ -477,8 +480,39 @@ const HrNoticesFaqPage = () => {
         }
       />
 
+      {/* ── 탭 바 ───────────────────────────────────────────────── */}
+      <div style={{ padding: '12px 32px 0', display: 'flex', gap: 8, borderBottom: '1px solid var(--border)' }}>
+        {([
+          { key: 'notice', label: '공지 발송' },
+          { key: 'faq', label: '공통 FAQ' },
+        ] as const).map(({ key, label }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              style={{
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                padding: '10px 14px',
+                fontSize: 'var(--fs-body)',
+                fontWeight: active ? 800 : 600,
+                color: active ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                borderBottom: active ? '2px solid var(--ok-orange)' : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
       <div style={{ padding: '20px 32px', display: 'flex', flexDirection: 'column', gap: 24 }}>
         {/* ── 일괄 공지 발송 ─────────────────────────────────────── */}
+        {tab === 'notice' && (
         <section>
           <h2 style={sectionTitle}>일괄 공지 발송</h2>
 
@@ -723,8 +757,10 @@ const HrNoticesFaqPage = () => {
             )}
           </div>
         </section>
+        )}
 
         {/* ── 공통 FAQ 관리 ──────────────────────────────────────── */}
+        {tab === 'faq' && (
         <section>
           <h2 style={sectionTitle}>공통 FAQ 관리</h2>
           <div
@@ -846,6 +882,7 @@ const HrNoticesFaqPage = () => {
             </div>
           </div>
         </section>
+        )}
       </div>
 
       {/* ── 발송 확인 다이얼로그 ─────────────────────────────────── */}

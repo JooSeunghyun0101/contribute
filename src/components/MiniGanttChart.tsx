@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Task } from '@/types/evaluation';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { getScoreColor } from '@/lib/evaluationMatrix';
 
 interface MiniGanttChartProps {
@@ -34,8 +35,39 @@ const MiniGanttChart: React.FC<MiniGanttChartProps> = ({
   const maxDate = new Date(new Date().getFullYear(), 11, 31);
   const totalDays = differenceInDays(maxDate, minDate);
 
-  const displayTasks = showAll ? tasksWithDates : tasksWithDates.slice(0, maxInitialTasks);
-  const hasMore = tasksWithDates.length > maxInitialTasks;
+  const firstTasks = tasksWithDates.slice(0, maxInitialTasks);
+  const restTasks = tasksWithDates.slice(maxInitialTasks);
+  const hasMore = restTasks.length > 0;
+
+  const renderRow = (task: Task) => {
+    const startDate = parseISO(task.startDate!);
+    const endDate = parseISO(task.endDate!);
+    const taskDays = differenceInDays(endDate, startDate);
+    const startOffset = differenceInDays(startDate, minDate);
+
+    const leftPercent = totalDays > 0 ? (startOffset / totalDays) * 100 : 0;
+    const widthPercent = totalDays > 0 ? (taskDays / totalDays) * 100 : 100;
+
+    return (
+      <div key={task.id} className="flex items-center space-x-2">
+        <div className="w-16 text-xs truncate" title={task.title}>
+          {task.title}
+        </div>
+        <div className="flex-1 relative bg-muted/30 h-3 rounded-sm">
+          <div
+            className="absolute h-full rounded-sm"
+            style={{
+              left: `${Math.max(0, leftPercent)}%`,
+              width: `${Math.min(100 - Math.max(0, leftPercent), widthPercent)}%`,
+              backgroundColor: getScoreColor(task.score),
+              opacity: 0.85,
+            }}
+          />
+        </div>
+        <div className="text-xs text-foreground w-12 text-right">{taskDays + 1}일</div>
+      </div>
+    );
+  };
 
   return (
     <div className={`w-full ${className}`}>
@@ -46,39 +78,12 @@ const MiniGanttChart: React.FC<MiniGanttChartProps> = ({
           <span>{format(maxDate, 'MM/dd')}</span>
         </div>
         
-        {/* Tasks */}
-        {displayTasks.map((task) => {
-          const startDate = parseISO(task.startDate!);
-          const endDate = parseISO(task.endDate!);
-          const taskDays = differenceInDays(endDate, startDate);
-          const startOffset = differenceInDays(startDate, minDate);
+        {/* Tasks — 처음 N개는 항상, 나머지는 펼침 애니메이션 */}
+        {firstTasks.map(renderRow)}
+        <AccordionMotion isOpen={showAll} contentClassName="space-y-1">
+          {restTasks.map(renderRow)}
+        </AccordionMotion>
 
-          const leftPercent = totalDays > 0 ? (startOffset / totalDays) * 100 : 0;
-          const widthPercent = totalDays > 0 ? (taskDays / totalDays) * 100 : 100;
-
-          return (
-            <div key={task.id} className="flex items-center space-x-2">
-              <div className="w-16 text-xs truncate" title={task.title}>
-                {task.title}
-              </div>
-              <div className="flex-1 relative bg-muted/30 h-3 rounded-sm">
-                <div
-                  className="absolute h-full rounded-sm"
-                  style={{
-                    left: `${Math.max(0, leftPercent)}%`,
-                    width: `${Math.min(100 - Math.max(0, leftPercent), widthPercent)}%`,
-                    backgroundColor: getScoreColor(task.score),
-                    opacity: 0.85
-                  }}
-                />
-              </div>
-              <div className="text-xs text-foreground w-12 text-right">
-                {taskDays + 1}일
-              </div>
-            </div>
-          );
-        })}
-        
         {/* Show more/less button */}
         {hasMore && (
           <div className="flex justify-center pt-2">

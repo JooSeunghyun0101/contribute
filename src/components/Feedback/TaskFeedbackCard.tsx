@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
 
 export type TaskFeedbackEntry = {
@@ -211,7 +212,7 @@ const TaskFeedbackCard = ({
             <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
           </button>
 
-          {isExpanded && (
+          <AccordionMotion isOpen={isExpanded}>
             <div className="flex flex-col" style={{ marginTop: 14, gap: 14 }}>
               {older.map((entry) => (
                 <div
@@ -235,7 +236,7 @@ const TaskFeedbackCard = ({
                 </div>
               ))}
             </div>
-          )}
+          </AccordionMotion>
         </>
       )}
     </div>

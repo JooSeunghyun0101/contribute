@@ -158,6 +158,8 @@ const MyHome = () => {
   /* 직전연도 개인 추이 비교 */
   const { periods, selectedPeriod } = useEvaluationPeriod();
   const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  // 간트 '오늘' 세로줄은 현재 연도 평가기간을 볼 때만 표시(지난 연도 조회 시 숨김).
+  const showTodayMarker = (selectedPeriod?.evaluation_year ?? todayDate.getFullYear()) === todayDate.getFullYear();
 
   // AI 종합 성장제안 — 평가자 저장 시 생성·영속된 값만 불러온다(조회 시 AI 재호출 없음).
   const growthScopeId =
@@ -654,20 +656,22 @@ const MyHome = () => {
                   position: 'relative',
                 }}
               >
-                {/* Today marker */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    left: `calc(${todayFrac * 100}% - 32px)`,
-                    width: 2,
-                    background: 'var(--ok-orange)',
-                    borderRadius: 1,
-                    zIndex: 2,
-                    pointerEvents: 'none',
-                  }}
-                />
+                {/* Today marker — 현재 연도 조회 시에만 */}
+                {showTodayMarker && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: `calc(${todayFrac * 100}% - 32px)`,
+                      width: 2,
+                      background: 'var(--ok-orange)',
+                      borderRadius: 1,
+                      zIndex: 2,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
 
                 {tasks.map((task, index) => {
                   const startFrac = toGanttFrac(task.startDate);
