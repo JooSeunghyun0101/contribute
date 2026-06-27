@@ -954,7 +954,7 @@ const createHistoricalTourEvaluation = async (
     [
       employee.employee_id,
       employee.name,
-      employee.position ?? '미등록',
+      employee.position ?? '',
       historicalRow.department_name ?? employee.department ?? '미지정',
       employee.growth_level ?? 0,
       evaluationYear,
@@ -3406,7 +3406,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           ON CONFLICT (employee_id) DO UPDATE SET
             name = COALESCE(EXCLUDED.name, employees.name),
             position = CASE
-              WHEN employees.position IN ('평가자', '미등록') THEN COALESCE(EXCLUDED.position, employees.position)
+              WHEN employees.position IS NULL OR employees.position IN ('평가자', '미등록', '') THEN COALESCE(EXCLUDED.position, employees.position)
               ELSE employees.position
             END,
             available_roles = (
@@ -3460,7 +3460,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
-            position = COALESCE(NULLIF(EXCLUDED.position, '미등록'), employees.position),
+            position = COALESCE(NULLIF(EXCLUDED.position, ''), employees.position),
             department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
             growth_level = EXCLUDED.growth_level,
@@ -3503,7 +3503,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
         [
           row.employee_id,
           row.employee_name,
-          row.position ?? '미등록',
+          row.position ?? '',
           row.department_name ?? '미지정',
           row.department_id,
           row.growth_level,
