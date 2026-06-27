@@ -1,4 +1,5 @@
 import PageHeader from '@/components/Layout/PageHeader';
+import { SpiralLoader } from '@/components/ui/loader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -49,7 +50,10 @@ const MySchedulePage = () => {
           </p>
 
           {isLoading ? (
-            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>일정 데이터를 불러오는 중입니다.</div>
+            <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
+              <SpiralLoader size={32} />
+              일정 데이터를 불러오는 중입니다.
+            </div>
           ) : (
             <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 10, position: 'relative' }}>
               {/* Header row */}

@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -294,7 +295,7 @@ const TeamHome = () => {
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
         {isLoading ? (
-          <div className="sd-card">평가 보드를 불러오는 중입니다.</div>
+          <LoadingState message="평가 보드를 불러오는 중입니다." />
         ) : error ? (
           <div className="sd-card" style={{ color: 'var(--danger)' }}>
             {error}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, CalendarDays, CheckCircle2, LockKeyhole, LockKeyholeOpen, Pencil, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { SpiralLoader } from '@/components/ui/loader';
 import { evaluationPeriodService } from '@/lib/services';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { EvaluationPeriod, EvaluationPeriodStatus } from '@/types';
@@ -486,7 +487,10 @@ const HrPeriodsPage = () => {
 
         <section className="sd-card sd-card-lg" style={{ padding: 0, overflow: 'hidden' }}>
           {isLoading ? (
-            <div style={{ padding: 20, color: 'var(--fg-muted)' }}>평가기간을 불러오는 중입니다.</div>
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)' }}>
+              <SpiralLoader size={32} />
+              평가기간을 불러오는 중입니다.
+            </div>
           ) : (
             <Table>
               <TableHeader style={{ background: 'var(--bg-muted)' }}>

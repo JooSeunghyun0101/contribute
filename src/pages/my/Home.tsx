@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import MonthlyScoreTrendChart from '@/components/Evaluation/MonthlyScoreTrendChart';
 import { NumBadge } from '@/components/brand';
@@ -235,8 +236,8 @@ const MyHome = () => {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 32, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-        평가 데이터를 불러오는 중입니다…
+      <div style={{ padding: 32 }}>
+        <LoadingState message="평가 데이터를 불러오는 중입니다…" />
       </div>
     );
   }

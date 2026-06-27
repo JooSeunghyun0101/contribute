@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Plus, Save, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
+import { SpiralLoader } from '@/components/ui/loader';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -839,7 +840,8 @@ const EvaluationAccordionCard = ({
 
             <div style={{ flex: 1, overflow: 'auto' }}>
               {isLoading && (
-                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
+                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
+                  <SpiralLoader size={32} />
                   과업을 불러오는 중입니다.
                 </div>
               )}

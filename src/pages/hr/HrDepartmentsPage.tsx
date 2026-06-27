@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
@@ -508,7 +509,7 @@ const HrDepartmentsPage = () => {
 
       <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
         {isLoading ? (
-          <div className="sd-card">부서 데이터를 불러오는 중입니다.</div>
+          <LoadingState message="부서 데이터를 불러오는 중입니다." />
         ) : error ? (
           <div className="sd-card" style={{ color: 'var(--danger)' }}>
             {error}

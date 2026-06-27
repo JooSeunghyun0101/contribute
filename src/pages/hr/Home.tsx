@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pill } from '@/components/brand';
 import AiSummaryReportModal from '@/components/Dashboard/AiSummaryReportModal';
@@ -421,7 +422,7 @@ const HrHome = () => {
         </section>
 
         {isLoading ? (
-          <div className="sd-card">전사 평가 데이터를 불러오는 중입니다.</div>
+          <LoadingState message="전사 평가 데이터를 불러오는 중입니다." />
         ) : (
           <>
             {/* Row 1: 핵심 도넛 — 평가 진행(완료율) · 목표 달성 */}

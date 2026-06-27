@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, PencilLine } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
@@ -358,7 +359,7 @@ const Evaluation = () => {
   }
 
   if (isLoading) {
-    return <div style={{ padding: 32, color: 'var(--fg-muted)' }}>평가 데이터를 불러오는 중입니다…</div>;
+    return <div style={{ padding: 32 }}><LoadingState message="평가 데이터를 불러오는 중입니다…" /></div>;
   }
   if (!evaluationData) {
     return <div style={{ padding: 32, color: 'var(--fg-muted)' }}>평가 데이터를 찾을 수 없습니다.</div>;

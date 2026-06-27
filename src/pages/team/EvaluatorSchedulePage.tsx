@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -148,9 +149,7 @@ const EvaluatorSchedulePage = () => {
       <div style={{ padding: '24px 32px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {isLoading ? (
-          <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-            팀 일정 데이터를 불러오는 중입니다.
-          </div>
+          <LoadingState message="팀 일정 데이터를 불러오는 중입니다." />
         ) : error ? (
           <div className="sd-card sd-card-lg" style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>
             {error}

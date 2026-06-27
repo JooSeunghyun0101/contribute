@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import { useAuth } from '@/contexts/AuthContext';
@@ -331,7 +332,7 @@ const EvaluationReadonlyView = ({
   };
 
   if (isLoading) {
-    return <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>평가 데이터를 불러오는 중입니다…</div>;
+    return <LoadingState message="평가 데이터를 불러오는 중입니다…" />;
   }
   if (error) {
     return <div className="sd-card" style={{ color: 'var(--danger)' }}>{error}</div>;

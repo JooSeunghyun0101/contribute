@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { FilterChip } from '@/components/brand';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { AiKeywordChips } from '@/components/ui/AiKeywordChips';
@@ -214,7 +215,7 @@ const EvaluatorFeedbackPage = () => {
 
       <div style={{ padding: '24px 32px 32px' }}>
         {isLoading ? (
-          <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백 이력을 불러오는 중입니다.</div>
+          <LoadingState message="피드백 이력을 불러오는 중입니다." />
         ) : error ? (
           <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
         ) : (

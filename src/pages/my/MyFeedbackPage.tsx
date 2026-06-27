@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -119,7 +120,7 @@ const MyFeedbackPage = () => {
       <div style={{ padding: '28px 32px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
         <div className="flex flex-col gap-4">
           {isLoading ? (
-            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>피드백을 불러오는 중입니다.</div>
+            <LoadingState message="피드백을 불러오는 중입니다." />
           ) : taskCards.length === 0 ? (
             <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
               아직 등록된 과업이 없습니다.
