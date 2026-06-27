@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { AlertTriangle, Inbox } from 'lucide-react';
+import { SpiralLoader } from '@/components/ui/loader';
 
 /**
  * 목록 화면의 3-상태(로딩·오류·빈) 표시를 통일한다.
@@ -79,8 +80,18 @@ export const LoadingState: React.FC<LoadingStateProps> = ({
   <div
     className="sd-card sd-card-lg"
     aria-busy="true"
-    style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}
+    style={{
+      color: 'var(--fg-muted)',
+      fontSize: 'var(--fs-body)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 16,
+      textAlign: 'center',
+      padding: '40px 24px',
+    }}
   >
+    <SpiralLoader />
     {message}
   </div>
 );

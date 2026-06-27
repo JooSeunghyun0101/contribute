@@ -9,7 +9,7 @@ import { Spinner } from '@/components/ui/spinner';
 const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
 
 const Login = () => {
-  const { user, login, mustChangePassword, changePassword } = useAuth();
+  const { user, login, mustChangePassword, changePassword, logout } = useAuth();
   const navigate = useNavigate();
 
   const [employeeId, setEmployeeId] = useState('');
@@ -65,6 +65,17 @@ const Login = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // 비밀번호 변경 화면에서 사번 입력(로그인) 화면으로 복귀 — 강제변경 상태는 로그인된 상태라
+  // 로그아웃해서 user 를 비워야 로그인 폼이 다시 보인다.
+  const handleBackToLogin = () => {
+    logout();
+    setPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setError('');
+    setInfo('');
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -455,6 +466,22 @@ const Login = () => {
               }}
             >
               {isLoading ? '변경 중…' : '비밀번호 변경 후 시작'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={handleBackToLogin}
+              disabled={isLoading}
+              style={{
+                height: 42,
+                background: 'transparent',
+                color: textSubtle,
+                fontWeight: 600,
+                borderRadius: 10,
+                border: `1px solid ${borderL}`,
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              ← 뒤로 (다른 사번으로 로그인)
             </button>
           </form>
         )}

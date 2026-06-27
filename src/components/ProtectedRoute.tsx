@@ -2,6 +2,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { FullScreenLoader } from '@/components/ui/loader';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -12,14 +13,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   const { user, isLoading, mustChangePassword } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-border border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
-          <p>로딩 중...</p>
-        </div>
-      </div>
-    );
+    return <FullScreenLoader message="로딩 중..." />;
   }
 
   if (!user) {

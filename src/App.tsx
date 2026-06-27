@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
-import { LoadingState } from "@/components/ui/state-views";
+import { FullScreenLoader } from "@/components/ui/loader";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiRequestError } from "@/lib/api";
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
@@ -85,7 +85,7 @@ const AppShell = () => {
       <EvaluationPeriodProvider>
         <AppLayout>
           <ErrorBoundary resetKey={location.pathname}>
-            <Suspense fallback={<div style={{ padding: 24 }}><LoadingState message="화면을 불러오는 중입니다…" /></div>}>
+            <Suspense fallback={<FullScreenLoader message="화면을 불러오는 중입니다…" />}>
               <Outlet />
             </Suspense>
           </ErrorBoundary>
