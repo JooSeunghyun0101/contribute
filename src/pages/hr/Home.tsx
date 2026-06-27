@@ -366,13 +366,7 @@ const HrHome = () => {
         subtitle={`HR 관리자 · ${trendYear}년 연간 기여도 평가`}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="sd-btn sd-btn-sm"
-              onClick={() => setShowAiReport(true)}
-              style={{ background: '#2563EB', color: '#fff', border: 'none' }}
-            >
-              AI 요약 보고서
-            </button>
+            {/* AI 요약 보고서 버튼은 임시 제거(나중에 추가개발). 모달·생성 로직은 아래에 보존. */}
             <button
               className="sd-btn sd-btn-outline sd-btn-sm"
               onClick={handleExportEvaluationData}
