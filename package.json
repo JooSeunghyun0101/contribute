@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "nodemon server.js",
+    "start": "node server.js",
     "start:server": "node server.js",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "build": "vite build",

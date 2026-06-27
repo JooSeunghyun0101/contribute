@@ -9269,6 +9269,34 @@ app.get('/api/evaluator-qna-logs', requireHr, async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+/* ==================== Static SPA (production) ==================== */
+// 프런트 빌드물(dist)을 같은 서버에서 서빙한다. dist 가 있을 때만 활성화하므로
+// 로컬 dev(vite 5173 + 이 서버 5000 분리)에는 영향이 없다. Render 등 단일 서비스 배포용.
+// 모든 /api 라우트 정의 뒤에 위치해야 한다(API 가 먼저 매칭되도록).
+const distPath = path.resolve(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+  // 정적 자산(해시 파일명)은 장기 캐시, index.html 은 캐시 금지(새 배포 즉시 반영).
+  app.use(express.static(distPath, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+
+  // SPA 폴백: /api 가 아닌 GET 요청은 index.html 로 돌려 클라이언트 라우팅에 맡긴다.
+  // Express 5 는 '*' 문자열 라우트를 못 쓰므로 경로 없는 미들웨어로 처리한다.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+  console.log('[static] dist 서빙 활성화 (단일 서비스 모드)');
+} else {
+  console.log('[static] dist 없음 — API 전용 모드 (프런트는 vite dev 서버)');
+}
+
 /* ==================== Server Start ==================== */
 
 const PORT = Number(process.env.PORT) || 5000;
