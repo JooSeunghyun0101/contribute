@@ -40,4 +40,3 @@ scripts/*
 
 # DB backup dumps (local only)
 *.dump
-package-lock.json
