@@ -202,7 +202,10 @@ export const Sidebar = () => {
                 }}
               />
             )}
-            <Icon size={18} />
+            <Icon
+              size={18}
+              style={{ color: isActive ? 'var(--ok-orange)' : 'var(--fg-muted)', flexShrink: 0 }}
+            />
             <span>{item.label}</span>
           </span>
         )}
@@ -224,16 +227,26 @@ export const Sidebar = () => {
       }}
     >
       {!hasGroups && (
-        <div className="sd-label-mini" style={{ padding: '6px 10px 10px' }}>
-          MENU
+        <div
+          style={{
+            padding: '6px 8px 8px',
+            fontSize: 'var(--fs-xs)',
+            fontWeight: 700,
+            color: 'var(--fg-subtle)',
+            letterSpacing: '0.09em',
+            textTransform: 'uppercase',
+          }}
+        >
+          메뉴
         </div>
       )}
 
       {hasGroups
-        ? groups.map(({ group, items }) => {
+        ? groups.map(({ group, items }, idx) => {
             const isCollapsed = collapsed.has(group);
             return (
               <Fragment key={group}>
+                {/* 카테고리 헤딩 — 항목과 명확히 구분되는 섹션 라벨(작고·흐리고·자간 넓게). 그룹 사이 구분선. */}
                 <button
                   type="button"
                   onClick={() => toggleGroup(group)}
@@ -244,28 +257,31 @@ export const Sidebar = () => {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     width: '100%',
-                    padding: '14px 10px 7px',
-                    marginTop: 2,
+                    padding: idx > 0 ? '14px 8px 6px' : '6px 8px 6px',
+                    marginTop: idx > 0 ? 8 : 0,
                     background: 'none',
                     border: 'none',
+                    borderTop: idx > 0 ? '1px solid var(--border)' : 'none',
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
                 >
                   <span
                     style={{
-                      fontSize: 'var(--fs-sm)',
-                      fontWeight: 800,
-                      color: 'var(--fg-muted)',
-                      letterSpacing: '0.01em',
+                      fontSize: 'var(--fs-xs)',
+                      fontWeight: 700,
+                      color: 'var(--fg-subtle)',
+                      letterSpacing: '0.09em',
+                      textTransform: 'uppercase',
                     }}
                   >
                     {group}
                   </span>
                   <ChevronDown
-                    size={16}
+                    size={13}
                     style={{
                       color: 'var(--fg-subtle)',
+                      opacity: 0.6,
                       transform: isCollapsed ? 'rotate(-90deg)' : 'none',
                       transition: 'transform 160ms',
                       flexShrink: 0,

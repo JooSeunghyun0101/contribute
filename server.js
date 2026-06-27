@@ -5278,6 +5278,7 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
         final_assessment,
         employee_profile_import_rows,
         matching_import_rows,
+        ai_generated_content,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -5336,6 +5337,7 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
         notifications,
         final_assessment,
         matching_import_rows,
+        ai_generated_content,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -5399,6 +5401,16 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
       [actorId, `평가기간 초기화: ${periodCode} (actor: ${actorId})`]
     );
     const inPeriodEvals = '(SELECT id FROM evaluations WHERE evaluation_period_id = $1)';
+    // 0) AI 생성물(성장제안·요약·키워드) — scope_id 가 FK 가 아니라 cascade 로 안 지워진다. 이 기간 것만 정리.
+    //    과업 성장제안(scope=과업 uuid)은 과업 삭제 '전에' 매칭해 지운다.
+    await client.query(
+      `DELETE FROM ai_generated_content
+        WHERE kind = 'task_growth_suggestion'
+          AND scope_id IN (SELECT t.id::text FROM tasks t WHERE t.evaluation_period_id = $1)`,
+      [periodId]
+    );
+    //    나머지(피평가자/평가자 요약·성장·키워드)는 scope 가 '…:<periodId>' 로 끝난다.
+    await client.query(`DELETE FROM ai_generated_content WHERE scope_id LIKE '%:' || $1`, [periodId]);
     // 1) 평가/과업의 자식부터 (FK 역순)
     await client.query(`DELETE FROM feedback_history WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
     await client.query(`DELETE FROM task_evaluation_entries WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
@@ -5971,20 +5983,46 @@ app.post('/api/contribution-imports', requireHr, async (req, res) => {
       for (const t of group.tasks) {
         const taskUuid = randomUUID();
         const taskId = randomUUID();
+        // 'AI활용' 제목 과업은 AI 과업으로 자동 체크(업로드 엑셀엔 AI과업 플래그가 없어 제목으로 판별).
+        const isAiTask = typeof t.title === 'string' && t.title.includes('AI활용');
         await client.query(
-          `INSERT INTO tasks (id, task_id, evaluation_id, title, weight, description, contribution_method, contribution_scope, score, feedback, evaluator_name, evaluation_year, evaluation_period_id, start_date, end_date, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, NOW())`,
-          [taskUuid, taskId, ev.id, t.title, t.weight, t.description, t.method, t.scope, t.score, t.remark, evrName, ev.evaluation_year, ev.evaluation_period_id, t.startDate ?? null, t.endDate ?? null],
+          `INSERT INTO tasks (id, task_id, evaluation_id, title, weight, description, contribution_method, contribution_scope, score, feedback, evaluator_name, evaluation_year, evaluation_period_id, start_date, end_date, is_ai_task, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())`,
+          [taskUuid, taskId, ev.id, t.title, t.weight, t.description, t.method, t.scope, t.score, t.remark, evrName, ev.evaluation_year, ev.evaluation_period_id, t.startDate ?? null, t.endDate ?? null, isAiTask],
         );
         tasksInserted += 1;
         if (t.score != null) scored += 1;
         if (ev.evaluator_id) {
-          await client.query(
+          const entryRes = await client.query(
             `INSERT INTO task_evaluation_entries (task_uuid, task_id, evaluation_id, evaluator_id, evaluator_name, contribution_method, contribution_scope, score, feedback, feedback_date, assignment_history_id, status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,$10,'active')`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,$10,'active')
+             RETURNING id`,
             [taskUuid, taskId, ev.id, ev.evaluator_id, evrName, t.method, t.scope, t.score, t.remark, ev.assignment_history_id],
           );
+          // 피드백 이력(feedback_history)에도 적재 — 피드백 이력/코멘트 화면이 이 테이블을 읽는다.
+          // (엔트리에만 넣으면 평가자 화면엔 보여도 '피드백 이력'은 0건으로 비어 보인다.)
+          const fbText = typeof t.remark === 'string' ? t.remark.trim() : '';
+          if (fbText) {
+            await client.query(
+              `INSERT INTO feedback_history (id, task_id, content, evaluator_name, created_at, task_uuid, evaluation_id, evaluator_id, task_evaluation_entry_id, status)
+               VALUES (gen_random_uuid(), $1, $2, $3, NOW(), $4, $5, $6, $7, 'active')`,
+              [taskId, t.remark, evrName, taskUuid, ev.id, ev.evaluator_id, entryRes.rows[0].id],
+            );
+          }
         }
+      }
+      // 적재된 점수 충족도에 따라 평가 상태를 올린다.
+      // 업로드는 HR이 최종 평가데이터를 일괄 주입하는 것이므로, 점수가 다 채워졌으면 '완료'로 마감한다.
+      // (이게 없으면 draft 로 남아 평가자 보드·통계·AI검수에서 안 보이고 AI 생성도 안 됨.)
+      const scoredCount = group.tasks.filter((t) => t.score != null).length;
+      const nextStatus =
+        group.tasks.length > 0 && scoredCount === group.tasks.length
+          ? 'completed'
+          : scoredCount > 0
+            ? 'evaluating'
+            : null;
+      if (nextStatus) {
+        await client.query(`UPDATE evaluations SET evaluation_status = $2 WHERE id = $1`, [ev.id, nextStatus]);
       }
       appliedEvals += 1;
     }
