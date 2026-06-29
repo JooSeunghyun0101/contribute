@@ -316,6 +316,7 @@ const MessageBubble = ({ message }: { message: Message }) => {
           </div>
         )}
         <div
+          className={!isUser && !message.error ? 'ai-shine-border' : undefined}
           style={{
             padding: '10px 14px',
             borderRadius: 14,

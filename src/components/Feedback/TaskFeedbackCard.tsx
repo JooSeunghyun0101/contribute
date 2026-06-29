@@ -144,7 +144,7 @@ const TaskFeedbackCard = ({
             style={{
               fontSize: 'var(--fs-xs)',
               fontWeight: 800,
-              color: '#fff',
+              color: 'var(--bg-card)',
               background: 'var(--ok-brown)',
               borderRadius: 4,
               padding: '2px 7px',
