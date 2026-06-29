@@ -151,7 +151,7 @@ const AiSummaryReportModal = ({
           style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Sparkles size={18} color="#3B82F6" />
+            <Sparkles size={18} color="var(--ai-accent)" />
             <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900 }}>AI 요약 보고서</h2>
           </div>
           <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={onClose}>

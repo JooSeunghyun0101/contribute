@@ -135,6 +135,7 @@ const MyFeedbackPage = () => {
                 contributionMethod={card.contributionMethod}
                 contributionScope={card.contributionScope}
                 score={card.score}
+                tint
                 entries={card.entries}
               />
             ))

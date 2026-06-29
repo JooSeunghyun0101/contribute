@@ -268,14 +268,14 @@ const ACHIEVEMENT_STYLE: Record<
   achieved: {
     label: '달성',
     chipBg: 'var(--ok-orange-50)',
-    chipColor: '#E84200',
-    accent: '#E84200',
+    chipColor: 'var(--score-4-bg)',
+    accent: 'var(--score-4-bg)',
   },
   missed: {
     label: '미달성',
     chipBg: 'var(--warning-bg)',
-    chipColor: '#A06A3D',
-    accent: '#E8B588',
+    chipColor: 'var(--warning)',
+    accent: 'var(--score-2-bg)',
   },
   pending: {
     label: '미완료',

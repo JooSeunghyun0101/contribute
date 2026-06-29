@@ -2004,8 +2004,8 @@ const HrUsersPage = () => {
                     gap: 12,
                     padding: '8px 10px',
                     borderRadius: 8,
-                    background: '#FEF2F2',
-                    border: '1px solid #FECACA',
+                    background: 'var(--danger-bg)',
+                    border: '1px solid var(--danger-bg)',
                     fontSize: 'var(--fs-sm)',
                   }}
                 >
@@ -2013,7 +2013,7 @@ const HrUsersPage = () => {
                     {f.name}{' '}
                     <span style={{ color: 'var(--fg-muted)', fontFamily: 'monospace', fontWeight: 400 }}>{f.id}</span>
                   </strong>
-                  <span style={{ color: '#B91C1C', textAlign: 'right' }}>{f.reason}</span>
+                  <span style={{ color: 'var(--danger)', textAlign: 'right' }}>{f.reason}</span>
                 </div>
               ))}
             </div>

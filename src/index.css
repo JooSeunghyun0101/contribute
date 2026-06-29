@@ -159,6 +159,14 @@
   --score-unrated-bg: #D6D1C5;
   --score-unrated-fg: #6B5C4E;
 
+  /* 점수 단계 팔레트 — 원본 네온보다 채도를 낮추되, 인접 단계가 '명도(밝다↔어둡다)+
+     색조'로 교차하도록 배치해 한눈에 구분되게 한다. 직원 화면(my/*)에서 getScoreTintBg/Fg가 참조.
+       4 진한 테라코타(어둠·흰글씨) ↔ 3 골드앰버(밝음·갈색글씨) ↔ 2 탄브라운(어둠·흰글씨) ↔ 1 웜그레이(밝음) */
+  --score-4-bg: #B5400F; --score-4-fg: #FFFFFF;
+  --score-3-bg: #E6A938; --score-3-fg: #4A2A06;
+  --score-2-bg: #B68F5C; --score-2-fg: #41301C;
+  --score-1-bg: #CFC8BA; --score-1-fg: #574C40;
+
   --ok-orange-hsl: 33 91% 35%;
   --ok-dark-brown: 20 18% 25%;
   --ok-yellow-hsl: 34 56% 73%;
@@ -172,12 +180,12 @@
   --ring: #F97316;
   --input: #44403C;
   --muted: #292524;
-  --accent: #1E4252;
+  --accent: #3A2A1E;
   --border: #44403C;
   --radius: 0.3rem;
   --chart-1: #F97316;
-  --chart-2: #0EA5E9;
-  --chart-3: #EAB308;
+  --chart-2: #B0A99E;
+  --chart-3: #C8A24E;
   --chart-4: #A8A29E;
   --chart-5: #78716C;
   --popover: #292524;
@@ -189,7 +197,7 @@
   --destructive: #DC2626;
   --shadow-color: hsl(0 0% 5%);
   --sidebar-ring: #F97316;
-  --sidebar-accent: #0EA5E9;
+  --sidebar-accent: #C2855A;
   --sidebar-border: #44403C;
   --card-foreground: #F5F5F4;
   --sidebar-primary: #F97316;
@@ -200,7 +208,7 @@
   --sidebar-foreground: #F5F5F4;
   --secondary-foreground: #E7E5E4;
   --destructive-foreground: #FFFFFF;
-  --sidebar-accent-foreground: #0C2A4D;
+  --sidebar-accent-foreground: #1C1208;
   --sidebar-primary-foreground: #FFFFFF;
 
   --ok-orange: var(--primary);
@@ -241,7 +249,7 @@
   --danger: var(--destructive);
   --danger-bg: #3A1E1E;
   --info: var(--chart-2);
-  --info-bg: #1B3340;
+  --info-bg: #2E2A26;
 
   --ai-accent: #60A5FA;
   --ai-accent-bg: #1E293B;
@@ -266,6 +274,12 @@
   /* 미평가/0점 셀 — 다크 모드 */
   --score-unrated-bg: #4A4239;
   --score-unrated-fg: #C8BEB0;
+
+  /* 점수 단계 팔레트 — 다크 모드(같은 교차 원리, 카드 배경 대비 확보) */
+  --score-4-bg: #C2410C; --score-4-fg: #FFFFFF;
+  --score-3-bg: #D69A3A; --score-3-fg: #2A1A06;
+  --score-2-bg: #997A4F; --score-2-fg: #FFFFFF;
+  --score-1-bg: #5C544A; --score-1-fg: #ECE6DC;
 
   --ok-orange-hsl: 24 95% 53%;
   --ok-dark-brown: 20 6% 14%;
@@ -459,10 +473,10 @@
 .role-hr { background: var(--ok-orange); color: #fff; }
 .role-evaluator { background: var(--ok-brown); color: #fff; }
 .role-evaluatee { background: var(--ok-yellow); color: var(--ok-brown); }
-.score-1 { background: var(--bg-muted); color: var(--fg-muted); }
-.score-2 { background: var(--ok-yellow-50); color: var(--warning); }
-.score-3 { background: var(--ok-yellow); color: #fff; }
-.score-4 { background: var(--ok-orange); color: #fff; }
+.score-1 { background: var(--score-1-bg); color: var(--score-1-fg); }
+.score-2 { background: var(--score-2-bg); color: var(--score-2-fg); }
+.score-3 { background: var(--score-3-bg); color: var(--score-3-fg); }
+.score-4 { background: var(--score-4-bg); color: var(--score-4-fg); }
 
 /* AI 의견 버튼 — 로딩 동안 반복되는 shine sweep + 이모지 위로 쓸어올림.
    tailwind.config 가 아닌 여기(원시 CSS)에 둬, config 재처리 없이도 항상 적용되게 한다. */

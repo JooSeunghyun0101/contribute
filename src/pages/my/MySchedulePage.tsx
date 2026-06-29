@@ -3,7 +3,7 @@ import { SpiralLoader } from '@/components/ui/loader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import { getScoreColor } from '@/lib/evaluationMatrix';
+import { getScoreTintBg, getScoreTintFg } from '@/lib/evaluationMatrix';
 
 const monthLabels = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 const MONTH_SPAN = monthLabels.length; // 12
@@ -88,7 +88,8 @@ const MySchedulePage = () => {
                 const end = Math.max(start + 0.3, toMonthFraction(task.endDate));
                 const left = (start / MONTH_SPAN) * 100;
                 const width = ((end - start) / MONTH_SPAN) * 100;
-                const color = getScoreColor(task.score);
+                const tintBg = getScoreTintBg(task.score);
+                const tintFg = getScoreTintFg(task.score);
 
                 return (
                   <div
@@ -98,7 +99,7 @@ const MySchedulePage = () => {
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <div
                         className="sd-chip"
-                        style={{ background: color, color: '#fff', borderColor: color }}
+                        style={{ background: tintBg, color: tintFg, borderColor: 'transparent' }}
                       >
                         T{String(index + 1).padStart(2, '0')}
                       </div>
@@ -174,12 +175,12 @@ const MySchedulePage = () => {
                           bottom: 3,
                           left: `${left}%`,
                           width: `${Math.max(4, width)}%`,
-                          background: color,
+                          background: tintBg,
                           borderRadius: 4,
                           display: 'flex',
                           alignItems: 'center',
                           padding: '0 8px',
-                          color: '#fff',
+                          color: tintFg,
                           fontSize: 'var(--fs-xs)',
                           fontWeight: 700,
                           overflow: 'hidden',

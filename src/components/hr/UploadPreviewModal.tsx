@@ -19,10 +19,10 @@ interface Props {
 
 const STATUS_META: Record<DiffStatus, { label: string; bg: string; color: string }> = {
   new: { label: '신규', bg: 'var(--ok-orange-50)', color: 'var(--ok-orange)' },
-  changed: { label: '변경', bg: '#EFF6FF', color: '#2563EB' },
+  changed: { label: '변경', bg: 'var(--warning-bg)', color: 'var(--warning)' },
   unchanged: { label: '동일', bg: 'var(--bg-muted)', color: 'var(--fg-muted)' },
-  ignored: { label: '무시', bg: '#FFFBEB', color: '#B45309' },
-  error: { label: '오류', bg: '#FEF2F2', color: '#B91C1C' },
+  ignored: { label: '무시', bg: 'var(--bg-subtle)', color: 'var(--fg-subtle)' },
+  error: { label: '오류', bg: 'var(--danger-bg)', color: 'var(--danger)' },
 };
 
 const Chip = ({ label, value, tone }: { label: string; value: number; tone: string }) => (

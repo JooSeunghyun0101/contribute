@@ -41,8 +41,8 @@ const STATUS_LABEL: Record<EvaluationPeriodStatus, string> = {
 const STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: string; border: string }> = {
   draft: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)', border: 'var(--border)' },
   active: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange-700)', border: 'var(--ok-orange-100)' },
-  closed: { bg: '#EFF6FF', fg: '#1D4ED8', border: '#BFDBFE' },
-  locked: { bg: '#F8FAFC', fg: '#334155', border: '#CBD5E1' },
+  closed: { bg: 'var(--success-bg)', fg: 'var(--success)', border: 'var(--ok-yellow-300)' },
+  locked: { bg: 'var(--bg-subtle)', fg: 'var(--fg-muted)', border: 'var(--border-strong)' },
 };
 
 const formatDate = (value: string | null) => (value ? value.slice(0, 10).replace(/-/g, '.') : '-');

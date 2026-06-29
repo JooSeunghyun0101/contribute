@@ -21,8 +21,8 @@ import {
   getMatrixScore,
   getMatrixMethodIndex,
   getMatrixScopeIndex,
-  getScoreColor,
-  getScoreTextColor,
+  getScoreTintBg,
+  getScoreTintFg,
 } from '@/lib/evaluationMatrix';
 
 /* ── 간트 날짜 계산 (1월~12월 기준) ──────────────────────── */
@@ -425,7 +425,7 @@ const MyHome = () => {
                     const cell = cellTasks[0];
                     const label = `T${String(cell.taskIndex + 1).padStart(2, '0')}`;
                     const hasScore = cell.score != null;
-                    const bg = getScoreColor(cell.score);
+                    const bg = getScoreTintBg(cell.score);
                     const cellTask = tasks[cell.taskIndex];
                     const cellActive = cellTask?.id != null && cellTask.id === activeTaskId;
                     return (
@@ -439,7 +439,7 @@ const MyHome = () => {
                           flexDirection: 'column',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          color: getScoreTextColor(cell.score),
+                          color: getScoreTintFg(cell.score),
                           lineHeight: 1.05,
                           gap: 2,
                           padding: '4px 0',
@@ -506,7 +506,7 @@ const MyHome = () => {
                       {visibleTasks.map((c) => {
                         const lab = `T${String(c.taskIndex + 1).padStart(2, '0')}`;
                         const hasScore = c.score != null;
-                        const bg = getScoreColor(c.score);
+                        const bg = getScoreTintBg(c.score);
                         const chipTask = tasks[c.taskIndex];
                         const chipActive = chipTask?.id != null && chipTask.id === activeTaskId;
                         return (
@@ -522,7 +522,7 @@ const MyHome = () => {
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               padding: '0 6px',
-                              color: getScoreTextColor(c.score),
+                              color: getScoreTintFg(c.score),
                               fontSize: 'var(--fs-micro)',
                               fontWeight: 800,
                               lineHeight: 1,
@@ -724,12 +724,12 @@ const MyHome = () => {
                             bottom: 3,
                             left: `${Math.min(96, leftPct)}%`,
                             width: `${Math.max(4, widthPct)}%`,
-                            background: getScoreColor(taskScore),
+                            background: getScoreTintBg(taskScore),
                             borderRadius: 4,
                             display: 'flex',
                             alignItems: 'center',
                             padding: '0 8px',
-                            color: '#fff',
+                            color: getScoreTintFg(taskScore),
                             fontSize: 'var(--fs-xs)',
                             fontWeight: 700,
                             overflow: 'hidden',
@@ -765,8 +765,8 @@ const MyHome = () => {
                                 width: 24,
                                 height: 24,
                                 borderRadius: 6,
-                                background: getScoreColor(taskScore),
-                                color: getScoreTextColor(taskScore),
+                                background: getScoreTintBg(taskScore),
+                                color: getScoreTintFg(taskScore),
                                 fontWeight: 900,
                                 fontSize: 'var(--fs-sm)',
                                 display: 'inline-flex',
@@ -898,7 +898,7 @@ const MyHome = () => {
                           {weightDonutData.map((entry) => (
                             <Cell
                               key={entry.shortName}
-                              fill={getScoreColor(entry.score)}
+                              fill={getScoreTintBg(entry.score)}
                               opacity={activeTaskId && entry.id !== activeTaskId ? 0.25 : 1}
                               stroke="var(--bg-card)"
                               strokeWidth={2}
@@ -969,7 +969,7 @@ const MyHome = () => {
                 }}
               >
                 {weightDonutData.map((item, i) => {
-                  const color = getScoreColor(item.score);
+                  const color = getScoreTintBg(item.score);
                   return (
                     <div
                       key={item.shortName}
@@ -1040,7 +1040,7 @@ const MyHome = () => {
                         {item.weight}%
                       </span>
                       {item.score != null ? (
-                        <NumBadge score={item.score} size={20} />
+                        <NumBadge score={item.score} size={20} tint />
                       ) : (
                         <span
                           style={{

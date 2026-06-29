@@ -14,13 +14,14 @@ import {
 
 // HR 대시보드 그래프 모음 — 도넛(완료율·달성·상태), 성장레벨 분포, 점수 분포, 부서 비교.
 // 색상은 OK 브랜드 + 점수 팔레트와 통일.
+// 색은 OK 브랜드 + 점수 단계 팔레트로 한정(이질색 파랑/네온 제거). 값은 index.css 토큰 추종.
 export const HR_COLOR = {
-  orange: '#F55000',
-  achieved: '#E84200',
-  missed: '#E8B588',
-  pending: '#BBB1A4',
-  amber: '#FFAA00',
-  blue: '#3B82F6',
+  orange: 'var(--ok-orange-brand)',
+  achieved: 'var(--score-4-bg)',
+  missed: 'var(--score-2-bg)',
+  pending: 'var(--score-1-bg)',
+  amber: 'var(--score-3-bg)',
+  blue: 'var(--ok-brown)',
 } as const;
 
 const tooltipStyle = {

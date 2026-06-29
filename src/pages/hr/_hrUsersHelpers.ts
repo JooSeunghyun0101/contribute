@@ -12,18 +12,19 @@ export const editableRoleOptions = roleFilters.filter(
   (filter): filter is { id: UserRole; label: string } => filter.id !== 'all',
 );
 
+// 역할 색은 브랜드 한정: HR=브라운 계열, 평가자=오렌지, 피평가자=중립 그레이(파랑 제거).
 export const ROLE_BG: Record<string, string> = {
-  hr: '#EFF6FF',
+  hr: 'var(--ok-yellow-50)',
   evaluator: 'var(--ok-orange-50)',
   evaluatee: 'var(--bg-muted)',
 };
 export const ROLE_COLOR: Record<string, string> = {
-  hr: '#2563EB',
+  hr: 'var(--ok-brown)',
   evaluator: 'var(--ok-orange)',
   evaluatee: 'var(--fg-muted)',
 };
 export const ROLE_BORDER: Record<string, string> = {
-  hr: '#BFDBFE',
+  hr: 'var(--ok-yellow-300)',
   evaluator: 'var(--ok-orange-100)',
   evaluatee: 'var(--border)',
 };

@@ -26,8 +26,8 @@ import {
   getMatrixScopeIndex,
   MATRIX_METHODS,
   MATRIX_SCOPES,
-  getScoreColor,
-  getScoreTextColor,
+  getScoreTintBg,
+  getScoreTintFg,
 } from '@/lib/evaluationMatrix';
 import {
   EMPTY_DRAFT,
@@ -883,7 +883,7 @@ const EvaluationAccordionCard = ({
                             </span>
                           )}
                         </div>
-                        <NumBadge score={taskScore} size={28} />
+                        <NumBadge score={taskScore} size={28} tint />
                       </div>
                       <div style={{ fontWeight: active ? 700 : 600, fontSize: 'var(--fs-body)', lineHeight: 1.45 }}>
                         {task.title}
@@ -1245,7 +1245,7 @@ const EvaluationAccordionCard = ({
                               style={{
                                 fontSize: 'var(--fs-h2)',
                                 fontWeight: 900,
-                                color: getScoreColor(selectedScore),
+                                color: getScoreTintFg(selectedScore),
                                 lineHeight: 1,
                               }}
                             >
@@ -1291,8 +1291,8 @@ const EvaluationAccordionCard = ({
                               )}
                               renderCell={(method, scope, mi, si, baseScore) => {
                                 const selected = coords?.row === mi && coords?.col === si;
-                                const bg = selected ? getScoreColor(baseScore) : 'var(--bg-muted)';
-                                const color = selected ? getScoreTextColor(baseScore) : 'var(--fg-subtle)';
+                                const bg = selected ? getScoreTintBg(baseScore) : 'var(--bg-muted)';
+                                const color = selected ? getScoreTintFg(baseScore) : 'var(--fg-subtle)';
                                 return (
                                   <Tooltip>
                                     <TooltipTrigger asChild>

@@ -17,8 +17,8 @@ import {
   type TrendTaskInput,
 } from '@/lib/scoreTrend';
 
-const SCORE_COLOR = '#E84200'; // 올해 점수 (달성 색)
-const SCORE_PRIOR = '#E8B588'; // 전년 점수 (연한 살구)
+const SCORE_COLOR = 'var(--score-4-bg)'; // 올해 점수 (4점 색)
+const SCORE_PRIOR = 'var(--score-2-bg)'; // 전년 점수 (2점 브라운)
 const PRIOR_SCORE_TEXT = '#C2772E';
 
 interface MonthlyScoreTrendChartProps {
@@ -193,7 +193,7 @@ const MonthlyScoreTrendChart = ({
               {growthLevel > 0 && (
                 <ReferenceLine
                   y={growthLevel}
-                  stroke="#FFAA00"
+                  stroke="var(--score-3-bg)"
                   strokeWidth={2}
                   label={{ value: `목표 Lv.${growthLevel}`, position: 'insideTopRight', fontSize: 11, fontWeight: 700, fill: '#CA8A04' }}
                 />

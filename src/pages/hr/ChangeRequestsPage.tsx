@@ -15,8 +15,8 @@ const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
 
 const STATUS_STYLE: Record<ChangeRequestStatus, { bg: string; fg: string }> = {
   pending: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange)' },
-  approved: { bg: '#ECFDF5', fg: '#047857' },
-  rejected: { bg: '#FEF2F2', fg: '#B91C1C' },
+  approved: { bg: 'var(--success-bg)', fg: 'var(--success)' },
+  rejected: { bg: 'var(--danger-bg)', fg: 'var(--danger)' },
   cancelled: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)' },
 };
 
@@ -240,7 +240,7 @@ const ChangeRequestsPage = () => {
                         <td style={{ ...td, maxWidth: 240, whiteSpace: 'normal', color: 'var(--fg-muted)' }}>
                           {r.reason || '-'}
                           {r.status === 'rejected' && r.review_comment && (
-                            <div style={{ color: '#B91C1C', marginTop: 4 }}>반려: {r.review_comment}</div>
+                            <div style={{ color: 'var(--danger)', marginTop: 4 }}>반려: {r.review_comment}</div>
                           )}
                         </td>
                         <td style={td}>

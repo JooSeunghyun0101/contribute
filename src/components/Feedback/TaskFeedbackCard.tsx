@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
-import { getScoreColor, getScoreTextColor } from '@/lib/evaluationMatrix';
+import {
+  getScoreColor,
+  getScoreTextColor,
+  getScoreTintBg,
+  getScoreTintFg,
+} from '@/lib/evaluationMatrix';
 
 export type TaskFeedbackEntry = {
   id: string;
@@ -16,6 +21,8 @@ export type TaskFeedbackCardProps = {
   contributionScope?: string | null;
   score: number | null;
   isAiTask?: boolean;
+  /** 점수 배지를 솔리드 대신 옅은 틴트로. 직원 화면에서 색 과잉을 줄일 때. */
+  tint?: boolean;
   entries: TaskFeedbackEntry[];
 };
 
@@ -77,12 +84,13 @@ const TaskFeedbackCard = ({
   contributionScope,
   score,
   isAiTask,
+  tint = false,
   entries,
 }: TaskFeedbackCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [latest, ...older] = entries;
-  const scoreBg = getScoreColor(score);
-  const scoreFg = getScoreTextColor(score);
+  const scoreBg = tint ? getScoreTintBg(score) : getScoreColor(score);
+  const scoreFg = tint ? getScoreTintFg(score) : getScoreTextColor(score);
   const taskBadge = typeof taskIndex === 'number' ? `T${String(taskIndex + 1).padStart(2, '0')}` : null;
 
   return (
@@ -102,7 +110,7 @@ const TaskFeedbackCard = ({
             flexDirection: 'column',
             alignItems: 'center',
             gap: 1,
-            boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+            boxShadow: tint ? 'none' : '0 2px 6px rgba(0,0,0,0.08)',
           }}
         >
           <span

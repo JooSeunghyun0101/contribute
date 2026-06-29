@@ -307,15 +307,15 @@ export const normalizeEvaluationMatrix = (
   return normalized as EvaluationMatrixScores;
 };
 
-// 점수별 색상 — 브랜드 4-hue 스케일.
-// 인접 점수의 색상(hue)을 모두 다르게 두어 가시성을 확보하고,
-// 점수가 높을수록 더 진하고 무겁게(명도↓·채도↑) 보이도록 단조 배치한다.
-//   4점 진한 오렌지레드 → 3점 골든 앰버 → 2점 라이트 머스터드 → 1점 웜 그레이
+// 점수별 색상 — 전 화면 공통 단계 팔레트(단일 소스). 값은 index.css의 --score-*-bg/fg.
+// 채도를 낮추되 인접 단계가 명도(밝다↔어둡다)로 교차해 한눈에 구분되게 배치했고,
+// CSS 변수라 라이트/다크 모드가 자동 매핑된다. 색 종류를 한정하기 위해 모든 화면이 이 값만 쓴다.
+//   4 진한 테라코타 ↔ 3 골드 앰버 ↔ 2 탄 브라운 ↔ 1 웜 그레이
 export const MATRIX_SCORE_COLORS: Record<number, string> = {
-  4: '#E84200',
-  3: '#F59E00',
-  2: '#C99A4E',
-  1: '#BBB1A4',
+  4: 'var(--score-4-bg)',
+  3: 'var(--score-3-bg)',
+  2: 'var(--score-2-bg)',
+  1: 'var(--score-1-bg)',
 };
 
 // 미평가 / 기여미흡(0점) 과업에 쓰는 중립 색상.
@@ -323,13 +323,13 @@ export const MATRIX_SCORE_COLORS: Record<number, string> = {
 // 미평가/0점 — 다크/라이트 양쪽 가독성 위해 CSS 변수 사용 (index.css에 모드별 매핑)
 export const SCORE_COLOR_UNRATED = 'var(--score-unrated-bg)';
 
-// 점수별 배경 위에 올라가는 텍스트 색상.
-// 4점만 어두운 배경(흰 글씨), 3점 이하는 밝은 배경이라 어두운 글씨로 대비를 확보한다.
+// 점수별 배경 위에 올라가는 텍스트 색상(단계 팔레트와 한 쌍, index.css의 --score-*-fg).
+// 4점만 어두운 배경(흰 글씨), 2·3·1점은 밝은 배경(어두운 글씨)으로 대비를 맞춘다.
 export const MATRIX_SCORE_TEXT_COLORS: Record<number, string> = {
-  4: '#FFFFFF',
-  3: '#4A1A00',
-  2: '#4A1A00',
-  1: '#4A3B33',
+  4: 'var(--score-4-fg)',
+  3: 'var(--score-3-fg)',
+  2: 'var(--score-2-fg)',
+  1: 'var(--score-1-fg)',
 };
 export const SCORE_TEXT_COLOR_UNRATED = 'var(--score-unrated-fg)';
 
@@ -346,6 +346,11 @@ export const getScoreTextColor = (score?: number | null): string => {
   if (score == null || score <= 0) return SCORE_TEXT_COLOR_UNRATED;
   return MATRIX_SCORE_TEXT_COLORS[score] ?? SCORE_TEXT_COLOR_UNRATED;
 };
+
+// 점수 단계 팔레트 접근자(별칭). 이제 전 화면이 동일 팔레트(getScoreColor/getScoreTextColor)를
+// 쓰므로 틴트=솔리드로 통합되었다. 직원 화면에서 먼저 도입한 이름이라 호환을 위해 유지한다.
+export const getScoreTintBg = (score?: number | null): string => getScoreColor(score);
+export const getScoreTintFg = (score?: number | null): string => getScoreTextColor(score);
 
 // 점수 표시 — 소수점 둘째 자리에서 내림 처리.
 // flooredScore(절사 정수)와의 일관성 유지: 2.99는 "2.9"로 표시되어

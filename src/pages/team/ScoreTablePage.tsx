@@ -48,7 +48,7 @@ const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // #E84200 진오렌지
 const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // #C99A4E (예비, 점수표 2점)
 const COLOR_PENDING = MATRIX_SCORE_COLORS[1]; // #BBB1A4 미완료 회색
 const COLOR_BAR_DIM = '#F2D7C2'; // 비활성 막대용 옅은 오렌지
-const COLOR_MISSED_LIGHT = '#E8B588'; // 미달성 — 달성색(#E84200)의 흐린 살구톤
+const COLOR_MISSED_LIGHT = 'var(--score-2-bg)'; // 미달성 — 2점 브라운(단계 팔레트)
 
 type AchievementBucket = 'achieved' | 'missed' | 'pending';
 

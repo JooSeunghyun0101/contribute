@@ -28,7 +28,7 @@ const COLUMN_DEFS: Record<
   draft: {
     label: '작성 중',
     description: '피평가자 최종제출 전',
-    dot: '#9CA3AF',
+    dot: 'var(--fg-subtle)',
     icon: Clock3,
   },
   submitted: {
@@ -40,13 +40,13 @@ const COLUMN_DEFS: Record<
   evaluating: {
     label: '평가 중',
     description: '점수 또는 피드백 작성 중',
-    dot: '#2563EB',
+    dot: 'var(--warning)',
     icon: ClipboardCheck,
   },
   completed: {
     label: '완료',
     description: '평가 저장 완료',
-    dot: '#16A34A',
+    dot: 'var(--success)',
     icon: CheckCircle2,
   },
 };
@@ -472,7 +472,7 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
             width: 32,
             height: 32,
             borderRadius: '50%',
-            background: disabled ? '#9CA3AF' : 'var(--ok-orange)',
+            background: disabled ? 'var(--n-400)' : 'var(--ok-orange)',
             color: '#fff',
             fontSize: 'var(--fs-body)',
             fontWeight: 800,

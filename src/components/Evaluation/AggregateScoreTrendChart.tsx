@@ -18,9 +18,9 @@ import {
 } from '@/lib/scoreTrend';
 
 // 달성 현황 막대 색 — "레벨별 인원 구성 · 평균 점수" 차트와 동일 팔레트.
-const COLOR_ACHIEVED = '#E84200'; // 달성
-const COLOR_MISSED = '#E8B588'; // 미달성 (연한 살구)
-const COLOR_PENDING = '#BBB1A4'; // 미완료 (회색)
+const COLOR_ACHIEVED = 'var(--score-4-bg)'; // 달성 — 점수 단계 팔레트(4점)
+const COLOR_MISSED = 'var(--score-2-bg)'; // 미달성 (2점 브라운)
+const COLOR_PENDING = 'var(--score-1-bg)'; // 미완료 (1점 그레이)
 // 달성률 라인 — 디자인 가이드 OK Yellow 계열.
 const RATE_COLOR = '#CA8A04'; // 올해 달성률 — 진한 골드(글자색과 동일)
 const RATE_PRIOR = '#E8C77A'; // 전년 달성률 — 연한 골드(명확히 구분)
