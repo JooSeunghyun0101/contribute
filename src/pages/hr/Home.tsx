@@ -40,7 +40,7 @@ import {
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 // 그룹핑·필터는 '그 평가 기간'의 조직 기준 — 평가에 기간별 org(evaluatee_org_*)가 있으면 그것을,
-// 없으면 현재 employee.org_* 로 폴백한다. (전보자가 25년 화면에 26년 부서로 묶이지 않게 함)
+// 없으면 현재 employee.org_* 로 폴백한다. (이동자가 25년 화면에 26년 부서로 묶이지 않게 함)
 const recordOrg = (r: EmployeeEvaluationRecord) => orgFieldsFromEvaluation(r.evaluation, r.employee);
 
 // 부서별 그룹핑은 '실제 조직' 기준 — 동명 부서(예: OK 인사팀 vs OKH 인사팀)를

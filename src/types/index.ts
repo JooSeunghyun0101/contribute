@@ -177,6 +177,11 @@ export interface Evaluation {
   evaluator_department?: string | null;
   evaluator_assigned_at?: string | null;
   last_modified: string;
+  /** 상태 전이 시각(#4) — 칸반 진입/성과보고 시점 계산용. */
+  submitted_at?: string | null;
+  returned_at?: string | null;
+  reverted_at?: string | null;
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

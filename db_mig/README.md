@@ -41,7 +41,7 @@ pg_restore -U postgres -d human-resource --no-owner transfer.dump
 단독으로 완전하지 않다(예: `settings` 테이블은 `tables_past.sql`에만 존재). 이 경로를 쓸 경우
 누락 테이블이 없는지 아래 확인 쿼리로 검증할 것.
 
-## 스키마 마이그레이션 — 적용 필수, 시간순 (18개)
+## 스키마 마이그레이션 — 적용 필수, 시간순 (19개)
 
 git 추가일 순서. 모두 멱등(`IF NOT EXISTS` 등) 또는 트랜잭션이라 재실행에 비교적 안전하지만,
 순서대로 1회 적용이 원칙.
@@ -66,6 +66,7 @@ git 추가일 순서. 모두 멱등(`IF NOT EXISTS` 등) 또는 트랜잭션이�
 | 2026-06-04 | `add_evaluator_qna_logs.sql` | 평가자 AI 문의 이력 테이블 |
 | 2026-06-10 | `add_auth_columns.sql` | 인증 컬럼 password_hash·must_change_password (미적용 시 로그인 500) |
 | 2026-06-11 | `add_password_reset_requests.sql` | 비밀번호 초기화 요청 테이블 (미적용 시 초기화 500) |
+| 2026-06-30 | `add_evaluation_transition_timestamps.sql` | evaluations 상태 전이 시각(submitted/returned/reverted/completed_at) — 성과보고·칸반 진입 시점 |
 
 적용 여부 빠른 확인:
 

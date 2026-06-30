@@ -608,10 +608,10 @@ const HrUsersPage = () => {
         : editForm.department.trim();
     const growthLevel = editForm.growthLevel.trim();
 
-    if (!name || !position || !department) {
+    if (!name || !department) {
       toast({
         title: '사용자 정보를 저장할 수 없습니다.',
-        description: '이름, 직책, 부서는 비워둘 수 없습니다.',
+        description: '이름, 부서는 비워둘 수 없습니다. (직책은 비워둘 수 있음)',
         variant: 'destructive',
       });
       return;

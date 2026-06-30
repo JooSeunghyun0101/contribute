@@ -3,19 +3,15 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
-import MonthlyScoreTrendChart from '@/components/Evaluation/MonthlyScoreTrendChart';
 import { NumBadge } from '@/components/brand';
 import { CelebrationOverlay, type CelebrationTrigger } from '@/components/ui/lottie-celebration-overlay';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
-import { usePriorYearRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { aiContentService } from '@/lib/services';
 import { AiContentText } from '@/components/ui/AiContentText';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
-import { buildMonthlyScoreTrend } from '@/lib/scoreTrend';
-import type { Employee } from '@/types';
 import {
   formatScore,
   getMatrixScore,
@@ -144,21 +140,7 @@ const MyHome = () => {
     [matrix, tasks],
   );
 
-  /* 월별 점수 추이 입력 — 페이지의 표시 점수(getCurrentScore)와 동일하게 매핑 */
-  const trendTasks = useMemo(
-    () =>
-      tasks.map((t) => ({
-        score: getCurrentScore(t),
-        weight: t.weight ?? 0,
-        feedbackHistory: t.feedbackHistory ?? [],
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [matrix, tasks],
-  );
-
-  /* 직전연도 개인 추이 비교 */
-  const { periods, selectedPeriod } = useEvaluationPeriod();
-  const priorYear = (selectedPeriod?.evaluation_year ?? new Date().getFullYear()) - 1;
+  const { selectedPeriod } = useEvaluationPeriod();
   // 간트 '오늘' 세로줄은 현재 연도 평가기간을 볼 때만 표시(지난 연도 조회 시 숨김).
   const showTodayMarker = (selectedPeriod?.evaluation_year ?? todayDate.getFullYear()) === todayDate.getFullYear();
 
@@ -183,29 +165,6 @@ const MyHome = () => {
       cancelled = true;
     };
   }, [growthScopeId]);
-  const priorPeriodId = useMemo(
-    () => periods.find((p) => p.evaluation_year === priorYear)?.id ?? null,
-    [periods, priorYear],
-  );
-  const priorEmployees = useMemo(
-    () =>
-      user?.employeeId
-        ? [{ employee_id: user.employeeId, growth_level: evaluationData?.growthLevel ?? 1 } as unknown as Employee]
-        : [],
-    [user?.employeeId, evaluationData?.growthLevel],
-  );
-  const priorRecords = usePriorYearRecords(priorEmployees, priorPeriodId);
-  const priorTrend = useMemo(() => {
-    const rec = priorRecords[0];
-    if (!rec) return undefined;
-    // 목표레벨은 본인 레벨(올해와 동일). priorRecords의 employee는 초기 render 기준이라
-    // 최신 evaluationData.growthLevel 을 직접 사용한다.
-    return buildMonthlyScoreTrend(
-      rec.tasks.map((t) => ({ score: t.score, weight: t.weight, feedbackDate: t.feedback_date })),
-      Math.max(1, evaluationData?.growthLevel ?? 1),
-      { year: priorYear },
-    );
-  }, [priorRecords, priorYear, evaluationData?.growthLevel]);
 
   /* 최근 피드백 */
   const recentFeedbacks = useMemo(
@@ -227,12 +186,26 @@ const MyHome = () => {
     [matrix, tasks],
   );
 
-  const newCount = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-    return tasks.flatMap((t) => t.feedbackHistory ?? []).filter((fb) => new Date(fb.date) > cutoff)
-      .length;
-  }, [tasks]);
+  // 최상단 한 줄 알림 — 성과보고(=최종제출) 주기. 매월 최소 1회 제출을 안내한다.
+  // (현재 점수·목표 달성은 헤더에 이미 크게 있어 여기서는 제외)
+  const summaryText = useMemo(() => {
+    if (!evaluationData) return '평가 데이터가 없습니다.';
+    const submittedAt = evaluationData.submittedAt;
+    if (!submittedAt) {
+      return '아직 성과보고(최종제출)가 없습니다. 매월 최소 1회는 성과보고를 해주세요.';
+    }
+    const now = new Date();
+    const last = new Date(submittedAt);
+    if (Number.isNaN(last.getTime())) return '성과보고 기록을 확인할 수 없습니다.';
+    const days = Math.max(0, Math.floor((now.getTime() - last.getTime()) / 86_400_000));
+    const lastLabel = days === 0 ? '오늘' : `${days}일 전`;
+    const thisMonth =
+      last.getFullYear() === now.getFullYear() && last.getMonth() === now.getMonth();
+    if (thisMonth) {
+      return `이번 달 성과보고 완료 · 마지막 제출 ${lastLabel}`;
+    }
+    return `이번 달 성과보고가 없습니다 (마지막 ${lastLabel}) · 매월 최소 1회는 성과보고를 해주세요`;
+  }, [evaluationData]);
 
   if (isLoading) {
     return (
@@ -347,10 +320,10 @@ const MyHome = () => {
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '24px 32px 40px',
+          padding: '20px 32px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 20,
+          gap: 14,
         }}
       >
         <CelebrationOverlay trigger={fireworkTrigger} />
@@ -361,6 +334,27 @@ const MyHome = () => {
         </div>
       ) : (
         <>
+          {/* 최상단 한 줄 요약 — order 로 재배치되는 행들보다 위(-3)에 고정 */}
+          <div
+            style={{
+              order: -3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '12px 16px',
+              borderRadius: 10,
+              background: 'var(--ok-orange-50)',
+              border: '1px solid var(--ok-orange-100)',
+            }}
+          >
+            <span className="sd-label-mini" style={{ color: 'var(--ok-orange-700)', flexShrink: 0 }}>
+              알림
+            </span>
+            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)' }}>
+              {summaryText}
+            </span>
+          </div>
+
           {/* ── 2-컬럼 (기여 분포 + 간트) ── 화면상 '두 번째' 줄(order 로 과업비율 줄과 자리 바꿈) ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16, order: -1 }}>
             {/* 기여 분포 */}
@@ -644,7 +638,7 @@ const MyHome = () => {
               {/* Task rows — 영역 고정. 과업이 많으면 안에서 세로 스크롤 */}
               <div
                 style={{
-                  height: 220,
+                  height: 176,
                   overflowY: 'auto',
                   paddingRight: 4,
                 }}
@@ -736,11 +730,12 @@ const MyHome = () => {
                             whiteSpace: 'nowrap',
                           }}
                         >
+                          {`T${String(index + 1).padStart(2, '0')}`}
                           {task.isAiTask && (
                             <span
                               style={{
                                 flexShrink: 0,
-                                marginRight: 4,
+                                margin: '0 4px',
                                 padding: '0 4px',
                                 borderRadius: 999,
                                 fontSize: 'var(--fs-2xs)',
@@ -752,7 +747,7 @@ const MyHome = () => {
                               AI
                             </span>
                           )}
-                          T{String(index + 1).padStart(2, '0')} · {task.title}
+                          {` · ${task.title}`}
                         </div>
                       </div>
 
@@ -830,7 +825,7 @@ const MyHome = () => {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 24, alignItems: 'center' }}>
               {/* Donut */}
-              <div style={{ position: 'relative', height: 300 }}>
+              <div style={{ position: 'relative', height: 240 }}>
                 {weightDonutData.length === 0 ? (
                   <div
                     style={{
@@ -963,7 +958,7 @@ const MyHome = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 5,
-                  height: 300,
+                  height: 240,
                   overflowY: 'auto',
                   paddingRight: 4,
                 }}
@@ -1089,15 +1084,6 @@ const MyHome = () => {
             </div>
           </div>
           </div>
-
-          {/* ── 월별 점수 추이 ───────────────────────────── */}
-          <MonthlyScoreTrendChart
-            tasks={trendTasks}
-            growthLevel={evaluationData.growthLevel ?? 1}
-            year={selectedPeriod?.evaluation_year}
-            comparison={priorTrend}
-            comparisonLabel="전년도"
-          />
         </>
       )}
       </div>

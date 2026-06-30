@@ -95,11 +95,25 @@ export const useTeamDashboardRecords = (
     includeFeedbackHistory,
   );
 
+// 평가 라인 하위 열람(#1): 본인의 '선택 평가기간' 평가 라인 재귀 하위(직접 담당 제외) 레코드를 읽기 전용 로드.
+// 그 기간 체인 기준이라, 다른 기간에만 배정된 사람은 섞이지 않는다.
+export const useEvaluationLineRecords = (evaluatorId: string): DashboardState => {
+  const { selectedPeriodId } = useEvaluationPeriod();
+  return useRecordsLoader(
+    () =>
+      evaluatorId
+        ? employeeService.getEvaluationLineDescendants(evaluatorId, selectedPeriodId)
+        : Promise.resolve([]),
+    `eval-line:${evaluatorId}:${selectedPeriodId ?? ''}`,
+    false,
+  );
+};
+
 export const useFormerTeamDashboardRecords = (
   evaluatorId: string,
   includeFeedbackHistory = false,
 ): DashboardState => {
-  // '이전 담당 피평가자'는 선택한 평가기간 내 전보만 — 직전연도(타 기간) 이력이 섞이지 않게.
+  // '이전 담당 피평가자'는 선택한 평가기간 내 이동만 — 직전연도(타 기간) 이력이 섞이지 않게.
   const { selectedPeriodId } = useEvaluationPeriod();
   // 과거 평가자 화면에서는 evaluation 을 evaluator 필터 없이 조회한다.
   // (본인이 직접 매긴 entry 가 없어도 정정으로 ownership 이 옮겨졌거나

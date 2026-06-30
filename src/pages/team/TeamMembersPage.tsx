@@ -1,14 +1,47 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTeamDashboardRecords, useFormerTeamDashboardRecords } from '@/hooks/useDashboardRecords';
-import { formatScore, getScoreColor } from '@/lib/evaluationMatrix';
+import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import {
+  useTeamDashboardRecords,
+  useFormerTeamDashboardRecords,
+  useEvaluationLineRecords,
+} from '@/hooks/useDashboardRecords';
+import { employeeService } from '@/lib/services';
+import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
+import OrgChecklist from '@/components/hr/OrgChecklist';
+import { getOrgValue, matchesOrgNodes, orgFieldsFromEvaluation } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
-const CARD_WIDTH = 300;
-const CARD_GAP = 16;
+const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4];
+const COLOR_MISSED = 'var(--score-2-bg)';
+const COLOR_PENDING = MATRIX_SCORE_COLORS[1];
+const LEVEL_LEGEND: { color: string; label: string }[] = [
+  { color: COLOR_ACHIEVED, label: '달성' },
+  { color: COLOR_MISSED, label: '미달성' },
+  { color: COLOR_PENDING, label: '미완료' },
+];
+
+type Relation = 'direct' | 'line';
+type Row = { record: EmployeeEvaluationRecord; relation: Relation };
+type LevelStat = { level: number; label: string; total: number; achieved: number; missed: number; pending: number };
+
+// 팀원 org 는 그 평가기간 기준(evaluatee_org_*) → 없으면 현재 employee.org_* 폴백.
+const recordOrg = (record: EmployeeEvaluationRecord) =>
+  orgFieldsFromEvaluation(record.evaluation, record.employee);
 
 const formatWorkDate = (value?: string | null) => {
   if (!value) return null;
@@ -17,433 +50,417 @@ const formatWorkDate = (value?: string | null) => {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const formatWorkPeriod = (start?: string | null, end?: string | null) => {
-  const s = formatWorkDate(start);
-  const e = formatWorkDate(end);
-  if (!s && !e) return null;
-  if (s && e) return `${s} ~ ${e}`;
-  if (s) return `${s} ~ 현재`;
-  return `이전 ~ ${e}`;
+type StatusInfo = { label: string; color: string };
+const statusOf = (r: EmployeeEvaluationRecord): StatusInfo => {
+  const completed = r.reviewStatus === 'completed' || r.reviewStatus === 'locked';
+  if (completed) {
+    return r.achieved
+      ? { label: '달성', color: 'var(--score-4-bg)' }
+      : { label: '미달성', color: 'var(--score-2-bg)' };
+  }
+  const map: Record<string, string> = { submitted: '검토 대기', evaluating: '평가 중' };
+  return { label: map[r.reviewStatus] ?? '미제출', color: 'var(--fg-muted)' };
+};
+
+const th: CSSProperties = {
+  padding: '10px 12px',
+  textAlign: 'left',
+  fontSize: 'var(--fs-xs)',
+  fontWeight: 800,
+  letterSpacing: '0.04em',
+  color: 'var(--fg-muted)',
+  whiteSpace: 'nowrap',
+  position: 'sticky',
+  top: 0,
+  background: 'var(--bg-card)',
+  borderBottom: '1px solid var(--border)',
+};
+const td: CSSProperties = { padding: '9px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' };
+
+const RelationChip = ({ relation }: { relation: Relation }) => {
+  const direct = relation === 'direct';
+  return (
+    <span
+      style={{
+        padding: '2px 9px',
+        borderRadius: 999,
+        fontSize: 'var(--fs-2xs)',
+        fontWeight: 800,
+        letterSpacing: '0.03em',
+        background: direct ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
+        color: direct ? 'var(--ok-orange-700)' : 'var(--fg-muted)',
+        border: `1px solid ${direct ? 'var(--ok-orange-100)' : 'var(--border)'}`,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {direct ? '담당' : '열람'}
+    </span>
+  );
 };
 
 const TeamMembersPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { selectedPeriod } = useEvaluationPeriod();
   const evaluatorId = user?.employeeId || '';
+  const periodId = selectedPeriod?.id ?? null;
+  const periodYear = selectedPeriod?.evaluation_year ?? null;
+
   const { records: allRecords, isLoading, error } = useTeamDashboardRecords(evaluatorId);
-  // 발령 전 담당 팀원도 포함 — 과거 기간 조회 시 그 기간의 담당 팀원이 보이도록.
   const { records: formerRecords } = useFormerTeamDashboardRecords(evaluatorId);
-  // "담당 팀원" = 선택 기간 평가의 배정 평가자(evaluation.evaluator_id)가 본인인 레코드.
-  // (이전엔 현재 담당만 보여, 25년 조회 시에도 26년 담당이 나오던 문제 해소.)
-  const records = useMemo(() => {
+  const { records: lineRecords, isLoading: lineLoading } = useEvaluationLineRecords(evaluatorId);
+
+  // 담당 = 선택 기간 평가의 배정 평가자가 본인인 레코드(기간 정확성 위해 현재+이전 발령 병합 후 필터).
+  const directRecords = useMemo(() => {
     const map = new Map<string, EmployeeEvaluationRecord>();
     for (const r of allRecords) map.set(r.employee.employee_id, r);
     for (const r of formerRecords) if (!map.has(r.employee.employee_id)) map.set(r.employee.employee_id, r);
     return [...map.values()].filter((r) => String(r.evaluation?.evaluator_id ?? '') === evaluatorId);
   }, [allRecords, formerRecords, evaluatorId]);
+
+  // 담당(직접) + 라인 하위(열람) 통합. 중복 사번은 담당 우선.
+  // 라인 하위는 '선택한 평가기간에 평가가 있는 사람'만 — 그 기간에 배정/평가가 없는
+  // (예: 다음 연도에만 배정된) 인원이 지난 기간 조회에 섞이지 않게 한다.
+  const rows = useMemo(() => {
+    const byId = new Map<string, Row>();
+    for (const r of directRecords) byId.set(r.employee.employee_id, { record: r, relation: 'direct' });
+    for (const r of lineRecords)
+      if (r.evaluation != null && !byId.has(r.employee.employee_id))
+        byId.set(r.employee.employee_id, { record: r, relation: 'line' });
+    return [...byId.values()];
+  }, [directRecords, lineRecords]);
+
+  // 근무기간 시작(내 체인 산입일) 맵.
+  const [sinceMap, setSinceMap] = useState<Map<string, string | null>>(new Map());
+  useEffect(() => {
+    if (!evaluatorId) {
+      setSinceMap(new Map());
+      return;
+    }
+    let cancelled = false;
+    employeeService
+      .getTeamRosterSince(evaluatorId, periodId, periodYear)
+      .then((list) => {
+        if (!cancelled) setSinceMap(new Map(list.map((x) => [x.employee_id, x.chain_since])));
+      })
+      .catch(() => {
+        if (!cancelled) setSinceMap(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [evaluatorId, periodId, periodYear]);
+
   const [selectedLevel, setSelectedLevel] = useState<number | 'all'>('all');
+  const [relationFilter, setRelationFilter] = useState<'all' | Relation>('all');
+  const [orgFilter, setOrgFilter] = useState<string[]>([]);
 
   const growthLevels = useMemo(
     () =>
-      Array.from(new Set(records.map((record) => record.employee.growth_level ?? 1))).sort(
-        (a, b) => b - a,
-      ),
-    [records],
+      Array.from(new Set(rows.map((row) => row.record.employee.growth_level ?? 1))).sort((a, b) => b - a),
+    [rows],
   );
 
-  const visibleRecords = useMemo(
-    () =>
-      selectedLevel === 'all'
-        ? records
-        : records.filter((record) => (record.employee.growth_level ?? 1) === selectedLevel),
-    [records, selectedLevel],
-  );
+  const visibleRows = useMemo(() => {
+    return rows
+      .filter((row) => {
+        if (selectedLevel !== 'all' && (row.record.employee.growth_level ?? 1) !== selectedLevel) return false;
+        if (relationFilter !== 'all' && row.relation !== relationFilter) return false;
+        if (!matchesOrgNodes(recordOrg(row.record), orgFilter)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        // 담당 먼저 → 레벨 내림차순 → 이름
+        if (a.relation !== b.relation) return a.relation === 'direct' ? -1 : 1;
+        const la = a.record.employee.growth_level ?? 1;
+        const lb = b.record.employee.growth_level ?? 1;
+        if (lb !== la) return lb - la;
+        return a.record.employee.name.localeCompare(b.record.employee.name, 'ko-KR');
+      });
+  }, [rows, selectedLevel, relationFilter, orgFilter]);
 
-  const groupedByLevel = useMemo(() => {
-    const groups = new Map<number, EmployeeEvaluationRecord[]>();
-    visibleRecords.forEach((record) => {
-      const level = record.employee.growth_level ?? 1;
-      const group = groups.get(level) ?? [];
-      group.push(record);
-      groups.set(level, group);
-    });
+  const directCount = useMemo(() => rows.filter((r) => r.relation === 'direct').length, [rows]);
+  const lineCount = rows.length - directCount;
 
-    return Array.from(groups.entries())
+  // 레벨별 달성 바차트 — 레벨 필터엔 반응하지 않고(레벨 개요 유지), 관계·조직 필터에만 반응.
+  const levelStats = useMemo<LevelStat[]>(() => {
+    const buckets = new Map<number, { total: number; achieved: number; missed: number; pending: number }>();
+    rows
+      .filter((row) => {
+        if (relationFilter !== 'all' && row.relation !== relationFilter) return false;
+        return matchesOrgNodes(recordOrg(row.record), orgFilter);
+      })
+      .forEach(({ record: r }) => {
+        const lv = r.employee.growth_level ?? 1;
+        const b = buckets.get(lv) ?? { total: 0, achieved: 0, missed: 0, pending: 0 };
+        b.total += 1;
+        const completed = r.reviewStatus === 'completed' || r.reviewStatus === 'locked';
+        if (completed) {
+          if (r.achieved) b.achieved += 1;
+          else b.missed += 1;
+        } else b.pending += 1;
+        buckets.set(lv, b);
+      });
+    return [...buckets.entries()]
+      .filter(([, b]) => b.total > 0)
       .sort(([a], [b]) => b - a)
-      .map(([level, items]) => ({
-        level,
-        items: [...items].sort((a, b) => {
-          // 달성 → 미달성 → 미완료 순, 같은 상태 안에서는 점수 내림차순
-          const stateRank: Record<AchievementState, number> = {
-            achieved: 0,
-            missed: 1,
-            pending: 2,
-          };
-          const sa = getAchievementState(a);
-          const sb = getAchievementState(b);
-          if (sa !== sb) return stateRank[sa] - stateRank[sb];
-          if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
-          return a.employee.name.localeCompare(b.employee.name, 'ko-KR');
-        }),
-      }));
-  }, [visibleRecords]);
+      .map(([level, b]) => ({ level, label: `Lv.${level}`, ...b }));
+  }, [rows, relationFilter, orgFilter]);
+
+  const openRow = (row: Row) => {
+    if (row.relation === 'direct') navigate(`/evaluation/${row.record.employee.employee_id}`);
+    else navigate(`/team/dept-member?evaluatee=${encodeURIComponent(row.record.employee.employee_id)}`);
+  };
+
+  const relationOptions: { key: 'all' | Relation; label: string }[] = [
+    { key: 'all', label: `전체 ${rows.length}` },
+    { key: 'direct', label: `담당 ${directCount}` },
+    { key: 'line', label: `열람 ${lineCount}` },
+  ];
 
   return (
     <>
       <PageHeader
         title="담당 팀원"
-        subtitle={`내가 평가하는 ${records.length > 0 ? `${records[0]?.employee.department} ` : ''}${records.length}명`}
-        filters={
-          records.length > 0 ? (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                className={selectedLevel === 'all' ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
-                onClick={() => setSelectedLevel('all')}
-              >
-                전체 · {records.length}명
-              </button>
-              {growthLevels.map((level) => {
-                const count = records.filter((record) => (record.employee.growth_level ?? 1) === level).length;
-                return (
-                  <button
-                    key={level}
-                    className={selectedLevel === level ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
-                    onClick={() => setSelectedLevel(level)}
-                  >
-                    Lv.{level} · {count}명
-                  </button>
-                );
-              })}
-            </div>
-          ) : undefined
-        }
+        subtitle={`내가 평가하는 ${directCount}명 · 평가 라인 하위 열람 ${lineCount}명`}
       />
 
-      <div style={{ padding: '24px 32px 32px' }}>
+      <div style={{ padding: '14px 32px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {isLoading ? (
           <LoadingState message="팀원 정보를 불러오는 중입니다." />
         ) : error ? (
-          <div className="sd-card" style={{ color: 'var(--danger)' }}>{error}</div>
-        ) : (
-          <div className="flex flex-col gap-6">
-            {groupedByLevel.map(({ level, items }) => (
-              <MemberCarousel
-                key={level}
-                level={level}
-                items={items}
-                onOpen={(record) => navigate(`/evaluation/${record.employee.employee_id}`)}
-              />
-            ))}
-
-            {!records.length && <div className="sd-card">표시할 팀원이 없습니다.</div>}
-            {records.length > 0 && !visibleRecords.length && (
-              <div className="sd-card">선택한 성장레벨에 해당하는 팀원이 없습니다.</div>
-            )}
+          <div className="sd-card" style={{ color: 'var(--danger)' }}>
+            {error}
           </div>
+        ) : rows.length === 0 ? (
+          <div className="sd-card">표시할 팀원이 없습니다.</div>
+        ) : (
+          <>
+            {/* 필터 바 — 2그룹(① 관계+레벨, ② 조직) */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {relationOptions.map((opt) => (
+                  <button
+                    key={opt.key}
+                    className={
+                      relationFilter === opt.key ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'
+                    }
+                    onClick={() => setRelationFilter(opt.key)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', minHeight: 20, margin: '0 2px' }} />
+                <button
+                  className={selectedLevel === 'all' ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
+                  onClick={() => setSelectedLevel('all')}
+                >
+                  전체 레벨
+                </button>
+                {growthLevels.map((level) => (
+                  <button
+                    key={level}
+                    className={
+                      selectedLevel === level ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'
+                    }
+                    onClick={() => setSelectedLevel(level)}
+                  >
+                    Lv.{level}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginLeft: 'auto' }}>
+                <OrgChecklist items={rows.map((r) => recordOrg(r.record))} value={orgFilter} onChange={setOrgFilter} />
+              </div>
+            </div>
+
+            {/* 바차트(좌) · 리스트(우) — 한 화면, 리스트는 내부 스크롤 */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              {levelStats.length > 0 && (
+                <div style={{ flex: '0 0 360px', maxWidth: 360 }}>
+                  <LevelBarChart
+                    data={levelStats}
+                    selectedLevel={selectedLevel}
+                    onPick={(lv) => setSelectedLevel((prev) => (prev === lv ? 'all' : lv))}
+                  />
+                </div>
+              )}
+              <div className="sd-card" style={{ flex: 1, minWidth: 0, padding: 0, overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 250px)', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
+                <thead>
+                  <tr>
+                    <th style={th}>이름</th>
+                    <th style={th}>직책</th>
+                    <th style={th}>법인</th>
+                    <th style={th}>본부</th>
+                    <th style={th}>부</th>
+                    <th style={th}>팀</th>
+                    <th style={{ ...th, textAlign: 'center' }}>레벨</th>
+                    <th style={{ ...th, textAlign: 'center' }}>관계</th>
+                    <th style={th}>상태</th>
+                    <th style={{ ...th, textAlign: 'right' }}>점수</th>
+                    <th style={th}>근무기간</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.length === 0 ? (
+                    <tr>
+                      <td style={{ ...td, color: 'var(--fg-muted)', textAlign: 'center' }} colSpan={11}>
+                        선택한 조건에 맞는 팀원이 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    visibleRows.map(({ record: r, relation }) => {
+                      const org = recordOrg(r);
+                      const status = statusOf(r);
+                      const hasScore = r.weightedScore > 0;
+                      const since = sinceMap.get(r.employee.employee_id);
+                      const sinceLabel = formatWorkDate(since);
+                      return (
+                        <tr
+                          key={r.employee.employee_id}
+                          onClick={() => openRow({ record: r, relation })}
+                          style={{ cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--bg-muted)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <td style={td}>
+                            <span style={{ fontWeight: 700 }}>{r.employee.name}</span>
+                          </td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{r.employee.position || '-'}</td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{getOrgValue(org, 'corporation') || '-'}</td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{getOrgValue(org, 'division') || '-'}</td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{getOrgValue(org, 'department') || '-'}</td>
+                          <td style={{ ...td, color: 'var(--fg-muted)' }}>{getOrgValue(org, 'team') || '-'}</td>
+                          <td style={{ ...td, textAlign: 'center', fontWeight: 700 }}>
+                            Lv.{r.employee.growth_level ?? 1}
+                          </td>
+                          <td style={{ ...td, textAlign: 'center' }}>
+                            <RelationChip relation={relation} />
+                          </td>
+                          <td style={{ ...td, fontWeight: 700, color: status.color }}>{status.label}</td>
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            <span
+                              className="tnum"
+                              style={{
+                                fontWeight: 800,
+                                color: hasScore ? getScoreColor(r.flooredScore) : 'var(--fg-muted)',
+                              }}
+                            >
+                              {hasScore ? formatScore(r.weightedScore) : '–'}
+                            </span>
+                          </td>
+                          <td className="tnum" style={{ ...td, color: 'var(--fg-muted)' }}>
+                            {sinceLabel ? `${sinceLabel} ~ 현재` : lineLoading ? '…' : '정보 없음'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                </table>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </>
   );
 };
 
-type MemberCarouselProps = {
-  level: number;
-  items: EmployeeEvaluationRecord[];
-  onOpen: (record: EmployeeEvaluationRecord) => void;
-};
-
-const MemberCarousel = ({ level, items, onOpen }: MemberCarouselProps) => {
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-
-  const scrollByPage = (direction: 'prev' | 'next') => {
-    const node = scrollerRef.current;
-    if (!node) return;
-    const delta = (CARD_WIDTH + CARD_GAP) * 2 * (direction === 'next' ? 1 : -1);
-    node.scrollBy({ left: delta, behavior: 'smooth' });
-  };
-
-  return (
-    <section>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        }}
-      >
-        <div>
-          <div className="sd-label-mini">성장 레벨</div>
-          <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, marginTop: 2 }}>Lv.{level}</h2>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-            {items.length}명
-          </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              type="button"
-              onClick={() => scrollByPage('prev')}
-              aria-label="이전"
-              style={carouselNavStyle}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              onClick={() => scrollByPage('next')}
-              aria-label="다음"
-              style={carouselNavStyle}
-            >
-              ›
-            </button>
-          </div>
-        </div>
+const LevelBarChart = ({
+  data,
+  selectedLevel,
+  onPick,
+}: {
+  data: LevelStat[];
+  selectedLevel: number | 'all';
+  onPick: (level: number) => void;
+}) => (
+  <div className="sd-card" style={{ padding: 18 }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div>
+        <div className="sd-label-mini">레벨 현황</div>
+        <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginTop: 2 }}>레벨별 달성 현황</h3>
       </div>
-
-      <div
-        ref={scrollerRef}
-        style={{
-          display: 'flex',
-          gap: CARD_GAP,
-          overflowX: 'auto',
-          scrollSnapType: 'x mandatory',
-          paddingBottom: 6,
-          // 우측 끝까지 카드가 닿지 않게 약간의 여백
-          paddingRight: 4,
-        }}
-      >
-        {items.map((record) => (
-          <div
-            key={record.employee.employee_id}
-            style={{
-              flex: `0 0 ${CARD_WIDTH}px`,
-              scrollSnapAlign: 'start',
-            }}
-          >
-            <MemberCard record={record} onOpen={() => onOpen(record)} />
-          </div>
+      <div style={{ display: 'flex', gap: 12, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+        {LEVEL_LEGEND.map((item) => (
+          <span key={item.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color, flexShrink: 0 }} />
+            {item.label}
+          </span>
         ))}
       </div>
-    </section>
-  );
-};
-
-const carouselNavStyle: React.CSSProperties = {
-  width: 28,
-  height: 28,
-  borderRadius: '50%',
-  border: '1px solid var(--border)',
-  background: 'var(--bg-card)',
-  color: 'var(--fg)',
-  fontSize: 'var(--fs-h4)',
-  fontWeight: 800,
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  lineHeight: 1,
-};
-
-type MemberCardProps = {
-  record: EmployeeEvaluationRecord;
-  onOpen: () => void;
-};
-
-type AchievementState = 'achieved' | 'missed' | 'pending';
-
-const getAchievementState = (record: EmployeeEvaluationRecord): AchievementState => {
-  // 평가 완료(or 잠금) 상태만 달성/미달성으로 분류. 그 외는 모두 미완료.
-  const isCompleted =
-    record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
-  if (!isCompleted) return 'pending';
-  return record.achieved ? 'achieved' : 'missed';
-};
-
-// 점수 색상표 기준 — 4점 진오렌지(달성), 2점 머스터드(미달성), 회색(미완료)
-const ACHIEVEMENT_STYLE: Record<
-  AchievementState,
-  { label: string; chipBg: string; chipColor: string; accent: string }
-> = {
-  achieved: {
-    label: '달성',
-    chipBg: 'var(--ok-orange-50)',
-    chipColor: 'var(--score-4-bg)',
-    accent: 'var(--score-4-bg)',
-  },
-  missed: {
-    label: '미달성',
-    chipBg: 'var(--warning-bg)',
-    chipColor: 'var(--warning)',
-    accent: 'var(--score-2-bg)',
-  },
-  pending: {
-    label: '미완료',
-    chipBg: 'var(--bg-muted)',
-    chipColor: 'var(--fg-muted)',
-    accent: 'var(--border)',
-  },
-};
-
-const MemberCard = ({ record, onOpen }: MemberCardProps) => {
-  const workPeriod = formatWorkPeriod(
-    record.employee.work_start_date,
-    record.employee.work_end_date,
-  );
-  const state = getAchievementState(record);
-  const palette = ACHIEVEMENT_STYLE[state];
-  const growthLevel = record.employee.growth_level ?? 1;
-  const scoreColor = getScoreColor(record.flooredScore);
-  const scoreFraction = Math.min(100, Math.max(0, (record.weightedScore / 4) * 100));
-  const hasScore = record.weightedScore > 0;
-
-  // 상태별 카드 테두리 — 달성/미달성은 solid 강조, 미완료는 dashed로 약하게
-  const cardBorder =
-    state === 'achieved'
-      ? `2px solid ${palette.accent}`
-      : state === 'missed'
-        ? `2px solid ${palette.accent}`
-        : '2px dashed var(--border)';
-
-  return (
-    <div
-      className="sd-card sd-card-lg"
-      style={{
-        position: 'relative',
-        height: 232,
-        display: 'flex',
-        flexDirection: 'column',
-        boxSizing: 'border-box',
-        border: cardBorder,
-      }}
-    >
-      {/* 우상단 상태 라벨 (이모지 없음) */}
-      {state !== 'pending' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 14,
-            right: 14,
-            padding: '3px 12px',
-            borderRadius: 999,
-            background: palette.chipBg,
-            color: palette.chipColor,
-            fontSize: 'var(--fs-xs)',
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-          }}
-        >
-          {palette.label}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, paddingRight: 64 }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: '50%',
-            background: 'var(--ok-orange)',
-            color: '#fff',
-            fontSize: 'var(--fs-h3)',
-            fontWeight: 800,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {record.employee.name.charAt(0)}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 'var(--fs-h4)',
-              fontWeight: 700,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {record.employee.name}{' '}
-            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 500, color: 'var(--fg-muted)' }}>
-              {record.employee.position}
-            </span>
-          </div>
-          <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 2 }}>
-            {record.employee.department} · Lv.{growthLevel}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 14 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            marginBottom: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span
-              className="tnum"
-              style={{
-                fontSize: 'var(--fs-h1)',
-                fontWeight: 900,
-                color: hasScore ? scoreColor : 'var(--fg-muted)',
-                lineHeight: 1.0,
-              }}
-            >
-              {hasScore ? formatScore(record.weightedScore) : '–'}
-            </span>
-            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg-muted)' }}>
-              / 4.0
-            </span>
-          </div>
-        </div>
-
-        <div
-          style={{
-            height: 8,
-            background: 'var(--bg-muted)',
-            borderRadius: 4,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              height: '100%',
-              width: `${scoreFraction}%`,
-              background: scoreColor,
-              borderRadius: 4,
-              transition: 'width 0.4s',
-            }}
-          />
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginTop: 'auto',
-        }}
-      >
-        <div className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-          {workPeriod ? `근무 ${workPeriod}` : '근무기간 정보 없음'}
-        </div>
-        <button
-          className="sd-btn sd-btn-ghost sd-btn-sm"
-          style={{ color: 'var(--ok-orange)', fontWeight: 700 }}
-          onClick={onOpen}
-        >
-          상세 보기 &gt;
-        </button>
-      </div>
     </div>
-  );
-};
+    <div style={{ width: '100%', height: 220 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 20, right: 8, left: -16, bottom: 0 }} barCategoryGap="34%">
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 12, fill: 'var(--fg)', fontWeight: 800 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            allowDecimals={false}
+            tick={{ fontSize: 11, fill: 'var(--fg-muted)' }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            cursor={{ fill: 'rgba(245,80,0,0.06)' }}
+            contentStyle={{
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              fontSize: 'var(--fs-sm)',
+              background: 'var(--bg-card)',
+            }}
+            formatter={(value: number, name: string) => [`${value}명`, name]}
+          />
+          {(['achieved', 'missed', 'pending'] as const).map((key) => {
+            const cfg = {
+              achieved: { name: '달성', color: COLOR_ACHIEVED },
+              missed: { name: '미달성', color: COLOR_MISSED },
+              pending: { name: '미완료', color: COLOR_PENDING },
+            }[key];
+            const isLast = key === 'pending';
+            return (
+              <Bar
+                key={key}
+                stackId="count"
+                dataKey={key}
+                name={cfg.name}
+                fill={cfg.color}
+                radius={isLast ? [5, 5, 0, 0] : [0, 0, 0, 0]}
+                onClick={(d: { level?: number }) => d?.level != null && onPick(d.level)}
+                style={{ cursor: 'pointer' }}
+              >
+                {data.map((row) => {
+                  const active = selectedLevel === 'all' || selectedLevel === row.level;
+                  return <Cell key={row.level} fillOpacity={active ? 1 : 0.32} />;
+                })}
+                {isLast && (
+                  <LabelList
+                    dataKey="total"
+                    position="top"
+                    formatter={(v: number) => (v > 0 ? `${v}` : '')}
+                    style={{ fontSize: 11, fontWeight: 800, fill: 'var(--fg-muted)' }}
+                  />
+                )}
+              </Bar>
+            );
+          })}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
 
 export default TeamMembersPage;

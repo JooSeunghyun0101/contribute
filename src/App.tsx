@@ -26,16 +26,14 @@ const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 
 const MyHome = lazy(() => import("./pages/my/Home"));
 const MyTasksPage = lazy(() => import("./pages/my/MyTasksPage"));
-const MySchedulePage = lazy(() => import("./pages/my/MySchedulePage"));
 const MyFeedbackPage = lazy(() => import("./pages/my/MyFeedbackPage"));
 const MyQnaPage = lazy(() => import("./pages/my/MyQnaPage"));
 const EvaluatorRequestPage = lazy(() => import("./pages/EvaluatorRequestPage"));
 
 const TeamHome = lazy(() => import("./pages/team/Home"));
 const TeamMembersPage = lazy(() => import("./pages/team/TeamMembersPage"));
-const ScoreTablePage = lazy(() => import("./pages/team/ScoreTablePage"));
-const EvaluatorSchedulePage = lazy(() => import("./pages/team/EvaluatorSchedulePage"));
 const EvaluatorFeedbackPage = lazy(() => import("./pages/team/EvaluatorFeedbackPage"));
+const DeptMemberViewerPage = lazy(() => import("./pages/team/DeptMemberViewerPage"));
 const HrEvaluationViewerPage = lazy(() => import("./pages/hr/HrEvaluationViewerPage"));
 const EvaluatorQnaPage = lazy(() => import("./pages/team/EvaluatorQnaPage"));
 
@@ -131,14 +129,6 @@ const App = () => (
                   }
                 />
                 <Route
-                  path="/my/schedule"
-                  element={
-                    <ProtectedRoute allowedRoles={["evaluatee"]}>
-                      <MySchedulePage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/my/feedback"
                   element={
                     <ProtectedRoute allowedRoles={["evaluatee"]}>
@@ -163,23 +153,17 @@ const App = () => (
                   }
                 />
 
-                {/* 평가자 */}
+                {/* 평가자 — 메인은 평가 보드(구 팀 통계 대시보드는 폐지, 핵심 차트는 보드에 통합) */}
                 <Route
                   path="/team"
-                  element={
-                    <ProtectedRoute allowedRoles={["evaluator"]}>
-                      <ScoreTablePage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/team/board"
                   element={
                     <ProtectedRoute allowedRoles={["evaluator"]}>
                       <TeamHome />
                     </ProtectedRoute>
                   }
                 />
+                {/* 구 평가 보드 경로 → 메인으로 통합(북마크 유지) */}
+                <Route path="/team/board" element={<Navigate to="/team" replace />} />
                 <Route
                   path="/team/members"
                   element={
@@ -188,19 +172,14 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
+                {/* 구 팀 통계·전체 일정(간트) 경로 → 메인(평가 보드)으로 통합(북마크 유지) */}
+                <Route path="/team/scores" element={<Navigate to="/team" replace />} />
+                <Route path="/team/schedule" element={<Navigate to="/team" replace />} />
                 <Route
-                  path="/team/scores"
+                  path="/team/dept-member"
                   element={
                     <ProtectedRoute allowedRoles={["evaluator"]}>
-                      <ScoreTablePage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/team/schedule"
-                  element={
-                    <ProtectedRoute allowedRoles={["evaluator"]}>
-                      <EvaluatorSchedulePage />
+                      <DeptMemberViewerPage />
                     </ProtectedRoute>
                   }
                 />

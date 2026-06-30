@@ -37,16 +37,13 @@ const menus: Record<UserRole, MenuItem[]> = {
   evaluatee: [
     { to: '/my', label: '내 대시보드', icon: IconHome, end: true },
     { to: '/my/tasks', label: '내 과업', icon: IconTarget },
-    { to: '/my/schedule', label: '과업 일정', icon: IconCalendar },
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
     { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/my/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   evaluator: [
-    { to: '/team', label: '팀 통계', icon: IconChart, end: true },
-    { to: '/team/board', label: '평가 보드', icon: IconGrid },
+    { to: '/team', label: '평가 보드', icon: IconGrid, end: true },
     { to: '/team/members', label: '담당 팀원', icon: IconUsers },
-    { to: '/team/schedule', label: '전체 일정', icon: IconCalendar },
     { to: '/team/feedback', label: '피드백 내역', icon: IconMsg },
     { to: '/team/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/team/ai', label: 'AI 도움말', icon: IconSparkle },

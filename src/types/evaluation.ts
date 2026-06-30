@@ -102,6 +102,8 @@ export interface EvaluationData {
     | 'locked'
     | 'in-progress';
   lastModified: string;
+  /** 피평가자 최종제출(성과보고) 시각 — #4. */
+  submittedAt?: string | null;
   /** 연도 컬럼 – 평가와 연동되는 연도 */
   evaluation_year?: number;
   evaluation_period_id?: string | null;

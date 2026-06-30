@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
@@ -14,7 +14,8 @@ import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // #E84200
 const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // #C99A4E
 
-type ColumnId = 'draft' | 'submitted' | 'evaluating' | 'completed';
+// 평가 진행 컬럼은 3단계로 통합: 미제출 / 검토 필요(제출됨·평가중) / 완료.
+type ColumnId = 'unsubmitted' | 'review' | 'completed';
 
 const COLUMN_DEFS: Record<
   ColumnId,
@@ -25,23 +26,17 @@ const COLUMN_DEFS: Record<
     icon: typeof Clock3;
   }
 > = {
-  draft: {
-    label: '작성 중',
+  unsubmitted: {
+    label: '미제출',
     description: '피평가자 최종제출 전',
     dot: 'var(--fg-subtle)',
     icon: Clock3,
   },
-  submitted: {
-    label: '검토 대기',
-    description: '평가자가 평가를 시작할 수 있음',
+  review: {
+    label: '검토 필요',
+    description: '제출 완료 · 평가 진행',
     dot: 'var(--ok-orange-brand)',
     icon: AlertCircle,
-  },
-  evaluating: {
-    label: '평가 중',
-    description: '점수 또는 피드백 작성 중',
-    dot: 'var(--warning)',
-    icon: ClipboardCheck,
   },
   completed: {
     label: '완료',
@@ -102,52 +97,81 @@ const getLatestTaskDate = (record: EmployeeEvaluationRecord) =>
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
 
 const getColumn = (record: EmployeeEvaluationRecord): ColumnId => {
-  if (record.reviewStatus === 'submitted') return 'submitted';
-  if (record.reviewStatus === 'evaluating') return 'evaluating';
+  if (record.reviewStatus === 'submitted' || record.reviewStatus === 'evaluating') return 'review';
   if (record.reviewStatus === 'completed' || record.reviewStatus === 'locked') return 'completed';
-  return 'draft';
+  return 'unsubmitted';
+};
+
+const laterOf = (a?: string | null, b?: string | null): string | null => {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+};
+
+// 카드 'n일 전' = 현재 칸반 컬럼에 진입한 시점(상태 전이 타임스탬프 기준, #4).
+//  - 검토 필요(submitted): 최종제출 시점(submitted_at)
+//  - 검토 필요(evaluating): 최종제출 또는 완료→임시저장 되돌림(reverted_at) 중 더 최근
+//  - 완료: 완료 시점(completed_at)
+//  - 미제출: 돌려보낸 시점(returned_at), 없으면 매칭/배정 시점(evaluator_assigned_at)
+const columnEnteredAt = (record: EmployeeEvaluationRecord): string | null => {
+  const e = record.evaluation;
+  if (!e) return getLatestTaskDate(record) ?? null;
+  switch (record.reviewStatus) {
+    case 'submitted':
+      return e.submitted_at ?? e.last_modified ?? null;
+    case 'evaluating':
+      return laterOf(e.submitted_at, e.reverted_at) ?? e.last_modified ?? null;
+    case 'completed':
+    case 'locked':
+      return e.completed_at ?? e.last_modified ?? null;
+    default:
+      return e.returned_at ?? e.evaluator_assigned_at ?? e.last_modified ?? null;
+  }
 };
 
 const buildCard = (record: EmployeeEvaluationRecord): CardModel => {
   const column = getColumn(record);
   const scoreText = record.weightedScore > 0 ? `${formatScore(record.weightedScore)}점` : '-';
-  const progress = column === 'submitted' ? 0 : record.progress ?? 0;
   const totalTasks = record.totalTasks;
   const completedTasks = record.completedTasks;
+  const status = record.reviewStatus;
+  const dateText = formatRelative(columnEnteredAt(record));
 
-  if (column === 'submitted') {
+  // '검토 필요' 컬럼은 제출됨(submitted)·평가중(evaluating)을 묶지만, 카드 문구·액션은
+  // 세부 상태(reviewStatus)로 구분해 평가자가 다음 행동을 바로 알 수 있게 한다.
+  if (status === 'submitted') {
     return {
       column,
       record,
       caption: `최종제출 완료 - 과업 ${totalTasks}건 검토 필요`,
       scoreText,
-      dateText: formatRelative(record.evaluation?.last_modified ?? getLatestTaskDate(record)),
-      progress,
+      dateText,
+      progress: 0,
       actionText: '평가 시작',
       disabled: false,
     };
   }
 
-  if (column === 'evaluating') {
+  if (status === 'evaluating') {
     return {
       column,
       record,
       caption: `${completedTasks}/${totalTasks}개 과업 평가 완료`,
       scoreText,
-      dateText: formatRelative(record.latestFeedback?.date ?? getLatestTaskDate(record)),
-      progress,
+      dateText,
+      progress: record.progress ?? 0,
       actionText: '계속 평가',
       disabled: false,
     };
   }
 
-  if (column === 'completed') {
+  if (status === 'completed' || status === 'locked') {
     return {
       column,
       record,
       caption: `평가 완료 - ${record.achieved ? '목표 달성' : '목표 미달성'}`,
       scoreText,
-      dateText: formatRelative(record.latestFeedback?.date ?? record.evaluation?.last_modified),
+      dateText,
       progress: 100,
       actionText: '상세 보기',
       disabled: false,
@@ -159,7 +183,7 @@ const buildCard = (record: EmployeeEvaluationRecord): CardModel => {
     record,
     caption: totalTasks > 0 ? `과업 ${totalTasks}건 작성 중 - 최종제출 전` : '과업 미등록',
     scoreText,
-    dateText: formatRelative(record.evaluation?.last_modified ?? getLatestTaskDate(record)),
+    dateText,
     progress: 0,
     actionText: '제출 전',
     disabled: true,
@@ -200,9 +224,8 @@ const TeamHome = () => {
 
   const grouped = useMemo(() => {
     const out: Record<ColumnId, CardModel[]> = {
-      draft: [],
-      submitted: [],
-      evaluating: [],
+      unsubmitted: [],
+      review: [],
       completed: [],
     };
     cards.forEach((card) => out[card.column].push(card));
@@ -218,15 +241,37 @@ const TeamHome = () => {
   }, [cards]);
 
   const stats = useMemo(() => {
-    const reviewableCount = grouped.submitted.length + grouped.evaluating.length;
+    const reviewableCount = grouped.review.length;
     const departmentName = records[0]?.employee.department ?? '';
 
     return {
       totalMembers: records.length,
       reviewableCount,
+      completedCount: grouped.completed.length,
+      unsubmittedCount: grouped.unsubmitted.length,
       departmentName,
     };
   }, [grouped, records]);
+
+  // 메인 최상단 한 줄 알림 — 피평가자가 제출한 성과보고의 '미평가 경과일' + 매월 1회 평가 안내.
+  // (검토 필요·미제출·완료 수치는 아래 칸반에 그대로 있어 여기서는 제외)
+  const summaryText = useMemo(() => {
+    if (records.length === 0) return '담당 팀원이 없습니다.';
+    // 미평가 = 검토 대기(submitted) + 평가 중/임시저장(evaluating). 완료 전은 모두 미평가로 본다.
+    const pending = grouped.review.map((c) => c.record);
+    if (pending.length === 0) {
+      return '미평가 성과보고가 없습니다.';
+    }
+    const now = Date.now();
+    const oldest = pending.reduce((min, r) => {
+      const at = columnEnteredAt(r); // 검토필요 진입 시점(최종제출 또는 되돌림)
+      const t = at ? new Date(at).getTime() : now;
+      return Number.isNaN(t) ? min : Math.min(min, t);
+    }, now);
+    const days = Math.max(0, Math.floor((now - oldest) / 86_400_000));
+    const head = `성과보고 ${pending.length}건 미평가${days > 0 ? ` (최대 ${days}일째)` : ''}`;
+    return `${head} · 매월 최소 1회는 평가해 주세요`;
+  }, [records.length, grouped.review]);
 
   const notifyNotYetSubmitted = (card: CardModel) => {
     toast({
@@ -267,7 +312,7 @@ const TeamHome = () => {
   };
 
   const startNextReview = () => {
-    const target = grouped.submitted[0] ?? grouped.evaluating[0];
+    const target = grouped.review[0];
     if (target) {
       navigate(`/evaluation/${target.record.employee.employee_id}`);
     }
@@ -302,6 +347,9 @@ const TeamHome = () => {
           </div>
         ) : (
           <>
+            {/* 최상단 한 줄 요약 — 지금 해야 할 일/업데이트 */}
+            <SummaryBar text={summaryText} />
+
             <section
               style={{
                 display: 'grid',
@@ -402,17 +450,111 @@ const TeamHome = () => {
                   </div>
                 );
               })}
+
+              {/* 4번째 열 — 이전 담당(기간 중 이관된 피평가자). 진행 프로세스(--bg-muted)와 구분되도록
+                  더 연한 --bg-subtle 배경으로 부차/보관 느낌을 준다. */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: '16px 8px',
+                  borderRadius: 8,
+                  background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--fg-subtle)',
+                        marginTop: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800, color: 'var(--fg-muted)' }}>이전 담당</div>
+                      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
+                        기간 중 다른 평가자에게 이관
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Clock3 size={15} color="var(--fg-subtle)" aria-hidden="true" />
+                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                      {formerCards.length}명
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    flex: 1,
+                    maxHeight: 600,
+                    overflowY: 'auto',
+                    scrollbarGutter: 'stable',
+                    paddingLeft: 6,
+                  }}
+                >
+                  {isFormerLoading ? (
+                    <div
+                      style={{
+                        color: 'var(--fg-subtle)',
+                        fontSize: 'var(--fs-body)',
+                        textAlign: 'center',
+                        padding: '24px 0',
+                      }}
+                    >
+                      불러오는 중…
+                    </div>
+                  ) : formerError ? (
+                    <div
+                      style={{
+                        color: 'var(--danger)',
+                        fontSize: 'var(--fs-sm)',
+                        textAlign: 'center',
+                        padding: '24px 0',
+                      }}
+                    >
+                      {formerError}
+                    </div>
+                  ) : formerCards.length === 0 ? (
+                    <div
+                      style={{
+                        color: 'var(--fg-subtle)',
+                        fontSize: 'var(--fs-body)',
+                        textAlign: 'center',
+                        padding: '24px 0',
+                      }}
+                    >
+                      이전 담당 없음
+                    </div>
+                  ) : (
+                    formerCards.map((card) => (
+                      <BoardCard
+                        key={card.record.employee.employee_id}
+                        card={card}
+                        onClick={() => openFormerEvaluation(card)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
             </section>
-
-            {(isFormerLoading || formerError || formerCards.length > 0) && (
-              <FormerCarousel
-                cards={formerCards}
-                isLoading={isFormerLoading}
-                error={formerError}
-                onOpen={openFormerEvaluation}
-              />
-            )}
-
           </>
         )}
       </div>
@@ -569,6 +711,26 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
   );
 };
 
+// ── 최상단 한 줄 요약 (#6) ──────────────────────────────
+const SummaryBar = ({ text }: { text: string }) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      padding: '12px 16px',
+      borderRadius: 10,
+      background: 'var(--ok-orange-50)',
+      border: '1px solid var(--ok-orange-100)',
+    }}
+  >
+    <span className="sd-label-mini" style={{ color: 'var(--ok-orange-700)', flexShrink: 0 }}>
+      알림
+    </span>
+    <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)' }}>{text}</span>
+  </div>
+);
+
 const StatusBadge = ({
   disabled,
   isCompleted,
@@ -619,139 +781,6 @@ const StatusBadge = ({
     >
       {achieved ? '달성' : '미달성'}
     </span>
-  );
-};
-
-// 위 board column 안의 카드 간 간격(12) 과 동일하게 맞춰 통일감 확보.
-// 위 column padding(좌우 8 합 16) + scrollbar gutter 6 + cards container paddingLeft 6
-// = 총 28 정도 만큼 카드 폭이 column outer 보다 좁다. 아래 wrapper outer 도 그만큼 줄여서
-// 카드 너비가 위/아래 동일해지도록 보정.
-const FORMER_CARD_GAP = 12;
-const FORMER_CARDS_VISIBLE = 4;
-const FORMER_CARD_SCROLLBAR_COMPENSATION = 15;
-const FORMER_CARD_FLEX_BASIS = `calc((100% - ${FORMER_CARD_GAP * (FORMER_CARDS_VISIBLE - 1)}px) / ${FORMER_CARDS_VISIBLE} - ${FORMER_CARD_SCROLLBAR_COMPENSATION}px)`;
-
-const formerCarouselNavStyle: React.CSSProperties = {
-  width: 28,
-  height: 28,
-  borderRadius: '50%',
-  border: '1px solid var(--ok-orange-200)',
-  background: 'var(--bg-card)',
-  color: 'var(--ok-orange-700)',
-  fontSize: 'var(--fs-h4)',
-  fontWeight: 800,
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  lineHeight: 1,
-};
-
-type FormerCarouselProps = {
-  cards: CardModel[];
-  isLoading: boolean;
-  error: string | null;
-  onOpen: (card: CardModel) => void;
-};
-
-const FormerCarousel = ({ cards, isLoading, error, onOpen }: FormerCarouselProps) => {
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-
-  const scrollByPage = (direction: 'prev' | 'next') => {
-    const node = scrollerRef.current;
-    if (!node) return;
-    // 한 번에 카드 2개 분량씩 이동
-    const cardWidth = node.clientWidth / FORMER_CARDS_VISIBLE;
-    const delta = (cardWidth + FORMER_CARD_GAP) * 2 * (direction === 'next' ? 1 : -1);
-    node.scrollBy({ left: delta, behavior: 'smooth' });
-  };
-
-  return (
-    <section
-      style={{
-        padding: '16px 0',
-        borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: 'var(--bg-card)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 12,
-          marginBottom: 12,
-          padding: '0 16px',
-        }}
-      >
-        <div>
-          <div className="sd-label-mini" style={{ color: 'var(--ok-orange-700)' }}>
-            이전 담당
-          </div>
-          <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, marginTop: 2, color: 'var(--fg)' }}>
-            이전 담당 피평가자
-          </h2>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 800 }}>
-            {cards.length}명
-          </span>
-          {cards.length > 0 && !isLoading && !error && (
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                type="button"
-                onClick={() => scrollByPage('prev')}
-                aria-label="이전"
-                style={formerCarouselNavStyle}
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollByPage('next')}
-                aria-label="다음"
-                style={formerCarouselNavStyle}
-              >
-                ›
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>이전 담당 목록을 불러오는 중입니다.</div>
-      ) : error ? (
-        <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
-      ) : (
-        <div
-          ref={scrollerRef}
-          style={{
-            display: 'grid',
-            gridAutoFlow: 'column',
-            gridAutoColumns: FORMER_CARD_FLEX_BASIS,
-            gap: FORMER_CARD_GAP,
-            overflowX: 'auto',
-            scrollSnapType: 'x mandatory',
-            paddingBottom: 6,
-          }}
-        >
-          {cards.map((card) => (
-            <div
-              key={card.record.employee.employee_id}
-              style={{
-                boxSizing: 'border-box',
-                padding: 16,
-                scrollSnapAlign: 'start',
-              }}
-            >
-              <BoardCard card={card} onClick={() => onOpen(card)} />
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   );
 };
 

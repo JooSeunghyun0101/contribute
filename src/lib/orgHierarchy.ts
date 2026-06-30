@@ -46,7 +46,7 @@ export interface EvalOrgFields {
 /**
  * 그룹핑·필터용 OrgFields 를 '그 평가 기간' 기준으로 만든다.
  * 평가에 기간별 org(evaluatee_org_*)가 있으면 그것을, 없으면 fallback(현재 employee.org_*)을 쓴다.
- * → 25년을 봐도 전보자가 26년 부서로 묶이지 않게 한다(Option B).
+ * → 25년을 봐도 이동자가 26년 부서로 묶이지 않게 한다(Option B).
  */
 export const orgFieldsFromEvaluation = (
   evaluation: EvalOrgFields | null | undefined,

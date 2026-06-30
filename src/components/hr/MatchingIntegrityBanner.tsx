@@ -6,7 +6,7 @@ import { getOrgValue } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 // 사용자 관리 상단 매칭 무결성 경고 — 구 '매칭 정합성 점검'의 핵심 이상(anomaly)만 흡수.
-// 발령(전보)으로 평가자가 여럿인 것은 정상이므로 중립 정보(transfer-trace 등)는 제외하고,
+// 발령(이동)으로 평가자가 여럿인 것은 정상이므로 중립 정보(transfer-trace 등)는 제외하고,
 // 객관적 이상 3종만 본다: 미배정 · 자기평가 후보 · 평가 레코드 없음. 읽기 전용(카운트+명단).
 type Anomaly = 'unassigned' | 'self-eval' | 'no-evaluation';
 
@@ -78,7 +78,7 @@ const MatchingIntegrityBanner = () => {
       {open && (
         <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ margin: 0, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-            발령(전보)으로 평가자가 여럿인 것은 정상입니다. 아래는 객관적 이상 후보만 모은 읽기 전용 점검입니다.
+            발령(이동)으로 평가자가 여럿인 것은 정상입니다. 아래는 객관적 이상 후보만 모은 읽기 전용 점검입니다.
             아래 사용자 목록에서 평가자를 지정·변경할 수 있습니다.
           </p>
           {ORDER.filter((k) => byAnomaly[k].length > 0).map((k) => (

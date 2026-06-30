@@ -2544,19 +2544,50 @@ const stripAuthFields = (data) => {
   return data;
 };
 
+// 평가 라인 열람(#1): 대상(피평가자)이 요청자의 '평가 라인 하위'인지 — 즉 대상에서
+// evaluator_id 를 위로 따라 올라갔을 때 요청자(me)가 조상(상위 평가자)으로 나오면 true.
+// 평가자→피평가자 엣지를 그대로 쓰므로 인사이동(평가자 재배정) 시 자동 반영되고, org 데이터·
+// 부서장 플래그가 필요 없다. 상향 경로는 분기가 없어(각자 평가자 1명) 선형이라 가볍다.
+// 이 허용은 '읽기 전용' 가드에서만 opt-in 으로 켠다(쓰기 권한은 절대 부여하지 않음).
+const requesterIsEvalLineAncestorOf = async (req, evaluateeId) => {
+  const me = req.session?.employeeId ? String(req.session.employeeId) : '';
+  const target = String(evaluateeId ?? '');
+  if (!me || !target || me === target) return false;
+  const { rows } = await pool.query(
+    `WITH RECURSIVE up AS (
+       SELECT employee_id, evaluator_id, 1 AS depth
+         FROM employees WHERE employee_id::text = $1
+       UNION ALL
+       SELECT e.employee_id, e.evaluator_id, up.depth + 1
+         FROM employees e
+         JOIN up ON e.employee_id::text = up.evaluator_id::text
+        WHERE up.depth < 50 AND up.evaluator_id IS NOT NULL
+          -- 목록 쿼리와 동일 규칙: '평가자'로 체크된 조상을 통해서만 상향 도달.
+          AND 'evaluator' = ANY(e.available_roles)
+     )
+     SELECT 1 FROM up WHERE up.evaluator_id::text = $2 LIMIT 1`,
+    [target, me],
+  );
+  return rows.length > 0;
+};
+
 // evaluations 에는 평가자 컬럼이 없다 — 평가자는 assignment_history_id(그 평가의 배정) 또는
 // employees.evaluator_id(현 담당 마스터)로 파생된다. 가드 쿼리가 두 값을 함께 조회해 넘긴다.
-const canAccessEvaluation = async (req, evaluationRow) => {
+// allowLineDescendant: 읽기 전용 라우트에서만 true — 평가 라인 하위(재귀) 열람을 추가 허용.
+const canAccessEvaluation = async (req, evaluationRow, { allowLineDescendant = false } = {}) => {
   if (!evaluationRow) return false;
   const me = req.session.employeeId;
   if (String(evaluationRow.evaluatee_id ?? '') === me) return true;
   if (String(evaluationRow.assigned_evaluator_id ?? '') === me) return true;
   if (String(evaluationRow.current_evaluator_id ?? '') === me) return true;
-  return requesterIsHr(req);
+  if (await requesterIsHr(req)) return true;
+  if (allowLineDescendant && (await requesterIsEvalLineAncestorOf(req, evaluationRow.evaluatee_id))) return true;
+  return false;
 };
 
 // 사번 단위 평가 열람: 본인 / HR / 현 담당 평가자 / 과거 그 직원을 평가했던 평가자(발령 이력 열람).
-const canAccessEmployeeEvaluations = async (req, employeeId) => {
+// allowLineDescendant: 읽기 전용 라우트에서만 true — 평가 라인 하위(재귀) 열람을 추가 허용.
+const canAccessEmployeeEvaluations = async (req, employeeId, { allowLineDescendant = false } = {}) => {
   const target = String(employeeId ?? '');
   if (!target) return false;
   const me = req.session.employeeId;
@@ -2572,11 +2603,13 @@ const canAccessEmployeeEvaluations = async (req, employeeId) => {
      LIMIT 1`,
     [target, me],
   );
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+  if (allowLineDescendant && (await requesterIsEvalLineAncestorOf(req, target))) return true;
+  return false;
 };
 
 // 가드 미들웨어들 — 대상 행을 미리 조회해 권한만 검사하고, 404 등 본 처리(및 mock 모드)는 핸들러에 맡긴다.
-const guardEvaluationParam = (paramName) => async (req, res, next) => {
+const guardEvaluationParam = (paramName, opts = {}) => async (req, res, next) => {
   if (!isDbAvailable) return next();
   try {
     const { rows } = await pool.query(
@@ -2590,7 +2623,7 @@ const guardEvaluationParam = (paramName) => async (req, res, next) => {
       [String(req.params?.[paramName] ?? '')],
     );
     if (rows.length === 0) return next();
-    if (await canAccessEvaluation(req, rows[0])) return next();
+    if (await canAccessEvaluation(req, rows[0], opts)) return next();
     return res.status(403).json({ error: '해당 평가에 접근할 권한이 없습니다.' });
   } catch (err) {
     console.error('평가 접근 검사 실패:', err.message);
@@ -2598,10 +2631,10 @@ const guardEvaluationParam = (paramName) => async (req, res, next) => {
   }
 };
 
-const guardEmployeeEvaluationsParam = (paramName) => async (req, res, next) => {
+const guardEmployeeEvaluationsParam = (paramName, opts = {}) => async (req, res, next) => {
   if (!isDbAvailable) return next();
   try {
-    if (await canAccessEmployeeEvaluations(req, req.params?.[paramName])) return next();
+    if (await canAccessEmployeeEvaluations(req, req.params?.[paramName], opts)) return next();
     return res.status(403).json({ error: '해당 직원의 평가에 접근할 권한이 없습니다.' });
   } catch (err) {
     console.error('직원 평가 접근 검사 실패:', err.message);
@@ -2992,6 +3025,133 @@ app.get('/api/employees/evaluator/:evaluatorId', async (req, res) => {
   }
 });
 
+// 그 평가기간의 평가별 (평가자 → 피평가자) 엣지. 평가자 = 그 평가의 최신 배정(assignment_history)의
+// new_evaluator_id, 없으면 employees.evaluator_id 폴백 — /evaluations/by-employee 의 evaluator_id 와 동일 기준.
+// assigned_at = 그 배정의 changed_at(= 그 기간 배정일). 활성(record_status=active) 평가만.
+const PERIOD_EDGES_CTE = `
+  edges AS (
+    SELECT ev.evaluatee_id::text AS evaluatee_id,
+           COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id)::text AS evaluator_id,
+           latest_ah.changed_at AS assigned_at
+      FROM evaluations ev
+      LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
+      LEFT JOIN LATERAL (
+        SELECT h.new_evaluator_id, h.changed_at
+          FROM evaluator_assignment_history h
+         WHERE h.evaluation_id = ev.id AND h.employee_id = ev.evaluatee_id
+           AND h.status = 'applied' AND h.change_type <> 'cancel'
+         ORDER BY h.changed_at DESC, h.id DESC LIMIT 1
+      ) latest_ah ON TRUE
+     WHERE ev.evaluation_period_id = $2 AND COALESCE(ev.record_status, 'active') = 'active'
+       AND COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id) IS NOT NULL
+  )`;
+
+// 평가 라인 하위 열람(#1): 요청자의 '그 평가기간' 평가 라인 재귀 하위 인원을 반환한다.
+// 그 기간의 (평가자→피평가자) 엣지만 따라 내려가므로, 다른 기간에만 배정된 사람은 섞이지 않는다.
+// '평가자'로 체크된 노드를 통해서만 전개. 직접 담당(1단계)은 담당에 이미 있어 제외. 본인(또는 HR)만.
+// periodId 없으면 빈 배열(기간 컨텍스트 필수).
+app.get('/api/employees/eval-line/:evaluatorId', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  try {
+    const target = String(req.params.evaluatorId ?? '');
+    const me = req.session?.employeeId ? String(req.session.employeeId) : '';
+    if (!me) return res.status(401).json({ error: '로그인이 필요합니다.' });
+    if (target !== me && !(await requesterIsHr(req))) {
+      return res.status(403).json({ error: '권한이 없습니다.' });
+    }
+    const periodId =
+      typeof req.query.periodId === 'string' && req.query.periodId.trim()
+        ? req.query.periodId.trim()
+        : null;
+    if (!periodId) return res.json([]);
+    const { rows } = await pool.query(
+      `WITH RECURSIVE ${PERIOD_EDGES_CTE},
+       down AS (
+         SELECT e.evaluatee_id, 1 AS depth FROM edges e WHERE e.evaluator_id = $1
+         UNION ALL
+         SELECT e.evaluatee_id, d.depth + 1
+           FROM edges e
+           JOIN down d ON e.evaluator_id = d.evaluatee_id
+           JOIN employees emp2 ON emp2.employee_id::text = e.evaluator_id
+          WHERE d.depth < 50 AND 'evaluator' = ANY(emp2.available_roles)
+       )
+       SELECT DISTINCT m.* FROM employees m
+         JOIN down ON down.evaluatee_id = m.employee_id::text
+        WHERE m.employee_id::text <> $1
+          AND m.employee_id::text NOT IN (SELECT evaluatee_id FROM edges WHERE evaluator_id = $1)
+        ORDER BY m.name`,
+      [target, periodId],
+    );
+    res.json(stripAuthFields(rows));
+  } catch (err) {
+    console.error('평가 라인 하위 열람 조회 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 로스터 '내 체인 산입일'(근무기간 시작) — 담당 팀원 통합표용. '그 평가기간' 체인 기준.
+// chain_since = 그가 속한 '내 직속 가지'의 최상단(=내 직접 피평가자=가지 루트)이 그 기간에 나에게
+//   배정된 날짜(그 평가의 배정 changed_at). 직접 담당이면 본인 배정일. 그리고 MAX(연도 1/1, 배정일)로 클램프.
+// 응답: [{ employee_id, chain_since }]. 본인(또는 HR)만. periodId 없으면 빈 배열.
+app.get('/api/employees/roster-since/:evaluatorId', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  try {
+    const target = String(req.params.evaluatorId ?? '');
+    const me = req.session?.employeeId ? String(req.session.employeeId) : '';
+    if (!me) return res.status(401).json({ error: '로그인이 필요합니다.' });
+    if (target !== me && !(await requesterIsHr(req))) {
+      return res.status(403).json({ error: '권한이 없습니다.' });
+    }
+    const periodId =
+      typeof req.query.periodId === 'string' && req.query.periodId.trim()
+        ? req.query.periodId.trim()
+        : null;
+    if (!periodId) return res.json([]);
+    const yearRaw = typeof req.query.year === 'string' ? parseInt(req.query.year, 10) : NaN;
+    const year = Number.isInteger(yearRaw) ? yearRaw : null;
+    const { rows } = await pool.query(
+      `WITH RECURSIVE ${PERIOD_EDGES_CTE},
+       down AS (
+         SELECT e.evaluatee_id, 1 AS depth
+           FROM edges e WHERE e.evaluator_id = $1
+         UNION ALL
+         SELECT e.evaluatee_id, d.depth + 1
+           FROM edges e
+           JOIN down d ON e.evaluator_id = d.evaluatee_id
+           JOIN employees emp2 ON emp2.employee_id::text = e.evaluator_id
+          WHERE d.depth < 50 AND 'evaluator' = ANY(emp2.available_roles)
+       ),
+       -- 내 체인 안의 '평가자'가 될 수 있는 사람 = 나 + 체인 하위 전원.
+       chain_members AS (
+         SELECT $1::text AS id
+         UNION
+         SELECT DISTINCT evaluatee_id FROM down
+       ),
+       roster AS (SELECT DISTINCT evaluatee_id FROM down)
+       -- chain_since = 그 사람의 배정 중 '새 평가자가 내 체인 안'인 것들의 가장 이른 날짜.
+       -- → 내 체인 안에서 이동(재배치)해도 최초 합류일이 유지된다(체인 밖 시절 배정은 제외).
+       -- 연도 1/1 로 클램프(이전 연도부터 이어졌으면 1/1). 매칭 없으면 NULL→클램프 시 1/1.
+       SELECT r.evaluatee_id AS employee_id,
+              CASE
+                WHEN $3::int IS NULL THEN MIN(h.changed_at)
+                ELSE GREATEST(make_date($3::int, 1, 1)::timestamptz, MIN(h.changed_at))
+              END AS chain_since
+         FROM roster r
+         LEFT JOIN evaluator_assignment_history h
+           ON h.employee_id::text = r.evaluatee_id
+          AND h.status = 'applied' AND h.change_type <> 'cancel'
+          AND h.new_evaluator_id::text IN (SELECT id FROM chain_members)
+          AND ($3::int IS NULL OR h.changed_at < make_date($3::int + 1, 1, 1)::timestamptz)
+        GROUP BY r.evaluatee_id`,
+      [target, periodId, year],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('로스터 산입일 조회 실패:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Get employees who used to be assigned to an evaluator, or have entries owned by that evaluator.
 app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
   // 과거 평가자 화면에 노출되는 조건:
@@ -3005,7 +3165,7 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
   }
 
   try {
-    // periodId 지정 시 해당 평가기간 내 전보(이전 담당)만 — 직전연도 이력이 2026 화면에 섞이지 않게.
+    // periodId 지정 시 해당 평가기간 내 이동(이전 담당)만 — 직전연도 이력이 2026 화면에 섞이지 않게.
     const periodId =
       typeof req.query.periodId === 'string' && req.query.periodId.trim()
         ? req.query.periodId.trim()
@@ -3038,9 +3198,9 @@ app.get('/api/employees/former-evaluator/:evaluatorId', async (req, res) => {
                     AND later.new_evaluator_id IS DISTINCT FROM $1
                 )
             )
-            -- 근본 차단: 전보로 마스터 포인터(employees.evaluator_id)가 옮겨가도, '그 기간 평가'에
+            -- 근본 차단: 이동으로 마스터 포인터(employees.evaluator_id)가 옮겨가도, '그 기간 평가'에
             -- 이 평가자의 active 엔트리가 남아 있으면 과거 담당으로 노출한다. (엔드포인트 주석의
-            -- "or have entries owned by that evaluator" 를 실제로 구현 — 전보 이력 누락/단일배정 케이스에서
+            -- "or have entries owned by that evaluator" 를 실제로 구현 — 이동 이력 누락/단일배정 케이스에서
             -- 과거 평가자가 자기 평가를 못 보던 문제 해결.)
             OR EXISTS (
               SELECT 1
@@ -3574,6 +3734,14 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
               ]
             );
             evaluationId = created[0].id;
+          } else {
+            // 기존 평가가 있으면 그 평가기간의 성장레벨 스냅샷을 현재 업로드 값으로 갱신한다.
+            // (성장레벨은 평가기간마다 다를 수 있으므로, 대상자 재업로드 시 그 기간 평가에 반영.)
+            await client.query(
+              `UPDATE evaluations SET growth_level = $2, updated_at = NOW()
+                WHERE id = $1 AND growth_level IS DISTINCT FROM $2`,
+              [evaluationId, emp.growth_level ?? 0]
+            );
           }
 
           // 평가자가 지정되어 있으면 baseline 이력 보장.
@@ -5455,7 +5623,7 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
 });
 
 // Get evaluation by employee ID (latest)
-app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsParam('employeeId'), async (req, res) => {
+app.get('/api/evaluations/by-employee/:employeeId', guardEmployeeEvaluationsParam('employeeId', { allowLineDescendant: true }), async (req, res) => {
   if (!isDbAvailable) {
     return res.json(null);
   }
@@ -5883,7 +6051,7 @@ async function matchContribGroups(db, periodId, groups) {
   )).rows;
   const byEmp = new Map();
   for (const ev of evRows) { if (!byEmp.has(ev.evaluatee_id)) byEmp.set(ev.evaluatee_id, []); byEmp.get(ev.evaluatee_id).push(ev); }
-  // 1:1 그리디 매칭 — 한 평가는 한 그룹에만(전보자 두 소속이 같은 평가로 몰리는 중복 방지).
+  // 1:1 그리디 매칭 — 한 평가는 한 그룹에만(이동자 두 소속이 같은 평가로 몰리는 중복 방지).
   // pass1 평가자(가장 특정) → pass2 부서코드 → pass3 그 사람의 잔여 평가.
   const used = new Set();
   const result = new Map();
@@ -7050,7 +7218,7 @@ app.get('/api/evaluations', requireHr, async (req, res) => {
   }
 });
 // Get evaluations for a specific employee
-app.get('/api/evaluations/employee/:employeeId', guardEmployeeEvaluationsParam('employeeId'), async (req, res) => {
+app.get('/api/evaluations/employee/:employeeId', guardEmployeeEvaluationsParam('employeeId', { allowLineDescendant: true }), async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query, 2);
     const { rows } = await pool.query(
@@ -7091,7 +7259,7 @@ app.get('/api/evaluations/employee/:employeeId', guardEmployeeEvaluationsParam('
   }
 });
 
-app.get('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
+app.get('/api/evaluation/:id', guardEvaluationParam('id', { allowLineDescendant: true }), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
@@ -7259,6 +7427,20 @@ app.put('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
       values
     );
     const after = rows[0];
+
+    // 상태 전이 타임스탬프(#4) — 칸반 진입/성과보고(최종제출) 시점 계산용.
+    if (prior && after && prior.evaluation_status !== after.evaluation_status) {
+      const b = prior.evaluation_status;
+      const a = after.evaluation_status;
+      const stamps = [];
+      if (a === 'submitted') stamps.push('submitted_at = NOW()'); // 피평가자 최종제출
+      if (a === 'completed' && b !== 'completed') stamps.push('completed_at = NOW()'); // 완료
+      if (a === 'evaluating' && b === 'completed') stamps.push('reverted_at = NOW()'); // 완료→임시저장 되돌림
+      if (a === 'in-progress') stamps.push('returned_at = NOW()'); // 피평가자에게 돌려보냄
+      if (stamps.length) {
+        await client.query(`UPDATE evaluations SET ${stamps.join(', ')} WHERE id = $1`, [req.params.id]);
+      }
+    }
 
     // 상태 전이 알림 — 평가의 owner 평가자/피평가자를 사용해 과거 평가자도 정상 수신
     if (prior && after && prior.evaluation_status !== after.evaluation_status) {
@@ -7448,6 +7630,7 @@ app.post('/api/evaluation/:id/reopen', guardEvaluationParam('id'), async (req, r
       `
         UPDATE evaluations
         SET evaluation_status = 'in-progress',
+            returned_at = NOW(),
             last_modified = NOW(),
             updated_at = NOW()
         WHERE id = $1
@@ -7522,6 +7705,7 @@ app.post('/api/evaluation/:id/reopen-for-evaluator', guardEvaluationParam('id'),
       `
         UPDATE evaluations
         SET evaluation_status = 'evaluating',
+            reverted_at = NOW(),
             last_modified = NOW(),
             updated_at = NOW()
         WHERE id = $1
@@ -7590,7 +7774,7 @@ app.get('/api/evaluations/status/:status', requireHr, async (req, res) => {
   }
 });
 // Get tasks by evaluation ID
-app.get('/api/tasks/evaluation/:evaluationId', guardEvaluationParam('evaluationId'), async (req, res) => {
+app.get('/api/tasks/evaluation/:evaluationId', guardEvaluationParam('evaluationId', { allowLineDescendant: true }), async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }
@@ -7764,7 +7948,7 @@ app.get('/api/tasks/current-year', requireHr, async (req, res) => {
 });
 
 // Get evaluator-specific task evaluation entries by evaluation ID
-app.get('/api/task-evaluation-entries/evaluation/:evaluationId', guardEvaluationParam('evaluationId'), async (req, res) => {
+app.get('/api/task-evaluation-entries/evaluation/:evaluationId', guardEvaluationParam('evaluationId', { allowLineDescendant: true }), async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);
   }

@@ -253,9 +253,40 @@ export const employeeService = {
 
   async getFormerEvaluateesByEvaluator(evaluatorId: string, periodId?: string | null): Promise<Employee[]> {
     try {
-      // periodId 지정 시 해당 평가기간의 전보(이전 담당)만 — 타 연도 이력이 섞이지 않게.
+      // periodId 지정 시 해당 평가기간의 이동(이전 담당)만 — 타 연도 이력이 섞이지 않게.
       const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
       return await apiFetch<Employee[]>(`/api/employees/former-evaluator/${evaluatorId}${qs}`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가 라인 하위 열람(#1): 본인의 '그 평가기간' 평가 라인 재귀 하위(직접 담당 제외).
+  // periodId 없으면 서버가 빈 배열을 반환(기간 컨텍스트 필수).
+  async getEvaluationLineDescendants(evaluatorId: string, periodId?: string | null): Promise<Employee[]> {
+    try {
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
+      return await apiFetch<Employee[]>(`/api/employees/eval-line/${evaluatorId}${qs}`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 담당 팀원 통합표 근무기간(#1): 로스터(직접+라인 하위) 각 인원의 '내 체인 산입일'.
+  // 그 평가기간(periodId) 체인 기준. year 지정 시 시작일을 MAX(그 연도 1/1, 그 기간 배정일)로 클램프.
+  async getTeamRosterSince(
+    evaluatorId: string,
+    periodId?: string | null,
+    year?: number | null,
+  ): Promise<Array<{ employee_id: string; chain_since: string | null }>> {
+    try {
+      const params = new URLSearchParams();
+      if (periodId) params.set('periodId', periodId);
+      if (year != null) params.set('year', String(year));
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return await apiFetch<Array<{ employee_id: string; chain_since: string | null }>>(
+        `/api/employees/roster-since/${evaluatorId}${qs}`,
+      );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

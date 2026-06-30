@@ -43,7 +43,7 @@ export type EvaluatorTaskView = {
 
 export type EvaluatorGroup = {
   key: string;
-  /** 이 그룹이 속한 평가 레코드 id (전보로 평가자별 평가가 나뉜 경우 그룹마다 다름). */
+  /** 이 그룹이 속한 평가 레코드 id (이동으로 평가자별 평가가 나뉜 경우 그룹마다 다름). */
   evaluationId?: string;
   evaluatorId: string;
   evaluatorName: string;

@@ -304,7 +304,7 @@ export const useEvaluationDataDB = (
           // primary 평가가 '그 기간의 현재(후임) 평가자' 평가로 잡혀(getEvaluationByEmployeeId 는
           // 피평가자의 현재 evaluator_id 와 일치하는 평가를 우선 선택) 후임 평가자의 점수·피드백이
           // 노출되던 치명적 문제. 평가자는 '본인이 (현재) 배정된 평가'만 primary 로 본다.
-          // (전보 모델: 평가자별로 평가 레코드가 분리되므로 evaluatorId 스코프가 정확.)
+          // (이동 모델: 평가자별로 평가 레코드가 분리되므로 evaluatorId 스코프가 정확.)
           const scopedEvaluatorId =
             user?.role === 'evaluator' ? currentEvaluatorId || undefined : undefined;
           evaluation = await evaluationService.getEvaluationByEmployeeId(employeeId, {
@@ -471,7 +471,7 @@ export const useEvaluationDataDB = (
           // 이후의 후임 평가가 과거 이력으로 섞여 보이던 문제. 이전(선임) 평가자 이력은 유지.
           const previousEvaluations = evaluations.filter((item) => {
             if (!item.id || item.id === evaluation.id) return false;
-            // 같은 평가기간(전보)만 '이전 평가'로 노출 — 직전연도 등 다른 기간 평가가
+            // 같은 평가기간(이동)만 '이전 평가'로 노출 — 직전연도 등 다른 기간 평가가
             // 섞여 "이전 평가자"로 잘못 보이지 않게 한다(기간 격리). 서버 기간필터에만
             // 의존하지 않고 클라이언트에서도 명시적으로 같은 기간을 강제.
             const samePeriod = item.evaluation_period_id
@@ -602,6 +602,7 @@ export const useEvaluationDataDB = (
           evaluatorId: (evaluation as any).evaluator_id ?? null,
           evaluatorName: (evaluation as any).evaluator_name ?? null,
           evaluatorAssignedAt: (evaluation as any).evaluator_assigned_at ?? null,
+          submittedAt: (evaluation as any).submitted_at ?? null,
           evaluateeId: evaluation.evaluatee_id,
           evaluateeName: evaluation.evaluatee_name,
           evaluateePosition: evaluation.evaluatee_position,
@@ -746,6 +747,7 @@ export const useEvaluationDataDB = (
         evaluatorId: (evaluation as any).evaluator_id ?? null,
         evaluatorName: (evaluation as any).evaluator_name ?? null,
         evaluatorAssignedAt: (evaluation as any).evaluator_assigned_at ?? null,
+        submittedAt: (evaluation as any).submitted_at ?? null,
         evaluateeId: evaluation.evaluatee_id,
         evaluateeName: evaluation.evaluatee_name,
         evaluateePosition: evaluation.evaluatee_position,
