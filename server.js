@@ -7379,10 +7379,19 @@ const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, 
 // 관리 조직(레벨별) = 그 조직(레벨·값)의 평가대상 전원이 요청자의 하위 평가체인에 속하는 조직.
 //   → 상위평가자는 하위 조직 전체를 보고, 일부만 평가하는 사람은 그 상위 조직을 못 본다(체인 격리).
 // 반환: HR 이면 null(=전체 허용). 아니면 {corporation:Set, division:Set, department:Set, team:Set}.
-// 요청자 하위 평가체인의 employee_id Set(본인 포함). HR 이면 null(=전체 접근).
+// 'HR 모드로 동작 중인가' — HR 역할 보유 + 현재 활성 역할이 HR(또는 미지정). 평가자 모드면 false.
+// 활성 역할은 클라이언트가 X-Active-Role 로 전달(role switch UX). available_roles 와 교차검증하므로
+// evaluator 자청은 자기 권한 축소로만 작용(상향 불가).
+const kpiActingAsHr = async (req) => {
+  if (!(await requesterIsHr(req))) return false;
+  const claim = String(req.headers['x-active-role'] || '').toLowerCase();
+  return claim !== 'evaluator' && claim !== 'evaluatee';
+};
+
+// 요청자 하위 평가체인의 employee_id Set(본인 포함). actingAsHr 이면 null(=전체 접근).
 // 평가자 노드를 통해서만 하강 — 상위평가자→차상위평가자→…→피평가자 전원.
-const getDownwardChainIds = async (req) => {
-  if (await requesterIsHr(req)) return null;
+const getDownwardChainIds = async (req, actingAsHr) => {
+  if (actingAsHr) return null;
   const me = String(req.session.employeeId);
   const { rows } = await pool.query(
     `WITH RECURSIVE down AS (
@@ -7409,8 +7418,8 @@ const kpiVisibleTo = (chainOrNull, kpi) =>
 
 // 생성 가능 조직(레벨별) — 요청자가 평가하는(하위체인) 사람들의 조직. HR 은 전체 distinct.
 // 가시성과 별개: '어떤 조직에 KPI를 만들 수 있나'를 정하며, 폼 드롭다운에도 쓰인다.
-const getCreatableOrgs = async (req, periodId) => {
-  const chain = await getDownwardChainIds(req); // HR→null
+const getCreatableOrgs = async (req, periodId, actingAsHr) => {
+  const chain = await getDownwardChainIds(req, actingAsHr); // HR 모드→null
   const { rows } = await pool.query(
     `SELECT evaluatee_id,
             evaluatee_org_corporation AS corporation, evaluatee_org_division AS division,
@@ -7425,10 +7434,10 @@ const getCreatableOrgs = async (req, periodId) => {
   }
   return lvl;
 };
-// 생성 권한: HR 이거나, 그 (레벨·조직)이 요청자 평가 범위(하위체인 인원의 조직)에 포함.
-const canCreateInOrg = async (req, periodId, level, key) => {
-  if (await requesterIsHr(req)) return true;
-  const creatable = await getCreatableOrgs(req, periodId);
+// 생성 권한: HR 모드이거나, 그 (레벨·조직)이 요청자 평가 범위(하위체인 인원의 조직)에 포함.
+const canCreateInOrg = async (req, periodId, level, key, actingAsHr) => {
+  if (actingAsHr) return true;
+  const creatable = await getCreatableOrgs(req, periodId, actingAsHr);
   return Boolean(creatable[level] && creatable[level].has(key));
 };
 
@@ -7441,7 +7450,7 @@ app.get('/api/org-kpis', async (req, res) => {
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
     buildKpiTree(rows); // rolled_*/progress 채움(전체 기준)
-    const chain = await getDownwardChainIds(req);
+    const chain = await getDownwardChainIds(req, await kpiActingAsHr(req));
     let out = rows.filter((r) => kpiVisibleTo(chain, r));
     if (req.query.level) out = out.filter((r) => r.org_level === req.query.level);
     if (req.query.orgKey) out = out.filter((r) => r.org_key === req.query.orgKey);
@@ -7461,7 +7470,7 @@ app.get('/api/org-kpis/tree', async (req, res) => {
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
     buildKpiTree(rows); // 롤업은 전체 기준으로 먼저 계산(rolled_*/progress)
-    const chain = await getDownwardChainIds(req);
+    const chain = await getDownwardChainIds(req, await kpiActingAsHr(req));
     if (chain === null) {
       // HR: 전체 트리
       const byId = new Map(rows.map((r) => [r.id, r]));
@@ -7526,7 +7535,7 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
     );
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
     // 등록 폼용 — 요청자가 KPI를 만들 수 있는 조직(평가하는 조직, 레벨별). HR 은 전체.
-    const creatable = await getCreatableOrgs(req, periodId);
+    const creatable = await getCreatableOrgs(req, periodId, await kpiActingAsHr(req));
     const sortKo = (s) => [...s].sort((a, b) => a.localeCompare(b, 'ko-KR'));
     const manageableOut = {
       corporation: sortKo(creatable.corporation),
@@ -7566,7 +7575,7 @@ app.get('/api/org-kpis/:id', async (req, res) => {
     buildKpiTree(rows);
     const node = rows.find((r) => r.id === req.params.id);
     if (!node) return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
-    const chain = await getDownwardChainIds(req);
+    const chain = await getDownwardChainIds(req, await kpiActingAsHr(req));
     if (!kpiVisibleTo(chain, node)) {
       return res.status(403).json({ error: '이 KPI에 접근할 권한이 없습니다.' });
     }
@@ -7602,10 +7611,11 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
   if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !orgKey || !name || !unit || !(targetValue > 0)) {
     return res.status(400).json({ error: '필수 항목(기간·조직레벨·조직·이름·단위·목표>0)을 확인하세요.' });
   }
-  const isHr = await requesterIsHr(req);
-  if (!isHr) {
+  const actingAsHr = await kpiActingAsHr(req);
+  if (!actingAsHr) {
     // 본인이 평가하는(하위체인) 조직에만 KPI 등록 가능. 등록한 KPI는 본인+상위평가자만 조회.
-    if (!(await canCreateInOrg(req, periodId, orgLevel, orgKey))) {
+    // (HR 역할이라도 '평가자 모드'면 여기로 — 자기 평가조직에만 등록)
+    if (!(await canCreateInOrg(req, periodId, orgLevel, orgKey, actingAsHr))) {
       return res.status(403).json({ error: '본인이 평가하는 조직의 KPI만 등록할 수 있습니다.' });
     }
   }
@@ -7650,10 +7660,10 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
-    const isHr = await requesterIsHr(req);
-    if (!isHr) {
+    const actingAsHr = await kpiActingAsHr(req);
+    if (!actingAsHr) {
       // 생성자-체인: 본인 또는 하위 평가자가 만든 KPI만 수정. 조직 변경 시 새 조직은 평가 범위여야 함.
-      const chain = await getDownwardChainIds(req);
+      const chain = await getDownwardChainIds(req, actingAsHr);
       if (!kpiVisibleTo(chain, existing)) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 수정할 수 있습니다.' });
@@ -7662,7 +7672,7 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       const nextKey = b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key;
       if (
         (nextLevel !== existing.org_level || nextKey !== existing.org_key) &&
-        !(await canCreateInOrg(req, existing.evaluation_period_id, nextLevel, nextKey))
+        !(await canCreateInOrg(req, existing.evaluation_period_id, nextLevel, nextKey, actingAsHr))
       ) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: '평가 범위 밖의 조직으로 변경할 수 없습니다.' });
@@ -7738,7 +7748,7 @@ app.delete('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
     // 생성자-체인: 본인 또는 하위 평가자가 만든 KPI만 삭제(HR 제외). 서브트리도 함께 삭제됨.
-    const chain = await getDownwardChainIds(req);
+    const chain = await getDownwardChainIds(req, await kpiActingAsHr(req));
     if (!kpiVisibleTo(chain, kpi)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 삭제할 수 있습니다.' });

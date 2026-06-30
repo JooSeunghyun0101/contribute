@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '@/lib/services';
-import { setUnauthorizedHandler } from '@/lib/api';
+import { setUnauthorizedHandler, setActiveRole } from '@/lib/api';
 import { User, Employee, UserRole } from '@/types';
 
 interface LoginResult {
@@ -65,7 +65,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const session = await authService.me();
         if (cancelled) return;
         const preferred = (localStorage.getItem(PREFERRED_ROLE_KEY) as UserRole | null) ?? undefined;
-        setUser(buildUser(session.employee, preferred));
+        const restored = buildUser(session.employee, preferred);
+        setUser(restored);
+        setActiveRole(restored.role);
         setMustChangePassword(session.must_change_password);
       } catch {
         if (!cancelled) setUser(null);
@@ -83,6 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setUnauthorizedHandler(() => {
       setUser(null);
+      setActiveRole(null);
       setMustChangePassword(false);
       localStorage.removeItem(PREFERRED_ROLE_KEY);
     });
@@ -94,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const session = await authService.login(employeeId, password);
       const loggedInUser = buildUser(session.employee, role as UserRole | undefined);
       setUser(loggedInUser);
+      setActiveRole(loggedInUser.role);
       setMustChangePassword(session.must_change_password);
       localStorage.setItem(PREFERRED_ROLE_KEY, loggedInUser.role);
       return { ok: true, mustChangePassword: session.must_change_password };
@@ -115,6 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const switchRole = async (role: UserRole) => {
     if (!user || !user.availableRoles.includes(role)) return;
     setUser({ ...user, role });
+    setActiveRole(role);
     localStorage.setItem(PREFERRED_ROLE_KEY, role);
   };
 
@@ -122,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 서버 세션 무효화는 베스트에포트 — 실패해도 클라이언트 상태는 비운다.
     void authService.logout().catch(() => {});
     setUser(null);
+    setActiveRole(null);
     setMustChangePassword(false);
     localStorage.removeItem(PREFERRED_ROLE_KEY);
   };

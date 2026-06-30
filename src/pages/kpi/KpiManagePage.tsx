@@ -19,6 +19,13 @@ const LEVEL_LABEL: Record<KpiOrgLevel, string> = {
 const LEVEL_DEPTH: Record<KpiOrgLevel, number> = { corporation: 0, division: 1, department: 2, team: 3 };
 const LEVEL_ORDER: KpiOrgLevel[] = ['corporation', 'division', 'department', 'team'];
 const UNIT_SUGGESTIONS = ['억', '%', '건', '명', '점', '백만'];
+// 레벨별 좌측 액센트 색 — 트리에서 계층을 한눈에 구분.
+const LEVEL_ACCENT: Record<KpiOrgLevel, string> = {
+  corporation: 'var(--ok-brown, #6B4423)',
+  division: 'var(--ok-orange)',
+  department: 'var(--ok-yellow-700, #B8860B)',
+  team: 'var(--fg-subtle)',
+};
 
 type OrgOptions = Awaited<ReturnType<typeof kpiService.orgOptions>>;
 
@@ -59,8 +66,8 @@ const OrgBadge = ({ level, orgKey }: { level: KpiOrgLevel; orgKey: string }) => 
     style={{
       display: 'inline-flex',
       alignItems: 'center',
-      gap: 4,
-      padding: '2px 8px',
+      gap: 5,
+      padding: '2px 9px',
       borderRadius: 999,
       background: 'var(--bg-muted)',
       border: '1px solid var(--border)',
@@ -70,8 +77,18 @@ const OrgBadge = ({ level, orgKey }: { level: KpiOrgLevel; orgKey: string }) => 
       whiteSpace: 'nowrap',
     }}
   >
-    {LEVEL_LABEL[level]} · {orgKey}
+    <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_ACCENT[level], flexShrink: 0 }} />
+    <span style={{ fontWeight: 800 }}>{LEVEL_LABEL[level]}</span>
+    <span style={{ color: 'var(--fg)' }}>{orgKey}</span>
   </span>
+);
+
+const StatBox = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
+  <div style={{ border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-card)', padding: '14px 16px' }}>
+    <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>{label}</div>
+    <div className="tnum" style={{ marginTop: 6, fontSize: 'var(--fs-h3)', fontWeight: 900, lineHeight: 1.1 }}>{value}</div>
+    {sub && <div style={{ marginTop: 3, fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{sub}</div>}
+  </div>
 );
 
 const KpiManagePage = () => {
@@ -116,6 +133,15 @@ const KpiManagePage = () => {
 
   const rows = useMemo(() => flatten(tree), [tree]);
   const flatKpis = useMemo(() => rows.map((r) => r.node), [rows]);
+  const summary = useMemo(() => {
+    const total = flatKpis.length;
+    const withTarget = flatKpis.filter((k) => (k.target_value ?? 0) > 0);
+    const avg = withTarget.length
+      ? Math.round((withTarget.reduce((s, k) => s + Math.min(1, k.progress ?? 0), 0) / withTarget.length) * 100)
+      : 0;
+    const achieved = flatKpis.filter((k) => (k.progress ?? 0) >= 1).length;
+    return { total, avg, achieved, roots: tree.length };
+  }, [flatKpis, tree]);
 
   const startCreate = (parent?: KpiNode) => {
     if (parent) {
@@ -291,7 +317,21 @@ const KpiManagePage = () => {
             <div style={{ fontSize: 'var(--fs-sm)' }}>상단 "KPI 추가"로 조직 목표를 등록하세요.</div>
           </div>
         ) : (
-          <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: 12,
+              }}
+            >
+              <StatBox label="전체 KPI" value={`${summary.total}개`} sub={`최상위 ${summary.roots}개`} />
+              <StatBox label="평균 달성률" value={`${summary.avg}%`} />
+              <StatBox label="달성 완료" value={`${summary.achieved}개`} sub={`목표 100% 이상`} />
+              <StatBox label="평가기간" value={selectedPeriod?.evaluation_year ? `${selectedPeriod.evaluation_year}` : '-'} sub={selectedPeriod?.name ?? ''} />
+            </div>
+
+            <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
             {rows.map(({ node, depth }) => {
               const isOpen = expanded.has(node.id);
               return (
@@ -304,6 +344,7 @@ const KpiManagePage = () => {
                       padding: '14px 18px',
                       paddingLeft: 18 + depth * 24,
                       background: depth > 0 ? 'var(--bg-subtle)' : 'var(--bg-card)',
+                      borderLeft: `3px solid ${LEVEL_ACCENT[node.org_level]}`,
                     }}
                   >
                     <button
@@ -376,7 +417,8 @@ const KpiManagePage = () => {
                 </div>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </div>
 

@@ -22,6 +22,14 @@ export class ApiRequestError extends Error {
   }
 }
 
+// 현재 활성 역할(role switch 결과) — AuthProvider 가 갱신. 서버가 'HR이지만 평가자 모드' 를
+// 구분(KPI 가시성 등)하도록 모든 요청에 X-Active-Role 로 동봉한다. 신원이 아니라 'UX 모드' 힌트라,
+// 서버는 available_roles 와 교차검증해 권한 상향에는 쓰지 않는다(자기 권한 축소에만).
+let activeRole: string | null = null;
+export const setActiveRole = (role: string | null): void => {
+  activeRole = role;
+};
+
 // 세션 만료(401) 전역 처리기 — AuthProvider 가 등록해 사용자 상태를 비우고 로그인 화면으로 보낸다.
 // (인증 부팅 프로브 authService.me 는 별도 authFetch 라 여기서 트리거되지 않는다.)
 let onUnauthorized: (() => void) | null = null;
@@ -35,7 +43,11 @@ export const apiFetch = async <T>(path: string, init?: RequestInit): Promise<T> 
     credentials: 'include',
     ...init,
     // CSRF 방어: 모든 요청에 커스텀 헤더 부착(서버가 상태변경 요청에서 검사).
-    headers: { 'X-Requested-With': 'XMLHttpRequest', ...(init?.headers as Record<string, string> | undefined) },
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      ...(activeRole ? { 'X-Active-Role': activeRole } : {}),
+      ...(init?.headers as Record<string, string> | undefined),
+    },
   });
 
   if (!response.ok) {
