@@ -36,7 +36,8 @@ const formatDate = (value?: string) => {
     .replace('.', '');
 };
 
-const EvaluatorRow = ({
+// 피드백 우측에 평가자·날짜를 한 줄로 간단히 표기(예전 아바타 큰 블록 대체).
+const FeedbackMeta = ({
   name,
   date,
   isLatest,
@@ -45,36 +46,23 @@ const EvaluatorRow = ({
   date: string;
   isLatest?: boolean;
 }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-    <div
-      style={{
-        width: 32,
-        height: 32,
-        borderRadius: '50%',
-        background: 'var(--ok-orange)',
-        color: '#fff',
-        fontSize: 'var(--fs-body)',
-        fontWeight: 800,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}
-    >
-      {name ? name.charAt(0) : '?'}
-    </div>
-    <div>
-      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>
-        {name ?? '평가자'}
-        {isLatest && (
-          <span style={{ marginLeft: 8, color: 'var(--ok-orange)', fontSize: 'var(--fs-xs)', fontWeight: 700 }}>
-            · 최신
-          </span>
-        )}
-      </div>
-      <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 1 }}>{formatDate(date)}</div>
-    </div>
-  </div>
+  <span
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      flexShrink: 0,
+      marginTop: 2,
+      fontSize: 'var(--fs-xs)',
+      color: 'var(--fg-muted)',
+      whiteSpace: 'nowrap',
+    }}
+  >
+    <span style={{ fontWeight: 700, color: 'var(--fg)' }}>{name ?? '평가자'}</span>
+    <span style={{ opacity: 0.45 }}>·</span>
+    <span className="tnum">{formatDate(date)}</span>
+    {isLatest && <span style={{ color: 'var(--ok-orange)', fontWeight: 700 }}>· 최신</span>}
+  </span>
 );
 
 const TaskFeedbackCard = ({
@@ -184,12 +172,12 @@ const TaskFeedbackCard = ({
       </div>
 
       {latest ? (
-        <>
-          <EvaluatorRow name={latest.evaluatorName} date={latest.date} isLatest={older.length > 0} />
-          <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+          <p style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-body)', lineHeight: 1.75, color: 'var(--fg)', margin: 0 }}>
             {latest.content}
           </p>
-        </>
+          <FeedbackMeta name={latest.evaluatorName} date={latest.date} isLatest={older.length > 0} />
+        </div>
       ) : (
         <p style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', margin: 0 }}>
           등록된 피드백이 없습니다.
@@ -228,11 +216,15 @@ const TaskFeedbackCard = ({
                   style={{
                     paddingTop: 14,
                     borderTop: '1px dashed var(--border)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 16,
                   }}
                 >
-                  <EvaluatorRow name={entry.evaluatorName} date={entry.date} />
                   <p
                     style={{
+                      flex: 1,
+                      minWidth: 0,
                       fontSize: 'var(--fs-body)',
                       lineHeight: 1.7,
                       color: 'var(--fg-muted)',
@@ -241,6 +233,7 @@ const TaskFeedbackCard = ({
                   >
                     {entry.content}
                   </p>
+                  <FeedbackMeta name={entry.evaluatorName} date={entry.date} />
                 </div>
               ))}
             </div>
