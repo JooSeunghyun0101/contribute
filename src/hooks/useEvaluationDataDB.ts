@@ -408,13 +408,14 @@ export const useEvaluationDataDB = (
            setIsLoading(false);
            return;
          }
-         // Override evaluation fields with actual employee info
+         // 피평가자 표시정보(이름·직책·부서)는 최신 직원 데이터로 갱신.
+         // ★ growth_level 은 덮지 않는다 — 성장레벨은 '그 평가기간 스냅샷'(evaluation.growth_level)이라,
+         //   employee 의 현재(공유) 레벨로 덮으면 지난 기간 화면에 다른 연도 레벨이 떠 달성 판정이 틀어진다.
          evaluation = {
            ...evaluation,
            evaluatee_name: emp.name,
            evaluatee_position: emp.position,
            evaluatee_department: emp.department,
-           growth_level: emp.growth_level || 1,
          };
        }
       
