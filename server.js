@@ -2083,6 +2083,9 @@ const assertFeedbackWritableById = async (feedbackId) => {
 
 // Create Express app
 const app = express();
+// res.json/res.send 자동 etag 끔 → /api 동적 응답에 304(조건부 캐시)가 안 생긴다.
+// (express.static·res.sendFile 은 자체 etag 를 써 정적 자산 캐싱엔 영향 없음.)
+app.set('etag', false);
 
 // 보안 헤더 — API 서버 기준. SPA는 별도 서빙이라 CSP는 끔(켜면 정적 인라인 자산이 깨질 수 있음).
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -2127,6 +2130,15 @@ app.use('/api', (req, res, next) => {
   if (req.get('X-Requested-With') !== 'XMLHttpRequest') {
     return res.status(403).json({ error: '허용되지 않은 요청입니다. (CSRF 보호)' });
   }
+  next();
+});
+
+// 캐시 금지(중요): /api 는 로그인 사용자별 동적 데이터다. Express 의 자동 etag 로 브라우저가
+// 응답을 캐싱하면, 평가기간을 바꿔 같은 URL 을 다시 호출해도 304 로 '옛 응답'을 그대로 써서
+// 지난 값(예: 다른 평가기간의 성장레벨)이 표시되는 문제가 생긴다. 항상 새로 받도록 no-store.
+// (클라이언트 캐싱은 React Query 가 담당하므로 HTTP 캐시는 불필요.)
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
   next();
 });
 
