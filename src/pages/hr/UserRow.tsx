@@ -87,6 +87,12 @@ function UserRowInner({
   const currentStatus = evaluation?.evaluation_status;
   const orgFields = orgFieldsFromEvaluation(evaluation, employee);
   const editing = isEditing && Boolean(editForm);
+  // 성장레벨 배지는 '선택한 평가기간'의 스냅샷(evaluation.growth_level)을 보여준다.
+  // employee.growth_level(현재·공유)을 쓰면 다른 연도 업로드로 바뀐 값이 지난 기간에도 보인다.
+  const displayGrowthLevel =
+    evaluation?.growth_level && evaluation.growth_level > 0
+      ? evaluation.growth_level
+      : employee.growth_level;
 
   return (
     <TableRow style={isSelected ? { background: 'var(--ok-orange-50)' } : undefined}>
@@ -276,7 +282,7 @@ function UserRowInner({
             <option value="3">3</option>
             <option value="4">4</option>
           </select>
-        ) : employee.growth_level ? (
+        ) : displayGrowthLevel ? (
           <span
             style={{
               padding: '2px 8px',
@@ -287,7 +293,7 @@ function UserRowInner({
               fontWeight: 600,
             }}
           >
-            Lv.{employee.growth_level}
+            Lv.{displayGrowthLevel}
           </span>
         ) : (
           '-'
