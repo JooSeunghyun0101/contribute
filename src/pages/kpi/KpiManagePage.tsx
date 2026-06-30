@@ -82,7 +82,6 @@ const KpiManagePage = () => {
     useEvaluationPeriod();
 
   const isHr = user?.role === 'hr';
-  const isEvaluator = user?.role === 'evaluator';
 
   const [tree, setTree] = useState<KpiNode[]>([]);
   const [orgOptions, setOrgOptions] = useState<OrgOptions | null>(null);
@@ -118,9 +117,6 @@ const KpiManagePage = () => {
   const rows = useMemo(() => flatten(tree), [tree]);
   const flatKpis = useMemo(() => rows.map((r) => r.node), [rows]);
 
-  const canEditKpi = (k: OrgKpi) =>
-    isHr || (isEvaluator && k.created_by === user?.employeeId && k.org_level === 'team');
-
   const startCreate = (parent?: KpiNode) => {
     if (parent) {
       const childLevelIdx = Math.min(LEVEL_DEPTH[parent.org_level] + 1, 3);
@@ -130,10 +126,12 @@ const KpiManagePage = () => {
         unit: parent.unit,
         org_level: LEVEL_ORDER[childLevelIdx],
       });
-    } else if (isEvaluator && !isHr) {
-      // 평가자: 팀 레벨 + 본인이 평가하는 팀 기본값(employees.org_team 이 비어도 동작)
-      const myTeams = orgOptions?.myTeams ?? [];
-      setForm({ ...emptyForm('team'), org_key: myTeams.length === 1 ? myTeams[0] : '' });
+    } else if (!isHr) {
+      // 평가자: 본인이 총괄하는 조직(평가체인 기반). 가장 상위 레벨을 기본으로.
+      const m = orgOptions?.manageable;
+      const lvl = LEVEL_ORDER.find((l) => (m?.[l]?.length ?? 0) > 0) ?? 'team';
+      const opts = m?.[lvl] ?? [];
+      setForm({ ...emptyForm(lvl), org_key: opts.length === 1 ? opts[0] : '' });
     } else {
       setForm(emptyForm('division'));
     }
@@ -343,35 +341,35 @@ const KpiManagePage = () => {
                       <button
                         className="sd-btn sd-btn-ghost sd-btn-xs"
                         onClick={() => startCreate(node)}
-                        disabled={!isSelectedPeriodEditable || node.org_level === 'team' || !isHr}
-                        title={node.org_level === 'team' ? '팀 아래 하위 KPI는 없습니다.' : !isHr ? 'HR만 하위 KPI를 추가할 수 있습니다.' : '하위 KPI 추가'}
+                        disabled={!isSelectedPeriodEditable || node.org_level === 'team'}
+                        title={node.org_level === 'team' ? '팀 아래 하위 KPI는 없습니다.' : '하위 KPI 추가'}
                       >
                         <Plus size={14} />
                       </button>
                       <button
                         className="sd-btn sd-btn-outline sd-btn-xs"
                         onClick={() => startEdit(node)}
-                        disabled={!isSelectedPeriodEditable || !canEditKpi(node)}
+                        disabled={!isSelectedPeriodEditable}
+                        title="수정"
                       >
                         <Pencil size={14} />
                       </button>
-                      {isHr && (
-                        <button
-                          className="sd-btn sd-btn-ghost sd-btn-xs"
-                          onClick={() => deleteKpi(node)}
-                          disabled={!isSelectedPeriodEditable}
-                          style={{ color: 'var(--danger)' }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <button
+                        className="sd-btn sd-btn-ghost sd-btn-xs"
+                        onClick={() => deleteKpi(node)}
+                        disabled={!isSelectedPeriodEditable}
+                        style={{ color: 'var(--danger)' }}
+                        title="삭제"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                   {isOpen && (
                     <AllocationPanel
                       kpiId={node.id}
                       unit={node.unit}
-                      editable={isSelectedPeriodEditable && (isHr || isEvaluator)}
+                      editable={isSelectedPeriodEditable}
                       onChanged={load}
                     />
                   )}
@@ -575,9 +573,15 @@ const KpiFormModal = ({
   onSubmit: () => void;
   onClose: () => void;
 }) => {
-  const levelOptions: KpiOrgLevel[] = isHr ? LEVEL_ORDER : ['team'];
-  // 평가자는 본인이 평가하는 팀만 후보로(employees.org_team 미설정 대비). HR은 전체 조직 옵션.
-  const orgKeyChoices = !isHr ? orgOptions?.myTeams ?? [] : orgOptions ? orgOptions[form.org_level] : [];
+  // HR=전체 레벨. 비-HR=본인이 총괄하는(평가체인) 레벨만. 조직 후보도 총괄 조직으로 한정.
+  const levelOptions: KpiOrgLevel[] = isHr
+    ? LEVEL_ORDER
+    : LEVEL_ORDER.filter((l) => (orgOptions?.manageable?.[l]?.length ?? 0) > 0);
+  const orgKeyChoices = isHr
+    ? orgOptions
+      ? orgOptions[form.org_level]
+      : []
+    : orgOptions?.manageable?.[form.org_level] ?? [];
 
   const set = (patch: Partial<KpiForm>) => setForm({ ...form, ...patch });
 
@@ -613,7 +617,7 @@ const KpiFormModal = ({
             <select
               className="sd-input"
               value={form.org_level}
-              disabled={!isHr}
+              disabled={levelOptions.length <= 1}
               onChange={(e) => set({ org_level: e.target.value as KpiOrgLevel, org_key: '', parent_kpi_id: '' })}
             >
               {levelOptions.map((lv) => (

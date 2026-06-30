@@ -7375,6 +7375,65 @@ const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, 
   }
 };
 
+// 접근제어: KPI는 평가체인을 따른다. 비-HR 요청자는 '관리 조직'의 KPI만 조회/수정 가능.
+// 관리 조직(레벨별) = 그 조직(레벨·값)의 평가대상 전원이 요청자의 하위 평가체인에 속하는 조직.
+//   → 상위평가자는 하위 조직 전체를 보고, 일부만 평가하는 사람은 그 상위 조직을 못 본다(체인 격리).
+// 반환: HR 이면 null(=전체 허용). 아니면 {corporation:Set, division:Set, department:Set, team:Set}.
+const KPI_ACCESS_ORG_COL = {
+  corporation: 'evaluatee_org_corporation',
+  division: 'evaluatee_org_division',
+  department: 'evaluatee_org_department',
+  team: 'evaluatee_org_team',
+};
+const getManageableOrgs = async (req, periodId) => {
+  if (await requesterIsHr(req)) return null;
+  const me = String(req.session.employeeId);
+  // 요청자 하위 평가체인(평가자 노드를 통해서만 하강) — 본인이 평가하는 전원(재귀).
+  const { rows: chainRows } = await pool.query(
+    `WITH RECURSIVE down AS (
+       SELECT employee_id, evaluator_id, available_roles, 1 AS depth
+         FROM employees WHERE evaluator_id::text = $1
+       UNION ALL
+       SELECT e.employee_id, e.evaluator_id, e.available_roles, d.depth + 1
+         FROM employees e
+         JOIN down d ON e.evaluator_id::text = d.employee_id::text
+        WHERE d.depth < 50 AND 'evaluator' = ANY(d.available_roles)
+     )
+     SELECT DISTINCT employee_id FROM down`,
+    [me],
+  );
+  const chain = new Set(chainRows.map((r) => String(r.employee_id)));
+  const { rows: evs } = await pool.query(
+    `SELECT evaluatee_id,
+            evaluatee_org_corporation AS corporation, evaluatee_org_division AS division,
+            evaluatee_org_department AS department, evaluatee_org_team AS team
+       FROM evaluations WHERE evaluation_period_id = $1 AND record_status = 'active'`,
+    [periodId],
+  );
+  const acc = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  const bump = (map, key, inChain) => {
+    if (!key) return;
+    const m = map.get(key) || { total: 0, inChain: 0 };
+    m.total += 1;
+    if (inChain) m.inChain += 1;
+    map.set(key, m);
+  };
+  for (const e of evs) {
+    const inChain = chain.has(String(e.evaluatee_id));
+    for (const lvl of ['corporation', 'division', 'department', 'team']) bump(acc[lvl], e[lvl], inChain);
+  }
+  const toSet = (map) => new Set([...map.entries()].filter(([, v]) => v.total > 0 && v.inChain === v.total).map(([k]) => k));
+  return {
+    corporation: toSet(acc.corporation),
+    division: toSet(acc.division),
+    department: toSet(acc.department),
+    team: toSet(acc.team),
+  };
+};
+// manageable===null(HR) → 전체 허용. 아니면 해당 레벨 Set 에 org_key 포함 여부.
+const canManageOrg = (manageable, level, key) =>
+  manageable === null || Boolean(manageable[level] && manageable[level].has(key));
+
 // GET 목록(평면) — own_*/rolled_*/progress 동봉. 롤업 위해 기간 전체 로드 후 필터.
 app.get('/api/org-kpis', async (req, res) => {
   if (!isDbAvailable) return res.json([]);
@@ -7383,8 +7442,9 @@ app.get('/api/org-kpis', async (req, res) => {
   if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
-    buildKpiTree(rows); // rolled_*/progress 채움
-    let out = rows;
+    buildKpiTree(rows); // rolled_*/progress 채움(전체 기준)
+    const manageable = await getManageableOrgs(req, periodId);
+    let out = rows.filter((r) => canManageOrg(manageable, r.org_level, r.org_key));
     if (req.query.level) out = out.filter((r) => r.org_level === req.query.level);
     if (req.query.orgKey) out = out.filter((r) => r.org_key === req.query.orgKey);
     res.json(out.map(serializeKpiBase));
@@ -7402,8 +7462,32 @@ app.get('/api/org-kpis/tree', async (req, res) => {
   if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
-    const roots = buildKpiTree(rows);
-    res.json(roots.map(serializeKpiTree));
+    buildKpiTree(rows); // 롤업은 전체 기준으로 먼저 계산(rolled_*/progress)
+    const manageable = await getManageableOrgs(req, periodId);
+    if (manageable === null) {
+      // HR: 전체 트리
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const roots = rows.filter((r) => !(r.parent_kpi_id && byId.has(r.parent_kpi_id)));
+      return res.json(roots.map(serializeKpiTree));
+    }
+    // 비-HR: 접근 가능한 노드만 남기고, 보이지 않는 상위가 있으면 최상위로 재루팅.
+    const visible = rows.filter((r) => canManageOrg(manageable, r.org_level, r.org_key));
+    const visibleIds = new Set(visible.map((r) => r.id));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const nearestVisibleParent = (node) => {
+      let p = node.parent_kpi_id ? byId.get(node.parent_kpi_id) : null;
+      while (p && !visibleIds.has(p.id)) p = p.parent_kpi_id ? byId.get(p.parent_kpi_id) : null;
+      return p || null;
+    };
+    const childrenMap = new Map(visible.map((r) => [r.id, []]));
+    const roots = [];
+    for (const n of visible) {
+      const vp = nearestVisibleParent(n);
+      if (vp) childrenMap.get(vp.id).push(n);
+      else roots.push(n);
+    }
+    const serialize = (n) => ({ ...serializeKpiBase(n), children: (childrenMap.get(n.id) || []).map(serialize) });
+    res.json(roots.map(serialize));
   } catch (err) {
     console.error('Error building KPI tree:', err.message);
     res.status(500).json({ error: 'Database error' });
@@ -7443,6 +7527,17 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId, req.session.employeeId],
     );
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    // 등록 폼용 — 요청자가 관리(생성/수정)할 수 있는 조직(레벨별). HR 은 전체.
+    const manageable = await getManageableOrgs(req, periodId);
+    const sortKo = (arr) => [...arr].sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    const manageableOut = manageable === null
+      ? { corporation: uniq('c'), division: uniq('d'), department: uniq('dep'), team: uniq('t') }
+      : {
+          corporation: sortKo([...manageable.corporation]),
+          division: sortKo([...manageable.division]),
+          department: sortKo([...manageable.department]),
+          team: sortKo([...manageable.team]),
+        };
     res.json({
       corporation: uniq('c'),
       division: uniq('d'),
@@ -7455,6 +7550,7 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
         team: meRow.org_team ?? null,
       },
       myTeams,
+      manageable: manageableOut,
     });
   } catch (err) {
     console.error('Error fetching KPI org options:', err.message);
@@ -7474,6 +7570,10 @@ app.get('/api/org-kpis/:id', async (req, res) => {
     buildKpiTree(rows);
     const node = rows.find((r) => r.id === req.params.id);
     if (!node) return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    const manageable = await getManageableOrgs(req, node.evaluation_period_id);
+    if (!canManageOrg(manageable, node.org_level, node.org_key)) {
+      return res.status(403).json({ error: '이 KPI에 접근할 권한이 없습니다.' });
+    }
     const { rows: allocs } = await pool.query(
       `SELECT al.*, e.name AS evaluatee_name
          FROM task_kpi_allocations al
@@ -7508,19 +7608,11 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
   }
   const isHr = await requesterIsHr(req);
   if (!isHr) {
-    if (orgLevel !== 'team') return res.status(403).json({ error: '평가자는 팀 단위 KPI만 등록할 수 있습니다.' });
-    // 평가자의 '팀' = employees.org_team(미설정 다수)이 아니라, 그가 실제 평가하는 피평가자들의 팀으로 판정.
-    const { rows: scope } = await pool.query(
-      `SELECT 1 FROM evaluations ev
-         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
-         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
-        WHERE ev.evaluation_period_id = $1 AND ev.evaluatee_org_team = $2 AND ev.record_status = 'active'
-          AND (h.new_evaluator_id::text = $3 OR e.evaluator_id::text = $3)
-        LIMIT 1`,
-      [periodId, orgKey, req.session.employeeId],
-    );
-    if (scope.length === 0) {
-      return res.status(403).json({ error: '본인이 평가하는 팀의 KPI만 등록할 수 있습니다.' });
+    // 평가체인 기반: 그 조직(레벨·값) 평가대상 전원이 요청자 하위 평가체인이면 등록 가능
+    // (레벨 무관 — 본부장은 본부 KPI도, 팀장은 팀 KPI). employees.org_team 미설정에 의존하지 않음.
+    const manageable = await getManageableOrgs(req, periodId);
+    if (!canManageOrg(manageable, orgLevel, orgKey)) {
+      return res.status(403).json({ error: '본인이 총괄하는 조직의 KPI만 등록할 수 있습니다.' });
     }
   }
   const client = await pool.connect();
@@ -7565,9 +7657,19 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
     const isHr = await requesterIsHr(req);
-    if (!isHr && (existing.created_by !== req.session.employeeId || existing.org_level !== 'team')) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: '본인이 등록한 팀 KPI만 수정할 수 있습니다.' });
+    if (!isHr) {
+      // 평가체인 기반: 기존 조직을 총괄해야 수정 가능. 조직 변경 시 새 조직도 총괄 범위여야 함.
+      const manageable = await getManageableOrgs(req, existing.evaluation_period_id);
+      if (!canManageOrg(manageable, existing.org_level, existing.org_key)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: '본인이 총괄하는 조직의 KPI만 수정할 수 있습니다.' });
+      }
+      const nextLevel = b.org_level ?? existing.org_level;
+      const nextKey = b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key;
+      if ((nextLevel !== existing.org_level || nextKey !== existing.org_key) && !canManageOrg(manageable, nextLevel, nextKey)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: '총괄 범위 밖의 조직으로 변경할 수 없습니다.' });
+      }
     }
     // 변경할 필드 머지(미지정은 기존값 유지)
     const next = {
@@ -7627,7 +7729,7 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
   }
 });
 
-app.delete('/api/org-kpis/:id', requireHr, async (req, res) => {
+app.delete('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const client = await pool.connect();
   try {
@@ -7637,6 +7739,12 @@ app.delete('/api/org-kpis/:id', requireHr, async (req, res) => {
     if (!kpi) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    // 평가체인 기반: 그 조직을 총괄하는 사람(또는 HR)만 삭제. 서브트리도 모두 총괄 범위라 안전.
+    const manageable = await getManageableOrgs(req, kpi.evaluation_period_id);
+    if (!canManageOrg(manageable, kpi.org_level, kpi.org_key)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '본인이 총괄하는 조직의 KPI만 삭제할 수 있습니다.' });
     }
     await client.query('DELETE FROM org_kpis WHERE id = $1', [req.params.id]); // 자식·배분은 ON DELETE CASCADE
     await insertAdminAuditLog(client, {
