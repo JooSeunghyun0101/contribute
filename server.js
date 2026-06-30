@@ -120,6 +120,7 @@ if (connectionString) {
     .then(() => {
       isDbAvailable = true;
       console.log('PostgreSQL 연결 성공 (API 서버)');
+      ensureRuntimeSchema();
       seedDefaultPrompts();
     })
     .catch(err => {
@@ -128,6 +129,26 @@ if (connectionString) {
     });
 } else {
   exitOrMock('DATABASE_URL not set');
+}
+
+// 배포 DB 자가복구: render.yaml 에 마이그레이션 단계가 없어, render-schema.sql 스냅샷 이후 추가된
+// 컬럼이 배포 DB 에 빠지면 해당 기능이 500 으로 깨진다(예: /reopen 의 returned_at). 부팅 시 멱등
+// ADD COLUMN IF NOT EXISTS 로 보강 — Render/내부망/로컬 어디서든 재시작만으로 스키마가 맞춰진다.
+// (이미 컬럼이 있으면 no-op. 신규 마이그레이션 컬럼은 여기에 한 줄씩 누적한다.)
+async function ensureRuntimeSchema() {
+  if (!pool?.query) return;
+  try {
+    await pool.query(`
+      ALTER TABLE evaluations
+        ADD COLUMN IF NOT EXISTS submitted_at timestamptz,
+        ADD COLUMN IF NOT EXISTS returned_at  timestamptz,
+        ADD COLUMN IF NOT EXISTS reverted_at  timestamptz,
+        ADD COLUMN IF NOT EXISTS completed_at timestamptz
+    `);
+    console.log('[schema] 런타임 컬럼 보강 확인 완료');
+  } catch (err) {
+    console.error('[schema] ensureRuntimeSchema 실패:', err.message);
+  }
 }
 
 const getCurrentEvaluationYear = () => new Date().getFullYear();

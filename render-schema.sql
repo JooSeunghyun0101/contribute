@@ -323,6 +323,10 @@ CREATE TABLE public.evaluations (
     evaluatee_org_division text,
     evaluatee_org_department text,
     evaluatee_org_team text,
+    submitted_at timestamp with time zone,
+    returned_at timestamp with time zone,
+    reverted_at timestamp with time zone,
+    completed_at timestamp with time zone,
     CONSTRAINT chk_evaluations_record_status CHECK ((record_status = ANY (ARRAY['active'::text, 'cancelled'::text]))),
     CONSTRAINT evaluations_evaluation_status_check CHECK ((evaluation_status = ANY (ARRAY['draft'::text, 'submitted'::text, 'evaluating'::text, 'completed'::text, 'locked'::text, 'in-progress'::text])))
 );
