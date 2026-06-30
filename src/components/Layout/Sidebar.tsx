@@ -44,6 +44,7 @@ const menus: Record<UserRole, MenuItem[]> = {
   evaluator: [
     { to: '/team', label: '평가 보드', icon: IconGrid, end: true },
     { to: '/team/members', label: '담당 팀원', icon: IconUsers },
+    { to: '/kpi', label: '조직 KPI', icon: IconTarget },
     { to: '/team/feedback', label: '피드백 내역', icon: IconMsg },
     { to: '/team/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/team/ai', label: 'AI 도움말', icon: IconSparkle },
@@ -52,6 +53,7 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
     { to: '/hr/insights', label: '평가 인사이트', icon: IconChart, group: '현황·분석' },
+    { to: '/kpi', label: '조직 KPI', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
     { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },

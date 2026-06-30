@@ -2565,6 +2565,33 @@ const requireHr = async (req, res, next) => {
   }
 };
 
+// 요청자 평가자 여부 — available_roles 에 'evaluator'. 소속 org(팀 스코프 제한용)도 함께 캐시.
+const requesterIsEvaluator = async (req) => {
+  if (req._isEvaluator !== undefined) return req._isEvaluator;
+  const { rows } = await pool.query(
+    `SELECT org_corporation, org_division, org_department, org_team
+       FROM employees
+      WHERE employee_id::text = $1 AND 'evaluator' = ANY(available_roles)
+      LIMIT 1`,
+    [req.session.employeeId],
+  );
+  req._evaluatorOrg = rows[0] ?? null;
+  req._isEvaluator = rows.length > 0;
+  return req._isEvaluator;
+};
+
+// KPI 등록/배분: HR 이거나 평가자. (세부 스코프 — 팀장은 자기 팀만 — 은 각 핸들러에서 검사)
+const requireHrOrEvaluator = async (req, res, next) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    if ((await requesterIsHr(req)) || (await requesterIsEvaluator(req))) return next();
+    return res.status(403).json({ error: 'HR 또는 평가자 권한이 필요합니다.' });
+  } catch (err) {
+    console.error('KPI 권한 확인 실패:', err.message);
+    res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
 /* ── 행 단위 접근제어 (S-3): 평가 데이터는 "본인 / 그 평가의 평가자 / HR"만 ── */
 
 // 직원 응답에서 인증 컬럼 제거 — SELECT * 라우트가 password_hash 를 흘리지 않도록 응답 직전에 벗긴다.
@@ -7218,6 +7245,581 @@ app.delete('/api/evaluation-periods/:id', requireHr, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error deleting evaluation period:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+/* ── 조직 KPI 정렬 ───────────────────────────────────────────────
+ * 정량(억/%/건) 목표를 조직 단위로 등록하고 과업에 배분·실적 추적. parent_kpi_id 트리 자동 롤업.
+ * 기존 정성 점수(매트릭스)는 무변경 — KPI는 평가 화면 "참고 지표"로만 강조(부분 반영). */
+
+const KPI_LEVEL_DEPTH = { corporation: 0, division: 1, department: 2, team: 3 };
+const KPI_LEVEL_ORG_COL = {
+  corporation: 'evaluatee_org_corporation',
+  division: 'evaluatee_org_division',
+  department: 'evaluatee_org_department',
+  team: 'evaluatee_org_team',
+};
+const kpiNum = (v) => (v == null ? null : Number(v));
+
+// 평면 조회 + 노드 자체 합(own_*). 롤업은 buildKpiTree 가 트리에서 계산.
+const loadKpiRowsForPeriod = async (periodId) => {
+  const { rows } = await pool.query(
+    `SELECT k.*,
+            COALESCE(a.own_achieved, 0)  AS own_achieved,
+            COALESCE(a.own_allocated, 0) AS own_allocated
+       FROM org_kpis k
+       LEFT JOIN (
+         SELECT kpi_id,
+                SUM(COALESCE(achieved_value, 0))   AS own_achieved,
+                SUM(COALESCE(allocated_target, 0)) AS own_allocated
+           FROM task_kpi_allocations GROUP BY kpi_id
+       ) a ON a.kpi_id = k.id
+      WHERE k.evaluation_period_id = $1
+      ORDER BY k.org_level, k.name`,
+    [periodId],
+  );
+  for (const r of rows) {
+    r.target_value = Number(r.target_value);
+    r.own_achieved = Number(r.own_achieved);
+    r.own_allocated = Number(r.own_allocated);
+  }
+  return rows;
+};
+
+// 트리 구성 + 후위순회 롤업. 각 과업 실적은 한 노드에 1회 귀속 → 조상 합산(이중계산 없음).
+const buildKpiTree = (rows) => {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const r of rows) {
+    r.children = [];
+    r.rolled_achieved = r.own_achieved;
+    r.rolled_allocated = r.own_allocated;
+  }
+  const roots = [];
+  for (const r of rows) {
+    const parent = r.parent_kpi_id ? byId.get(r.parent_kpi_id) : null;
+    if (parent) parent.children.push(r);
+    else roots.push(r);
+  }
+  const seen = new Set();
+  const visit = (node) => {
+    if (seen.has(node.id)) return; // 손상 데이터 순환 방어
+    seen.add(node.id);
+    for (const child of node.children) {
+      visit(child);
+      node.rolled_achieved += child.rolled_achieved;
+      node.rolled_allocated += child.rolled_allocated;
+    }
+    node.progress = node.target_value > 0 ? node.rolled_achieved / node.target_value : 0;
+  };
+  roots.forEach(visit);
+  return roots;
+};
+
+const serializeKpiBase = (r) => ({
+  id: r.id,
+  evaluation_period_id: r.evaluation_period_id,
+  parent_kpi_id: r.parent_kpi_id,
+  org_level: r.org_level,
+  org_key: r.org_key,
+  name: r.name,
+  unit: r.unit,
+  target_value: kpiNum(r.target_value),
+  direction: r.direction,
+  description: r.description,
+  owner_id: r.owner_id,
+  status: r.status,
+  created_by: r.created_by,
+  created_at: r.created_at,
+  updated_at: r.updated_at,
+  own_achieved: kpiNum(r.own_achieved) ?? 0,
+  own_allocated: kpiNum(r.own_allocated) ?? 0,
+  rolled_achieved: kpiNum(r.rolled_achieved),
+  rolled_allocated: kpiNum(r.rolled_allocated),
+  progress: r.progress ?? null,
+});
+const serializeKpiTree = (r) => ({ ...serializeKpiBase(r), children: (r.children || []).map(serializeKpiTree) });
+const serializeAllocation = (r) => ({
+  ...r,
+  allocated_target: kpiNum(r.allocated_target) ?? 0,
+  achieved_value: kpiNum(r.achieved_value),
+});
+
+// parent_kpi_id 검증: 같은 기간·상위 레벨·같은 단위·순환 금지.
+const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, unit }) => {
+  if (!parentKpiId) return;
+  const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [parentKpiId]);
+  const parent = rows[0];
+  const fail = (msg) => {
+    const e = new Error(msg);
+    e.statusCode = 400;
+    throw e;
+  };
+  if (!parent) fail('상위 KPI를 찾을 수 없습니다.');
+  if (parent.evaluation_period_id !== periodId) fail('상위 KPI는 같은 평가기간이어야 합니다.');
+  if (KPI_LEVEL_DEPTH[orgLevel] <= KPI_LEVEL_DEPTH[parent.org_level])
+    fail('상위 KPI는 더 상위 조직 레벨이어야 합니다.');
+  if (parent.unit !== unit) fail('상위 KPI와 단위가 같아야 롤업됩니다.');
+  // 순환 방지: parent 에서 위로 올라가며 자기 자신(id)에 도달하면 거부.
+  if (id) {
+    let cur = parent;
+    const guard = new Set();
+    while (cur && cur.parent_kpi_id && !guard.has(cur.id)) {
+      if (cur.parent_kpi_id === id) fail('순환 참조는 허용되지 않습니다.');
+      guard.add(cur.id);
+      const next = await client.query('SELECT id, parent_kpi_id FROM org_kpis WHERE id = $1', [cur.parent_kpi_id]);
+      cur = next.rows[0];
+    }
+  }
+};
+
+// GET 목록(평면) — own_*/rolled_*/progress 동봉. 롤업 위해 기간 전체 로드 후 필터.
+app.get('/api/org-kpis', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(periodId);
+    buildKpiTree(rows); // rolled_*/progress 채움
+    let out = rows;
+    if (req.query.level) out = out.filter((r) => r.org_level === req.query.level);
+    if (req.query.orgKey) out = out.filter((r) => r.org_key === req.query.orgKey);
+    res.json(out.map(serializeKpiBase));
+  } catch (err) {
+    console.error('Error listing KPIs:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET 트리(children 중첩) — :id 보다 먼저 등록해야 'tree' 가 :id 로 안 먹힘.
+app.get('/api/org-kpis/tree', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(periodId);
+    const roots = buildKpiTree(rows);
+    res.json(roots.map(serializeKpiTree));
+  } catch (err) {
+    console.error('Error building KPI tree:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 폼 드롭다운용 — 그 기간 평가에 존재하는 조직 옵션(레벨별 distinct) + 요청자 본인 조직.
+app.get('/api/org-kpis/org-options', async (req, res) => {
+  if (!isDbAvailable) return res.json({ corporation: [], division: [], department: [], team: [], mine: {} });
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT evaluatee_org_corporation AS c, evaluatee_org_division AS d,
+              evaluatee_org_department AS dep, evaluatee_org_team AS t
+         FROM evaluations
+        WHERE evaluation_period_id = $1 AND record_status = 'active'`,
+      [periodId],
+    );
+    const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    const meRow = (
+      await pool.query(
+        `SELECT org_corporation, org_division, org_department, org_team FROM employees WHERE employee_id::text = $1`,
+        [req.session.employeeId],
+      )
+    ).rows[0] || {};
+    res.json({
+      corporation: uniq('c'),
+      division: uniq('d'),
+      department: uniq('dep'),
+      team: uniq('t'),
+      mine: {
+        corporation: meRow.org_corporation ?? null,
+        division: meRow.org_division ?? null,
+        department: meRow.org_department ?? null,
+        team: meRow.org_team ?? null,
+      },
+    });
+  } catch (err) {
+    console.error('Error fetching KPI org options:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET 단건 + 배분 내역 + 자식 목록.
+app.get('/api/org-kpis/:id', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(
+      (await pool.query('SELECT evaluation_period_id FROM org_kpis WHERE id = $1', [req.params.id])).rows[0]
+        ?.evaluation_period_id,
+    );
+    buildKpiTree(rows);
+    const node = rows.find((r) => r.id === req.params.id);
+    if (!node) return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    const { rows: allocs } = await pool.query(
+      `SELECT al.*, e.name AS evaluatee_name
+         FROM task_kpi_allocations al
+         LEFT JOIN evaluations ev ON ev.id = al.evaluation_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE al.kpi_id = $1 ORDER BY al.updated_at DESC`,
+      [req.params.id],
+    );
+    res.json({
+      ...serializeKpiBase(node),
+      children: (node.children || []).map(serializeKpiBase),
+      allocations: allocs.map(serializeAllocation),
+    });
+  } catch (err) {
+    console.error('Error fetching KPI:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const b = req.body || {};
+  const periodId = b.evaluation_period_id;
+  const orgLevel = b.org_level;
+  const orgKey = String(b.org_key ?? '').trim();
+  const name = String(b.name ?? '').trim();
+  const unit = String(b.unit ?? '').trim();
+  const targetValue = Number(b.target_value);
+  const direction = b.direction === 'lower' ? 'lower' : 'higher';
+  if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !orgKey || !name || !unit || !(targetValue > 0)) {
+    return res.status(400).json({ error: '필수 항목(기간·조직레벨·조직·이름·단위·목표>0)을 확인하세요.' });
+  }
+  const isHr = await requesterIsHr(req);
+  if (!isHr) {
+    if (orgLevel !== 'team') return res.status(403).json({ error: '평가자는 팀 단위 KPI만 등록할 수 있습니다.' });
+    const myTeam = String(req._evaluatorOrg?.org_team ?? '').trim();
+    if (!myTeam) return res.status(403).json({ error: '소속 팀 정보가 없어 KPI를 등록할 수 없습니다. HR에 문의하세요.' });
+    if (orgKey !== myTeam) return res.status(403).json({ error: '본인 소속 팀의 KPI만 등록할 수 있습니다.' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await validateKpiParent(client, { id: null, parentKpiId: b.parent_kpi_id ?? null, periodId, orgLevel, unit });
+    const { rows } = await client.query(
+      `INSERT INTO org_kpis
+         (evaluation_period_id, parent_kpi_id, org_level, org_key, name, unit, target_value, direction, description, owner_id, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11) RETURNING *`,
+      [periodId, b.parent_kpi_id ?? null, orgLevel, orgKey, name, unit, targetValue, direction, b.description ?? null, b.owner_id ?? null, req.session.employeeId],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_create',
+      actorId: req.session.employeeId,
+      previousValue: null,
+      newValue: rows[0],
+      reason: 'KPI 등록',
+    });
+    await client.query('COMMIT');
+    res.status(201).json(serializeKpiBase(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23503') return res.status(400).json({ error: '참조 무결성 오류(기간/상위 KPI 확인).' });
+    console.error('Error creating KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const b = req.body || {};
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: existRows } = await client.query('SELECT * FROM org_kpis WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const existing = existRows[0];
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    const isHr = await requesterIsHr(req);
+    if (!isHr && (existing.created_by !== req.session.employeeId || existing.org_level !== 'team')) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '본인이 등록한 팀 KPI만 수정할 수 있습니다.' });
+    }
+    // 변경할 필드 머지(미지정은 기존값 유지)
+    const next = {
+      parent_kpi_id: b.parent_kpi_id !== undefined ? b.parent_kpi_id : existing.parent_kpi_id,
+      org_level: b.org_level ?? existing.org_level,
+      org_key: b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key,
+      name: b.name !== undefined ? String(b.name).trim() : existing.name,
+      unit: b.unit !== undefined ? String(b.unit).trim() : existing.unit,
+      target_value: b.target_value !== undefined ? Number(b.target_value) : Number(existing.target_value),
+      direction: b.direction === 'lower' ? 'lower' : b.direction === 'higher' ? 'higher' : existing.direction,
+      description: b.description !== undefined ? b.description : existing.description,
+      owner_id: b.owner_id !== undefined ? b.owner_id : existing.owner_id,
+      status: b.status === 'archived' || b.status === 'active' ? b.status : existing.status,
+    };
+    const fail = (msg) => {
+      const e = new Error(msg);
+      e.statusCode = 400;
+      throw e;
+    };
+    if (!Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, next.org_level)) fail('조직 레벨이 올바르지 않습니다.');
+    if (!next.org_key || !next.name || !next.unit || !(next.target_value > 0)) fail('조직·이름·단위·목표(>0)를 확인하세요.');
+    await validateKpiParent(client, {
+      id: req.params.id,
+      parentKpiId: next.parent_kpi_id,
+      periodId: existing.evaluation_period_id,
+      orgLevel: next.org_level,
+      unit: next.unit,
+    });
+    // 자식 일관성: 단위/레벨 변경 시 자식이 깨지지 않는지.
+    const { rows: kids } = await client.query('SELECT org_level, unit FROM org_kpis WHERE parent_kpi_id = $1', [req.params.id]);
+    for (const kid of kids) {
+      if (kid.unit !== next.unit) fail('하위 KPI와 단위가 달라집니다. 먼저 하위를 정리하세요.');
+      if (KPI_LEVEL_DEPTH[kid.org_level] <= KPI_LEVEL_DEPTH[next.org_level]) fail('하위 KPI 레벨과 충돌합니다.');
+    }
+    const { rows } = await client.query(
+      `UPDATE org_kpis SET
+         parent_kpi_id=$1, org_level=$2, org_key=$3, name=$4, unit=$5, target_value=$6,
+         direction=$7, description=$8, owner_id=$9, status=$10, updated_at=now()
+       WHERE id=$11 RETURNING *`,
+      [next.parent_kpi_id, next.org_level, next.org_key, next.name, next.unit, next.target_value, next.direction, next.description, next.owner_id, next.status, req.params.id],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_update',
+      actorId: req.session.employeeId,
+      previousValue: existing,
+      newValue: rows[0],
+      reason: 'KPI 수정',
+    });
+    await client.query('COMMIT');
+    res.json(serializeKpiBase(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error updating KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/org-kpis/:id', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const kpi = rows[0];
+    if (!kpi) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    await client.query('DELETE FROM org_kpis WHERE id = $1', [req.params.id]); // 자식·배분은 ON DELETE CASCADE
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_delete',
+      actorId: req.session.employeeId,
+      previousValue: kpi,
+      newValue: null,
+      reason: 'KPI 삭제(서브트리·배분 포함)',
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted_id: req.params.id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+// 평가건에 정렬 가능한 KPI 후보 — 그 피평가자 조직(레벨별)에 맞는 KPI만.
+app.get('/api/evaluations/:evalId/kpi-candidates', guardEvaluationParam('evalId', { allowLineDescendant: true }), async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  try {
+    const ev = (
+      await pool.query(
+        `SELECT evaluation_period_id,
+                evaluatee_org_corporation AS c, evaluatee_org_division AS d,
+                evaluatee_org_department AS dep, evaluatee_org_team AS t
+           FROM evaluations WHERE id = $1`,
+        [req.params.evalId],
+      )
+    ).rows[0];
+    if (!ev) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT * FROM org_kpis
+        WHERE evaluation_period_id = $1 AND status = 'active'
+          AND ( (org_level='corporation' AND org_key = $2)
+             OR (org_level='division'    AND org_key = $3)
+             OR (org_level='department'  AND org_key = $4)
+             OR (org_level='team'        AND org_key = $5) )
+        ORDER BY org_level, name`,
+      [ev.evaluation_period_id, ev.c, ev.d, ev.dep, ev.t],
+    );
+    res.json(rows.map((r) => ({ ...r, target_value: kpiNum(r.target_value) })));
+  } catch (err) {
+    console.error('Error fetching KPI candidates:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 과업의 정렬 KPI(배분) 목록 — 평가/과업 접근 권한 가드.
+app.get('/api/tasks/:taskId/kpi-allocations', guardTaskParam('taskId'), async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  try {
+    const { rows } = await pool.query(
+      `SELECT al.*, k.name AS kpi_name, k.unit AS kpi_unit, k.org_level AS kpi_org_level,
+              k.org_key AS kpi_org_key, k.target_value AS kpi_target, k.direction AS kpi_direction
+         FROM task_kpi_allocations al
+         JOIN org_kpis k ON k.id = al.kpi_id
+        WHERE al.task_uuid::text = $1
+        ORDER BY k.name`,
+      [String(req.params.taskId)],
+    );
+    res.json(
+      rows.map((r) => ({ ...serializeAllocation(r), kpi_target: kpiNum(r.kpi_target) })),
+    );
+  } catch (err) {
+    console.error('Error fetching task KPI allocations:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 한 KPI 의 과업 배분/실적 upsert(배치). HR 또는 그 평가의 평가자/상위라인만.
+app.put('/api/org-kpis/:id/allocations', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const items = Array.isArray(req.body?.allocations) ? req.body.allocations : [];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: kRows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [req.params.id]);
+    const kpi = kRows[0];
+    if (!kpi) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    const isHr = await requesterIsHr(req);
+    const orgCol = KPI_LEVEL_ORG_COL[kpi.org_level];
+    const out = [];
+    for (const it of items) {
+      const taskUuid = String(it.task_uuid ?? '');
+      const evalId = String(it.evaluation_id ?? '');
+      if (!taskUuid || !evalId) {
+        const e = new Error('task_uuid·evaluation_id 가 필요합니다.');
+        e.statusCode = 400;
+        throw e;
+      }
+      // 평가행 + 권한/정렬 검증
+      const { rows: evRows } = await client.query(
+        `SELECT ev.id, ev.evaluatee_id, ev.${orgCol} AS org_val,
+                h.new_evaluator_id AS assigned_evaluator_id, e.evaluator_id AS current_evaluator_id
+           FROM evaluations ev
+           LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+           LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+          WHERE ev.id = $1`,
+        [evalId],
+      );
+      const evRow = evRows[0];
+      if (!evRow) {
+        const e = new Error('평가를 찾을 수 없습니다.');
+        e.statusCode = 400;
+        throw e;
+      }
+      if (!isHr && !(await canAccessEvaluation(req, evRow, { allowLineDescendant: true }))) {
+        const e = new Error('해당 과업에 배분할 권한이 없습니다.');
+        e.statusCode = 403;
+        throw e;
+      }
+      if (String(evRow.org_val ?? '') !== kpi.org_key) {
+        const e = new Error('과업 피평가자의 조직이 KPI 조직과 일치하지 않습니다.');
+        e.statusCode = 400;
+        throw e;
+      }
+      // 과업이 그 평가 소속이고 삭제되지 않았는지
+      const { rows: tRows } = await client.query(
+        `SELECT task_id FROM tasks WHERE id = $1 AND evaluation_id = $2 AND deleted_at IS NULL`,
+        [taskUuid, evalId],
+      );
+      if (!tRows[0]) {
+        const e = new Error('유효한 과업이 아닙니다.');
+        e.statusCode = 400;
+        throw e;
+      }
+      const allocated = Number(it.allocated_target ?? 0);
+      const achieved = it.achieved_value === null || it.achieved_value === undefined || it.achieved_value === '' ? null : Number(it.achieved_value);
+      const { rows: upRows } = await client.query(
+        `INSERT INTO task_kpi_allocations
+           (kpi_id, task_uuid, task_id, evaluation_id, allocated_target, achieved_value, note, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (kpi_id, task_uuid) DO UPDATE SET
+           allocated_target = EXCLUDED.allocated_target,
+           achieved_value   = EXCLUDED.achieved_value,
+           note             = EXCLUDED.note,
+           updated_by       = EXCLUDED.updated_by,
+           updated_at       = now()
+         RETURNING *`,
+        [req.params.id, taskUuid, tRows[0].task_id, evalId, allocated >= 0 ? allocated : 0, achieved, it.note ?? null, req.session.employeeId],
+      );
+      out.push(upRows[0]);
+    }
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_allocation_upsert',
+      actorId: req.session.employeeId,
+      previousValue: { kpi_id: req.params.id },
+      newValue: { count: out.length },
+      reason: 'KPI 과업 배분/실적 저장',
+    });
+    await client.query('COMMIT');
+    res.json(out.map(serializeAllocation));
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error upserting KPI allocations:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/org-kpis/:id/allocations/:allocId', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT al.*, ev.evaluatee_id, ev.evaluation_period_id,
+              h.new_evaluator_id AS assigned_evaluator_id, e.evaluator_id AS current_evaluator_id
+         FROM task_kpi_allocations al
+         JOIN evaluations ev ON ev.id = al.evaluation_id
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE al.id = $1 AND al.kpi_id = $2`,
+      [req.params.allocId, req.params.id],
+    );
+    const alloc = rows[0];
+    if (!alloc) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: '배분을 찾을 수 없습니다.' });
+    }
+    const isHr = await requesterIsHr(req);
+    if (!isHr && !(await canAccessEvaluation(req, alloc, { allowLineDescendant: true }))) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '해당 배분을 삭제할 권한이 없습니다.' });
+    }
+    await client.query('DELETE FROM task_kpi_allocations WHERE id = $1', [req.params.allocId]);
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_allocation_delete',
+      actorId: req.session.employeeId,
+      previousValue: alloc,
+      newValue: null,
+      reason: 'KPI 과업 배분 해제',
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted_id: req.params.allocId });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting KPI allocation:', err.message);
     res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
   } finally {
     client.release();

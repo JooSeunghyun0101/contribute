@@ -1,0 +1,88 @@
+// 조직 KPI 정렬 기능 타입.
+// 정량(억/%/건) 목표를 조직 단위로 등록하고 과업에 배분·실적 추적. 트리(parent_kpi_id) 자동 롤업.
+
+export type KpiOrgLevel = 'corporation' | 'division' | 'department' | 'team';
+export type KpiDirection = 'higher' | 'lower';
+export type KpiStatus = 'active' | 'archived';
+
+/** org_kpis 한 행 (+ 서버가 동봉하는 진척 집계). */
+export interface OrgKpi {
+  id: string;
+  evaluation_period_id: string;
+  parent_kpi_id: string | null;
+  org_level: KpiOrgLevel;
+  org_key: string;
+  name: string;
+  unit: string;
+  target_value: number;
+  direction: KpiDirection;
+  description?: string | null;
+  owner_id?: string | null;
+  status: KpiStatus;
+  created_by: string;
+  created_at?: string;
+  updated_at?: string;
+  // 서버 집계(읽기 전용) — 노드 자체 합 + 트리 롤업.
+  own_achieved?: number;
+  own_allocated?: number;
+  rolled_achieved?: number;
+  rolled_allocated?: number;
+  /** rolled_achieved / target_value (0~1+, 초과 허용). */
+  progress?: number;
+}
+
+/** 트리 노드 — OrgKpi + 자식. GET /api/org-kpis/tree 응답. */
+export interface KpiNode extends OrgKpi {
+  children: KpiNode[];
+}
+
+/** 과업 ↔ KPI 배분/실적. */
+export interface TaskKpiAllocation {
+  id: string;
+  kpi_id: string;
+  task_uuid: string;
+  task_id: string;
+  evaluation_id: string;
+  allocated_target: number;
+  achieved_value?: number | null;
+  note?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  // 조회 편의(서버 조인) — KPI 메타.
+  kpi_name?: string;
+  kpi_unit?: string;
+  kpi_org_level?: KpiOrgLevel;
+  kpi_org_key?: string;
+  kpi_target?: number | null;
+  kpi_direction?: KpiDirection;
+  // GET :id 응답 조인 — 피평가자명.
+  evaluatee_name?: string;
+}
+
+export interface OrgKpiInput {
+  evaluation_period_id: string;
+  parent_kpi_id?: string | null;
+  org_level: KpiOrgLevel;
+  org_key: string;
+  name: string;
+  unit: string;
+  target_value: number;
+  direction?: KpiDirection;
+  description?: string | null;
+  owner_id?: string | null;
+}
+
+export type OrgKpiUpdate = Partial<Omit<OrgKpiInput, 'evaluation_period_id'>> & {
+  status?: KpiStatus;
+};
+
+/** 배분 upsert 한 건 (PUT /api/org-kpis/:id/allocations 배치 항목). */
+export interface AllocationInput {
+  task_uuid: string;
+  task_id: string;
+  evaluation_id: string;
+  allocated_target: number;
+  achieved_value?: number | null;
+  note?: string | null;
+}

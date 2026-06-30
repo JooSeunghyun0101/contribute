@@ -23,6 +23,7 @@ import NotFound from "./pages/NotFound";
 
 const Evaluation = lazy(() => import("./pages/Evaluation"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const KpiManagePage = lazy(() => import("./pages/kpi/KpiManagePage"));
 
 const MyHome = lazy(() => import("./pages/my/Home"));
 const MyTasksPage = lazy(() => import("./pages/my/MyTasksPage"));
@@ -111,6 +112,15 @@ const App = () => (
 
               <Route element={<AppShell />}>
                 <Route path="/notifications" element={<NotificationsPage />} />
+                {/* 조직 KPI — HR·평가자 공용 */}
+                <Route
+                  path="/kpi"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr", "evaluator"]}>
+                      <KpiManagePage />
+                    </ProtectedRoute>
+                  }
+                />
                 {/* 피평가자 */}
                 <Route
                   path="/my"

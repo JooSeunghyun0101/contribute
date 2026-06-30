@@ -9,6 +9,7 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
+import OrgKpiBand from '@/components/Kpi/OrgKpiBand';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
 const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // #E84200
@@ -347,6 +348,9 @@ const TeamHome = () => {
           </div>
         ) : (
           <>
+            {/* 조직 KPI 현황 밴드 — 본인 조직 목표 진척(읽기 전용, 매칭 없으면 자동 숨김) */}
+            <OrgKpiBand periodId={selectedPeriod?.id ?? null} />
+
             {/* 최상단 한 줄 요약 — 지금 해야 할 일/업데이트 */}
             <SummaryBar text={summaryText} />
 
