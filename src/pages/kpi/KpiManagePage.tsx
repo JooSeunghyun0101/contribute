@@ -131,8 +131,9 @@ const KpiManagePage = () => {
         org_level: LEVEL_ORDER[childLevelIdx],
       });
     } else if (isEvaluator && !isHr) {
-      // 평가자: 팀 레벨 + 본인 팀 기본값
-      setForm({ ...emptyForm('team'), org_key: orgOptions?.mine.team ?? '' });
+      // 평가자: 팀 레벨 + 본인이 평가하는 팀 기본값(employees.org_team 이 비어도 동작)
+      const myTeams = orgOptions?.myTeams ?? [];
+      setForm({ ...emptyForm('team'), org_key: myTeams.length === 1 ? myTeams[0] : '' });
     } else {
       setForm(emptyForm('division'));
     }
@@ -575,7 +576,8 @@ const KpiFormModal = ({
   onClose: () => void;
 }) => {
   const levelOptions: KpiOrgLevel[] = isHr ? LEVEL_ORDER : ['team'];
-  const orgKeyChoices = orgOptions ? orgOptions[form.org_level] : [];
+  // 평가자는 본인이 평가하는 팀만 후보로(employees.org_team 미설정 대비). HR은 전체 조직 옵션.
+  const orgKeyChoices = !isHr ? orgOptions?.myTeams ?? [] : orgOptions ? orgOptions[form.org_level] : [];
 
   const set = (patch: Partial<KpiForm>) => setForm({ ...form, ...patch });
 

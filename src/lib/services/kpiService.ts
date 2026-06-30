@@ -50,6 +50,7 @@ export const kpiService = {
     department: string[];
     team: string[];
     mine: { corporation: string | null; division: string | null; department: string | null; team: string | null };
+    myTeams: string[];
   }> {
     try {
       return await apiFetch(`/api/org-kpis/org-options${qs({ periodId })}`);

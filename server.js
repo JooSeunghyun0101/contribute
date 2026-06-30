@@ -7431,6 +7431,18 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
         [req.session.employeeId],
       )
     ).rows[0] || {};
+    // 요청자가 이 기간에 실제 평가하는 팀들(평가자 KPI 등록 범위·기본값용).
+    const myTeamsRows = await pool.query(
+      `SELECT DISTINCT ev.evaluatee_org_team AS t
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'
+          AND ev.evaluatee_org_team IS NOT NULL
+          AND (h.new_evaluator_id::text = $2 OR e.evaluator_id::text = $2)`,
+      [periodId, req.session.employeeId],
+    );
+    const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
     res.json({
       corporation: uniq('c'),
       division: uniq('d'),
@@ -7442,6 +7454,7 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
         department: meRow.org_department ?? null,
         team: meRow.org_team ?? null,
       },
+      myTeams,
     });
   } catch (err) {
     console.error('Error fetching KPI org options:', err.message);
@@ -7496,9 +7509,19 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
   const isHr = await requesterIsHr(req);
   if (!isHr) {
     if (orgLevel !== 'team') return res.status(403).json({ error: '평가자는 팀 단위 KPI만 등록할 수 있습니다.' });
-    const myTeam = String(req._evaluatorOrg?.org_team ?? '').trim();
-    if (!myTeam) return res.status(403).json({ error: '소속 팀 정보가 없어 KPI를 등록할 수 없습니다. HR에 문의하세요.' });
-    if (orgKey !== myTeam) return res.status(403).json({ error: '본인 소속 팀의 KPI만 등록할 수 있습니다.' });
+    // 평가자의 '팀' = employees.org_team(미설정 다수)이 아니라, 그가 실제 평가하는 피평가자들의 팀으로 판정.
+    const { rows: scope } = await pool.query(
+      `SELECT 1 FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.evaluation_period_id = $1 AND ev.evaluatee_org_team = $2 AND ev.record_status = 'active'
+          AND (h.new_evaluator_id::text = $3 OR e.evaluator_id::text = $3)
+        LIMIT 1`,
+      [periodId, orgKey, req.session.employeeId],
+    );
+    if (scope.length === 0) {
+      return res.status(403).json({ error: '본인이 평가하는 팀의 KPI만 등록할 수 있습니다.' });
+    }
   }
   const client = await pool.connect();
   try {
