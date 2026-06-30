@@ -163,8 +163,17 @@ const assembleEvaluationRecord = (
   }, 0);
   // float 누적 오차(3.0 → 2.9999999…)로 Math.floor 가 한 단계 낮아지는 것 방지(epsilon 보정).
   const flooredScore = Math.floor(weightedScore + 1e-9);
-  const growthLevel = Math.max(1, toNumber(employee.growth_level, 1));
+  // 성장레벨·달성은 '그 평가기간 스냅샷'(evaluation.growth_level)을 쓴다 — employee.growth_level(현재·공유)
+  // 을 쓰면 다른 연도 레벨을 바꿔 올렸을 때 지난 기간 달성까지 재계산되는 문제(평가기간별 레벨 분리).
+  // 스냅샷이 비었으면(0/null) 현재 직원 레벨로 폴백.
+  const periodLevel = toNumber(evaluation?.growth_level, 0);
+  const growthLevel = periodLevel > 0 ? periodLevel : Math.max(1, toNumber(employee.growth_level, 1));
   const achieved = flooredScore >= growthLevel;
+  // 표시(Lv 배지)·필터·통계도 같은 기준을 쓰도록 레코드의 employee 레벨을 기간 스냅샷으로 맞춘다.
+  const recordEmployee =
+    periodLevel > 0 && periodLevel !== employee.growth_level
+      ? { ...employee, growth_level: periodLevel }
+      : employee;
   const feedbackSnapshots = sortByDateDesc(tasks.flatMap((task) => buildFeedbackSnapshots(task)));
   const feedbackCount = feedbackSnapshots.length;
   const latestFeedback = feedbackSnapshots[0] ?? null;
@@ -174,7 +183,7 @@ const assembleEvaluationRecord = (
   const reviewStatus = getReviewStatus(evaluation);
 
   return {
-    employee,
+    employee: recordEmployee,
     evaluation,
     evaluationStatus: evaluation?.evaluation_status ?? 'not-started',
     reviewStatus,
