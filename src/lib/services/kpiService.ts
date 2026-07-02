@@ -6,6 +6,7 @@ import type {
   OrgKpiUpdate,
   TaskKpiAllocation,
   AllocationInput,
+  KpiCandidatesResponse,
 } from '@/types/kpi';
 import { apiErrorHandler } from '@/utils/errorHandler';
 
@@ -43,7 +44,7 @@ export const kpiService = {
     }
   },
 
-  /** 폼 드롭다운용 조직 옵션(레벨별) + 요청자 본인 조직. */
+  /** 폼 드롭다운용 조직 옵션(레벨별) + 요청자 본인 조직 + 조직별 조직장(평가자) 라벨. */
   async orgOptions(periodId: string): Promise<{
     corporation: string[];
     division: string[];
@@ -52,6 +53,13 @@ export const kpiService = {
     mine: { corporation: string | null; division: string | null; department: string | null; team: string | null };
     myTeams: string[];
     manageable: { corporation: string[]; division: string[]; department: string[]; team: string[] };
+    /** 레벨별 { 조직명: 평가자 이름[] } — 담당 인원수 내림차순(팀 레벨은 사실상 팀장 1명). */
+    leaders: {
+      corporation: Record<string, string[]>;
+      division: Record<string, string[]>;
+      department: Record<string, string[]>;
+      team: Record<string, string[]>;
+    };
   }> {
     try {
       return await apiFetch(`/api/org-kpis/org-options${qs({ periodId })}`);
@@ -100,10 +108,10 @@ export const kpiService = {
     }
   },
 
-  /** 평가건에 정렬 가능한 KPI 후보(피평가자 조직 매칭). */
-  async candidatesForEvaluation(evaluationId: string): Promise<OrgKpi[]> {
+  /** 평가건에 정렬 가능한 KPI 후보(피평가자 조직 매칭) + 매칭 기준 조직. */
+  async candidatesForEvaluation(evaluationId: string): Promise<KpiCandidatesResponse> {
     try {
-      return await apiFetch<OrgKpi[]>(`/api/evaluations/${evaluationId}/kpi-candidates`);
+      return await apiFetch<KpiCandidatesResponse>(`/api/evaluations/${evaluationId}/kpi-candidates`);
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

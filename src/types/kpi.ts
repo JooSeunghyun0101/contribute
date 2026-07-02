@@ -27,8 +27,10 @@ export interface OrgKpi {
   own_allocated?: number;
   rolled_achieved?: number;
   rolled_allocated?: number;
-  /** rolled_achieved / target_value (0~1+, 초과 허용). */
+  /** direction 반영 진척률(0~1+, 초과 허용). higher=실적/목표, lower=목표/실적(미입력=0). */
   progress?: number;
+  /** 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분. */
+  has_actuals?: boolean;
 }
 
 /** 트리 노드 — OrgKpi + 자식. GET /api/org-kpis/tree 응답. */
@@ -56,8 +58,20 @@ export interface TaskKpiAllocation {
   kpi_org_key?: string;
   kpi_target?: number | null;
   kpi_direction?: KpiDirection;
-  // GET :id 응답 조인 — 피평가자명.
+  // GET :id 응답 조인 — 피평가자명·과업 제목(동일인 다과업 배분 구분용).
   evaluatee_name?: string;
+  task_title?: string | null;
+}
+
+/** GET /api/evaluations/:id/kpi-candidates 응답 — 후보 + 매칭 기준(피평가자 조직). */
+export interface KpiCandidatesResponse {
+  candidates: OrgKpi[];
+  evaluatee_org: {
+    corporation: string | null;
+    division: string | null;
+    department: string | null;
+    team: string | null;
+  } | null;
 }
 
 export interface OrgKpiInput {

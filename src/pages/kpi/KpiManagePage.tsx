@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Target, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { SpiralLoader } from '@/components/ui/loader';
@@ -191,6 +191,18 @@ const KpiManagePage = () => {
       toast({ title: '조직·이름·단위·목표(0보다 큰 값)를 확인해 주세요.', variant: 'destructive' });
       return;
     }
+    // 자유입력 오타로 어떤 과업과도 매칭되지 않는 '유령 KPI'를 조용히 만들지 않게 확인.
+    // (비-HR은 서버가 등록 가능 조직을 강제하므로 HR 경로만 해당)
+    const knownOrgs = isHr ? orgOptions?.[form.org_level] ?? [] : orgOptions?.manageable?.[form.org_level] ?? [];
+    if (isHr && knownOrgs.length > 0 && !knownOrgs.includes(form.org_key.trim())) {
+      const ok = await confirm({
+        title: `'${form.org_key.trim()}' 조직과 일치하는 평가 대상이 없습니다.`,
+        description:
+          '이대로 등록하면 어떤 평가 화면의 정렬 후보에도 나타나지 않습니다. 조직명 오타라면 취소 후 목록에서 선택해 주세요.',
+        confirmText: '이대로 등록',
+      });
+      if (!ok) return;
+    }
     try {
       setSaving(true);
       if (form.id) {
@@ -305,6 +317,25 @@ const KpiManagePage = () => {
           </div>
         )}
 
+        {/* 가시성 규칙 안내 — 생성자-평가체인 모델은 화면만 봐서는 알 수 없어 반드시 명시한다. */}
+        {!isHr && (
+          <div
+            className="sd-card"
+            style={{
+              background: 'var(--ok-orange-50)',
+              border: '1px solid var(--ok-orange-100)',
+              color: 'var(--fg-muted)',
+              fontSize: 'var(--fs-sm)',
+              lineHeight: 1.6,
+            }}
+          >
+            <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> — 이 목록에는{' '}
+            <b>내가 등록한 KPI와 내 하위 평가체인(내가 평가하는 평가자들)이 등록한 KPI</b>만 표시됩니다. 상위
+            조직·다른 체인의 KPI는 여기 나타나지 않지만, 평가 화면의 정렬 후보에는 피평가자 조직 기준으로 표시될 수
+            있습니다.
+          </div>
+        )}
+
         {isLoading ? (
           <div className="sd-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)' }}>
             <SpiralLoader size={32} />
@@ -359,6 +390,15 @@ const KpiManagePage = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, fontSize: 'var(--fs-body)' }}>{node.name}</span>
                         <OrgBadge level={node.org_level} orgKey={node.org_key} />
+                        {(() => {
+                          // 동명 조직(법인 간 같은 팀명) 구분 — 조직장(평가자) 이름을 함께 표기.
+                          const names = orgOptions?.leaders?.[node.org_level]?.[node.org_key];
+                          return names?.length ? (
+                            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
+                              조직장 {names[0]}
+                            </span>
+                          ) : null;
+                        })()}
                         {node.children?.length ? (
                           <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
                             하위 {node.children.length}
@@ -375,6 +415,8 @@ const KpiManagePage = () => {
                         target={node.target_value}
                         unit={node.unit}
                         allocated={node.rolled_allocated}
+                        direction={node.direction}
+                        hasActuals={node.has_actuals}
                         compact
                       />
                     </div>
@@ -561,8 +603,17 @@ const AllocationPanel = ({
             >
               <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 'var(--fs-sm)' }}>{a.evaluatee_name ?? '피평가자'}</div>
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-                  배분 {formatKpiValue(a.allocated_target, unit)}
+                <div
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    color: 'var(--fg-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={a.task_title ?? undefined}
+                >
+                  {a.task_title ? `${a.task_title} · ` : ''}배분 {formatKpiValue(a.allocated_target, unit)}
                 </div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)' }}>
@@ -615,6 +666,7 @@ const KpiFormModal = ({
   onSubmit: () => void;
   onClose: () => void;
 }) => {
+  const confirm = useConfirm();
   // HR=전체 레벨. 비-HR=본인이 총괄하는(평가체인) 레벨만. 조직 후보도 총괄 조직으로 한정.
   const levelOptions: KpiOrgLevel[] = isHr
     ? LEVEL_ORDER
@@ -627,9 +679,25 @@ const KpiFormModal = ({
 
   const set = (patch: Partial<KpiForm>) => setForm({ ...form, ...patch });
 
+  // 이탈 보호 — 바깥 클릭·X·취소 모두, 입력이 변경됐으면 확인을 거친다.
+  const initialFormRef = useRef(form);
+  const requestClose = async () => {
+    const dirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current);
+    if (dirty) {
+      const ok = await confirm({
+        title: '작성 중인 내용을 닫을까요?',
+        description: '저장하지 않은 입력이 사라집니다.',
+        variant: 'danger',
+        confirmText: '닫기',
+      });
+      if (!ok) return;
+    }
+    onClose();
+  };
+
   return (
     <div
-      onClick={onClose}
+      onClick={requestClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -648,7 +716,7 @@ const KpiFormModal = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900 }}>{form.id ? 'KPI 수정' : '새 KPI'}</h2>
-          <button className="sd-btn sd-btn-ghost sd-btn-xs" onClick={onClose}>
+          <button className="sd-btn sd-btn-ghost sd-btn-xs" onClick={requestClose}>
             <X size={16} />
           </button>
         </div>
@@ -679,10 +747,25 @@ const KpiFormModal = ({
               placeholder={`${LEVEL_LABEL[form.org_level]}명`}
             />
             <datalist id="kpi-org-keys">
-              {orgKeyChoices.map((o) => (
-                <option key={o} value={o} />
-              ))}
+              {orgKeyChoices.map((o) => {
+                const names = orgOptions?.leaders?.[form.org_level]?.[o];
+                return (
+                  <option key={o} value={o}>
+                    {names?.length ? `조직장(평가자): ${names[0]}${names.length > 1 ? ` 외 ${names.length - 1}` : ''}` : undefined}
+                  </option>
+                );
+              })}
             </datalist>
+            {(() => {
+              // 선택한 조직의 조직장(평가자)을 함께 보여줘 동명·유사 조직 선택 실수를 줄인다.
+              const names = orgOptions?.leaders?.[form.org_level]?.[form.org_key.trim()];
+              return names?.length ? (
+                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                  조직장(평가자): {names[0]}
+                  {names.length > 1 ? ` 외 ${names.length - 1}명` : ''}
+                </span>
+              ) : null;
+            })()}
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
@@ -740,12 +823,30 @@ const KpiFormModal = ({
           </label>
         </div>
 
+        {['%', '점'].includes(form.unit.trim()) && (
+          <div
+            style={{
+              fontSize: 'var(--fs-xs)',
+              color: 'var(--ok-orange-700)',
+              background: 'var(--ok-orange-50)',
+              border: '1px solid var(--ok-orange-100)',
+              borderRadius: 8,
+              padding: '8px 10px',
+              marginTop: 10,
+              lineHeight: 1.5,
+            }}
+          >
+            %·점 같은 비율/점수형 단위는 과업·하위 KPI 실적이 <b>단순 합산</b>되어 왜곡될 수 있습니다(예: 88점+92점=180점).
+            과업 1개에만 배분하거나 합산 가능한 단위(억·건·명)를 권장합니다.
+          </div>
+        )}
+
         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 10 }}>
           상위 KPI는 같은 단위·상위 레벨만 선택할 수 있고, 실적은 하위에서 자동 합산됩니다.
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-          <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={onClose}>
+          <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={requestClose}>
             취소
           </button>
           <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={onSubmit} disabled={saving}>

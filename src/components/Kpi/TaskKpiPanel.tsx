@@ -22,6 +22,13 @@ const TaskKpiPanel = ({ taskUuid, taskId, evaluationId, canEdit }: Props) => {
   const confirm = useConfirm();
   const [allocs, setAllocs] = useState<TaskKpiAllocation[] | null>(null);
   const [candidates, setCandidates] = useState<OrgKpi[]>([]);
+  const [candLoading, setCandLoading] = useState(false);
+  const [evaluateeOrg, setEvaluateeOrg] = useState<{
+    corporation: string | null;
+    division: string | null;
+    department: string | null;
+    team: string | null;
+  } | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<{ kpiId: string; allocated: string; achieved: string }>({
     kpiId: '',
@@ -51,17 +58,28 @@ const TaskKpiPanel = ({ taskUuid, taskId, evaluationId, canEdit }: Props) => {
 
   const openAdd = async () => {
     setAdding(true);
+    setCandLoading(true);
     try {
-      const cands = await kpiService.candidatesForEvaluation(evaluationId);
-      setCandidates(cands);
+      const res = await kpiService.candidatesForEvaluation(evaluationId);
+      setCandidates(res.candidates);
+      setEvaluateeOrg(res.evaluatee_org);
     } catch (error) {
       toast({
         title: '정렬 가능한 KPI를 불러오지 못했습니다.',
         description: error instanceof Error ? error.message : '다시 시도해 주세요.',
         variant: 'destructive',
       });
+    } finally {
+      setCandLoading(false);
     }
   };
+
+  // 빈 상태 원인 안내 — 어떤 조직 기준으로 후보를 찾았는지 함께 보여준다.
+  const evaluateeOrgLabel = evaluateeOrg
+    ? [evaluateeOrg.corporation, evaluateeOrg.division, evaluateeOrg.department, evaluateeOrg.team]
+        .filter(Boolean)
+        .join(' > ')
+    : '';
 
   const saveAlignment = async () => {
     if (!form.kpiId) {
@@ -157,7 +175,7 @@ const TaskKpiPanel = ({ taskUuid, taskId, evaluationId, canEdit }: Props) => {
                   </button>
                 )}
               </div>
-              <KpiProgressBar achieved={a.achieved_value} target={a.kpi_target} unit={a.kpi_unit ?? ''} compact />
+              <KpiProgressBar achieved={a.achieved_value} target={a.kpi_target} unit={a.kpi_unit ?? ''} direction={a.kpi_direction} compact />
               <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 4 }}>
                 이 과업 배분 {formatKpiValue(a.allocated_target, a.kpi_unit ?? '')}
                 {a.achieved_value != null ? ` · 실적 ${formatKpiValue(a.achieved_value, a.kpi_unit ?? '')}` : ' · 실적 미입력'}
@@ -175,9 +193,13 @@ const TaskKpiPanel = ({ taskUuid, taskId, evaluationId, canEdit }: Props) => {
 
       {adding && (
         <div style={{ marginTop: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {availableCandidates.length === 0 ? (
+          {candLoading ? (
+            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>정렬 가능한 KPI를 불러오는 중…</div>
+          ) : availableCandidates.length === 0 ? (
             <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-              이 피평가자 조직에 등록된 KPI가 없습니다. 먼저 "조직 KPI" 메뉴에서 등록하세요.
+              {candidates.length > 0
+                ? '후보 KPI가 모두 이미 이 과업에 정렬되어 있습니다.'
+                : `피평가자 조직${evaluateeOrgLabel ? `(${evaluateeOrgLabel})` : ''}과 일치하는 KPI가 없습니다. 먼저 "조직 KPI" 메뉴에서 이 조직명으로 등록하세요.`}
             </div>
           ) : (
             <>

@@ -7274,7 +7274,8 @@ const loadKpiRowsForPeriod = async (periodId) => {
        LEFT JOIN (
          SELECT kpi_id,
                 SUM(COALESCE(achieved_value, 0))   AS own_achieved,
-                SUM(COALESCE(allocated_target, 0)) AS own_allocated
+                SUM(COALESCE(allocated_target, 0)) AS own_allocated,
+                COUNT(achieved_value)              AS own_achieved_count
            FROM task_kpi_allocations GROUP BY kpi_id
        ) a ON a.kpi_id = k.id
       WHERE k.evaluation_period_id = $1
@@ -7285,8 +7286,21 @@ const loadKpiRowsForPeriod = async (periodId) => {
     r.target_value = Number(r.target_value);
     r.own_achieved = Number(r.own_achieved);
     r.own_allocated = Number(r.own_allocated);
+    r.own_achieved_count = Number(r.own_achieved_count ?? 0);
   }
   return rows;
+};
+
+// 진척률 — direction 반영. higher=실적/목표. lower(낮을수록 좋음)=목표/실적:
+//   실적 미입력이면 0(판정 불가), 실적 0 이하면 1(목표 이하 유지 = 달성), 그 외 목표/실적(실적≤목표 ⇒ ≥1).
+const computeKpiProgress = (node) => {
+  if (!(node.target_value > 0)) return 0;
+  if (node.direction === 'lower') {
+    if (!(node.rolled_achieved_count > 0)) return 0;
+    if (node.rolled_achieved <= 0) return 1;
+    return node.target_value / node.rolled_achieved;
+  }
+  return node.rolled_achieved / node.target_value;
 };
 
 // 트리 구성 + 후위순회 롤업. 각 과업 실적은 한 노드에 1회 귀속 → 조상 합산(이중계산 없음).
@@ -7296,6 +7310,7 @@ const buildKpiTree = (rows) => {
     r.children = [];
     r.rolled_achieved = r.own_achieved;
     r.rolled_allocated = r.own_allocated;
+    r.rolled_achieved_count = r.own_achieved_count ?? 0;
   }
   const roots = [];
   for (const r of rows) {
@@ -7311,8 +7326,9 @@ const buildKpiTree = (rows) => {
       visit(child);
       node.rolled_achieved += child.rolled_achieved;
       node.rolled_allocated += child.rolled_allocated;
+      node.rolled_achieved_count += child.rolled_achieved_count;
     }
-    node.progress = node.target_value > 0 ? node.rolled_achieved / node.target_value : 0;
+    node.progress = computeKpiProgress(node);
   };
   roots.forEach(visit);
   return roots;
@@ -7339,6 +7355,8 @@ const serializeKpiBase = (r) => ({
   rolled_achieved: kpiNum(r.rolled_achieved),
   rolled_allocated: kpiNum(r.rolled_allocated),
   progress: r.progress ?? null,
+  // 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분하기 위한 신호.
+  has_actuals: Number(r.rolled_achieved_count ?? r.own_achieved_count ?? 0) > 0,
 });
 const serializeKpiTree = (r) => ({ ...serializeKpiBase(r), children: (r.children || []).map(serializeKpiTree) });
 const serializeAllocation = (r) => ({
@@ -7534,6 +7552,41 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId, req.session.employeeId],
     );
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    // 조직별 '조직장(평가자)' 라벨 — 그 조직 평가대상을 담당 인원수 순으로. 팀 레벨은 사실상 팀장 1명.
+    // 동명 조직(법인 간 같은 팀명)·비슷한 조직명을 사람 이름으로 구분해 고르게 하는 용도.
+    const { rows: leaderRows } = await pool.query(
+      `SELECT ev.evaluatee_org_corporation AS c, ev.evaluatee_org_division AS d,
+              ev.evaluatee_org_department AS dep, ev.evaluatee_org_team AS t,
+              lead.name AS evaluator_name
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+         LEFT JOIN employees lead ON lead.employee_id::text = COALESCE(h.new_evaluator_id::text, e.evaluator_id::text)
+        WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'`,
+      [periodId],
+    );
+    const leaderKeyCol = { corporation: 'c', division: 'd', department: 'dep', team: 't' };
+    const leaderAgg = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+    for (const r of leaderRows) {
+      if (!r.evaluator_name) continue;
+      for (const lvl of Object.keys(leaderKeyCol)) {
+        const org = r[leaderKeyCol[lvl]];
+        if (!org) continue;
+        let m = leaderAgg[lvl].get(org);
+        if (!m) {
+          m = new Map();
+          leaderAgg[lvl].set(org, m);
+        }
+        m.set(r.evaluator_name, (m.get(r.evaluator_name) ?? 0) + 1);
+      }
+    }
+    const leaders = {};
+    for (const lvl of Object.keys(leaderKeyCol)) {
+      leaders[lvl] = {};
+      for (const [org, m] of leaderAgg[lvl]) {
+        leaders[lvl][org] = [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+      }
+    }
     // 등록 폼용 — 요청자가 KPI를 만들 수 있는 조직(평가하는 조직, 레벨별). HR 은 전체.
     const creatable = await getCreatableOrgs(req, periodId, await kpiActingAsHr(req));
     const sortKo = (s) => [...s].sort((a, b) => a.localeCompare(b, 'ko-KR'));
@@ -7556,6 +7609,7 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       },
       myTeams,
       manageable: manageableOut,
+      leaders,
     });
   } catch (err) {
     console.error('Error fetching KPI org options:', err.message);
@@ -7580,10 +7634,11 @@ app.get('/api/org-kpis/:id', async (req, res) => {
       return res.status(403).json({ error: '이 KPI에 접근할 권한이 없습니다.' });
     }
     const { rows: allocs } = await pool.query(
-      `SELECT al.*, e.name AS evaluatee_name
+      `SELECT al.*, e.name AS evaluatee_name, t.title AS task_title
          FROM task_kpi_allocations al
          LEFT JOIN evaluations ev ON ev.id = al.evaluation_id
          LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+         LEFT JOIN tasks t ON t.id = al.task_uuid
         WHERE al.kpi_id = $1 ORDER BY al.updated_at DESC`,
       [req.params.id],
     );
@@ -7774,7 +7829,7 @@ app.delete('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
 
 // 평가건에 정렬 가능한 KPI 후보 — 그 피평가자 조직(레벨별)에 맞는 KPI만.
 app.get('/api/evaluations/:evalId/kpi-candidates', guardEvaluationParam('evalId', { allowLineDescendant: true }), async (req, res) => {
-  if (!isDbAvailable) return res.json([]);
+  if (!isDbAvailable) return res.json({ candidates: [], evaluatee_org: null });
   try {
     const ev = (
       await pool.query(
@@ -7785,7 +7840,7 @@ app.get('/api/evaluations/:evalId/kpi-candidates', guardEvaluationParam('evalId'
         [req.params.evalId],
       )
     ).rows[0];
-    if (!ev) return res.json([]);
+    if (!ev) return res.json({ candidates: [], evaluatee_org: null });
     const { rows } = await pool.query(
       `SELECT * FROM org_kpis
         WHERE evaluation_period_id = $1 AND status = 'active'
@@ -7796,7 +7851,11 @@ app.get('/api/evaluations/:evalId/kpi-candidates', guardEvaluationParam('evalId'
         ORDER BY org_level, name`,
       [ev.evaluation_period_id, ev.c, ev.d, ev.dep, ev.t],
     );
-    res.json(rows.map((r) => ({ ...r, target_value: kpiNum(r.target_value) })));
+    // evaluatee_org: 빈 상태 문구에 "어떤 조직 기준으로 매칭했는지"를 보여주기 위해 동봉.
+    res.json({
+      candidates: rows.map((r) => ({ ...r, target_value: kpiNum(r.target_value) })),
+      evaluatee_org: { corporation: ev.c, division: ev.d, department: ev.dep, team: ev.t },
+    });
   } catch (err) {
     console.error('Error fetching KPI candidates:', err.message);
     res.status(500).json({ error: 'Database error' });
