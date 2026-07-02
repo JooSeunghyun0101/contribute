@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
@@ -1082,6 +1083,50 @@ const MyHome = () => {
                 </p>
               )}
             </div>
+            {/* 최근 피드백 — 로그인 직후 '평가자가 뭐라고 했는지'를 첫 화면에서 바로 볼 수 있게. */}
+            {recentFeedbacks.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)' }}>
+                    최근 피드백
+                  </span>
+                  <Link
+                    to="/my/feedback"
+                    style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--ok-orange)' }}
+                  >
+                    피드백 이력 전체 보기 →
+                  </Link>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {recentFeedbacks.map((fb) => (
+                    <div key={fb.id} style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.6 }}>
+                      <span style={{ fontWeight: 700 }}>{fb.taskTitle}</span>
+                      <span style={{ color: 'var(--fg-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 6 }}>
+                        {new Date(fb.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <div
+                        style={{
+                          color: 'var(--fg-muted)',
+                          overflow: 'hidden',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        {fb.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           </div>
         </>

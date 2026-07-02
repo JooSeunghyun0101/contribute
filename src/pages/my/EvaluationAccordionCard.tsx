@@ -142,15 +142,19 @@ const EvaluationAccordionCard = ({
     [drafts, tasks],
   );
 
+  // 미저장 변경이 있는 기존 과업 수 — 임시저장은 dirty 과업을 일괄 저장하므로 버튼 게이트·라벨에 사용.
+  const dirtyTaskCount = useMemo(
+    () => tasks.filter((t) => isTaskDirty(t.id)).length,
+    [tasks, isTaskDirty],
+  );
   // F-2: 이 카드(자체 로컬 drafts 사용)의 미저장 편집 시 이탈 경고. 작성 중 새 과업 또는 dirty 과업.
   const hasUnsavedEdits = useMemo(() => {
     const newDraft = drafts[NEW_DRAFT_KEY];
     const newDraftHasContent = Boolean(
       newDraft && (newDraft.title?.trim() || newDraft.description?.trim() || newDraft.weight),
     );
-    const anyTaskDirty = Object.keys(drafts).some((key) => key !== NEW_DRAFT_KEY && isTaskDirty(key));
-    return newDraftHasContent || anyTaskDirty;
-  }, [drafts, isTaskDirty]);
+    return newDraftHasContent || dirtyTaskCount > 0;
+  }, [drafts, dirtyTaskCount]);
   useUnsavedChangesWarning(hasUnsavedEdits);
 
   // F-2: 카드 로컬 drafts 를 localStorage 에 자동저장/복원(새로고침·탭닫기 후 작성 중 내용 복구).
@@ -951,16 +955,20 @@ const EvaluationAccordionCard = ({
                       className="sd-btn sd-btn-outline sd-btn-sm"
                       onClick={() => handleSave(false)}
                       disabled={
-                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && !isDirty)
+                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && !hasUnsavedEdits)
                       }
                       title={
                         canEditTasks
-                          ? '총 가중치가 100%가 아니어도 현재 입력값을 저장합니다.'
+                          ? '총 가중치가 100%가 아니어도 현재 입력값을 저장합니다. 미저장 변경이 있는 다른 과업도 함께 저장됩니다.'
                           : taskEditMessage ?? undefined
                       }
                     >
                       <Save size={14} aria-hidden="true" />
-                      {isSaving ? '저장 중...' : '임시저장'}
+                      {isSaving
+                        ? '저장 중...'
+                        : dirtyTaskCount > 1
+                          ? `임시저장 (변경 ${dirtyTaskCount}건)`
+                          : '임시저장'}
                     </button>
                     <button
                       className="sd-btn sd-btn-primary sd-btn-sm"

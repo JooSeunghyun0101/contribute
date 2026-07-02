@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '@/lib/services';
-import { setUnauthorizedHandler, setActiveRole } from '@/lib/api';
+import { setUnauthorizedHandler, setActiveRole, SESSION_EXPIRED_STORAGE_KEY } from '@/lib/api';
 import { User, Employee, UserRole } from '@/types';
 
 interface LoginResult {
@@ -84,7 +84,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // (서버 재시작·idle TTL 로 인메모리 세션이 사라졌을 때 깨진 토스트 대신 자연스러운 재로그인.)
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      setUser(null);
+      // 로그인된 상태에서 맞은 401만 '세션 만료'로 기록 → Login 이 1회성 안내를 띄운다.
+      // 직접 로그아웃은 authFetch 경유라 이 핸들러를 타지 않고, logout()이 user 를 먼저
+      // 비우므로(동일 배치에서 이 updater 보다 앞서 반영) 잔여 요청의 401에도 플래그가 남지 않는다.
+      setUser((current) => {
+        if (current) sessionStorage.setItem(SESSION_EXPIRED_STORAGE_KEY, '1');
+        return null;
+      });
       setActiveRole(null);
       setMustChangePassword(false);
       localStorage.removeItem(PREFERRED_ROLE_KEY);

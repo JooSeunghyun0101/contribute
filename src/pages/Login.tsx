@@ -1,7 +1,8 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/lib/services/authService';
+import { SESSION_EXPIRED_STORAGE_KEY } from '@/lib/api';
 import { IconArrowRight } from '@/components/brand';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -21,6 +22,14 @@ const Login = () => {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetReason, setResetReason] = useState('');
   const [info, setInfo] = useState('');
+
+  // 세션 만료(401)로 튕겨온 경우 1회성 안내 — 플래그는 읽은 즉시 제거해 새로고침 시 재노출을 막는다.
+  useEffect(() => {
+    if (sessionStorage.getItem(SESSION_EXPIRED_STORAGE_KEY) === '1') {
+      sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY);
+      setInfo('세션이 만료되어 다시 로그인해 주세요.');
+    }
+  }, []);
 
   // 로그인됐지만 비밀번호 변경이 강제된 상태(새로고침 포함)면 변경 폼을 보여준다.
   const showChangeForm = Boolean(user) && mustChangePassword;

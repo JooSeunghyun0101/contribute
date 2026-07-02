@@ -203,7 +203,9 @@ const TeamHome = () => {
     error,
     isFormerLoading,
     formerError,
-  } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, true);
+  // includeFeedbackHistory=false — 보드는 피드백 이력을 표시하지 않는데 true 면 과업당 이력 HTTP 호출이
+  // 추가돼(팀원 20명·과업 100건 ≈ 요청 100+개) 보드 로딩을 크게 늦춘다.
+  } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, false);
 
   const cards = useMemo(() => records.map(buildCard), [records]);
   // 과거 담당 피평가자 카드는 reviewStatus 가 어떤 값이든 클릭 가능해야 한다.

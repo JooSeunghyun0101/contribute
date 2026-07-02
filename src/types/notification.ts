@@ -6,6 +6,7 @@ export type NotificationType =
   | 'task_updated'
   | 'evaluation_updated'
   | 'evaluation_started'
+  | 'evaluation_submitted'
   | 'evaluation_completed'
   | 'hr_message'
   | 'user_assigned'

@@ -841,27 +841,6 @@ export const useEvaluationDataDB = (
     }
   };
 
-  const handleWeightChange = (taskId: string, weight: number) => {
-    if (!ensurePeriodEditable()) return;
-    updateTask(taskId, 'weight', weight);
-    
-    if (!evaluationData) return;
-    
-    // 알림 생성 제거 - 저장 시에만 생성하도록 변경
-    
-    const newTotalWeight = evaluationData.tasks.reduce((sum, t) => {
-      return sum + (t.id === taskId ? weight : t.weight);
-    }, 0);
-    
-    if (newTotalWeight !== 100) {
-      toast({
-        title: "가중치 확인 필요",
-        description: `현재 총 가중치: ${newTotalWeight}% (100%가 되도록 조정해주세요)`,
-        variant: "destructive",
-      });
-    }
-  };
-
   const getTaskWithDraft = useCallback(
     (task: Task) => applyTaskDraft(task, taskDrafts[task.id]),
     [taskDrafts],
@@ -1069,7 +1048,7 @@ export const useEvaluationDataDB = (
       if (totalWeight !== 100) {
         toast({
           title: "저장 실패",
-          description: `가중치 합계가 100%가 아닙니다. 현재: ${totalWeight}%\n가중치를 조정한 후 다시 저장해주세요.`,
+          description: `가중치 합계가 100%가 아닙니다. 현재: ${totalWeight}%\n가중치는 피평가자가 수정하는 값입니다 — '피평가자에게 돌려보내기'로 조정을 요청하세요.`,
           variant: "destructive",
         });
         return false;
@@ -1095,7 +1074,9 @@ export const useEvaluationDataDB = (
       }
       if (!evaluation) throw new Error('평가 정보를 찾을 수 없습니다.');
 
-      const dbTasks = await taskService.getTasksByEvaluationId(evaluation.id);
+      // 소프트 삭제 과업 제외 — 돌려보내기 후 피평가자가 과업을 삭제한 사이 stale 탭이 저장해도
+      // 삭제 과업에 유령 entry 가 남지 않게 한다(서버도 409로 차단하지만 여기서 선제 제외).
+      const dbTasks = (await taskService.getTasksByEvaluationId(evaluation.id)).filter((t) => !t.deleted_at);
       const evaluatorId = getEvaluatorIdentity(user);
       const evaluatorName = user.name;
       const dbEntries = await taskEvaluationEntryService.getEntriesByEvaluationId(evaluation.id);
@@ -1303,8 +1284,22 @@ export const useEvaluationDataDB = (
         }
       }
 
-      // 평가 상태 업데이트
-      const isComplete = tasksToSave.every(task => task.score !== undefined && task.score !== null);
+      // 평가 상태 업데이트 — 완료 판정은 화면(stale 가능) 목록이 아니라 방금 조회한 살아있는 DB 과업 기준.
+      // 돌려보내기 후 피평가자가 과업을 추가한 사이 stale 탭이 저장해도, 미채점 신규 과업이 있으면
+      // 'completed'로 확정되지 않는다.
+      const screenTaskIds = new Set(tasksToSave.map((task) => task.id));
+      const tasksAddedAfterLoad = dbTasks.filter((t) => !screenTaskIds.has(t.id));
+      const isComplete = dbTasks.every((t) => {
+        const draft = tasksToSave.find((task) => task.id === t.id);
+        if (draft?.score !== undefined && draft?.score !== null) return true;
+        return getCurrentDbEntry(t.id)?.score != null;
+      });
+      if (tasksAddedAfterLoad.length > 0) {
+        toast({
+          title: '피평가자가 과업을 변경했습니다',
+          description: `화면에 없던 과업 ${tasksAddedAfterLoad.length}건이 새로 등록되어 있습니다. 저장 후 갱신된 목록에서 새 과업도 채점해 주세요.`,
+        });
+      }
       await evaluationService.updateEvaluation(evaluation.id, {
         // Log evaluation status update payload
         evaluation_status: isComplete ? 'completed' : 'evaluating',
@@ -1519,7 +1514,6 @@ export const useEvaluationDataDB = (
   return {
     evaluationData,
     isLoading,
-    handleWeightChange,
     handleMethodClick,
     handleScopeClick,
     handleFeedbackChange,

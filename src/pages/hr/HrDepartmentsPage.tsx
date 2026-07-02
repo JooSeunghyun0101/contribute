@@ -19,6 +19,7 @@ import {
   type OrgLevel,
 } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+import { isFinalizedEvaluationStatus } from '@/lib/evaluationStatus';
 import { employeeService } from '@/lib/services';
 import type { Employee } from '@/types';
 import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
@@ -42,8 +43,9 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name-asc', label: '부서명 가나다순' },
 ];
 
+// 완료 판정 단일 기준(src/lib/evaluationStatus.ts) — 완료 = 평가자 확정(completed/locked).
 const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
-  record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
+  isFinalizedEvaluationStatus(record.reviewStatus);
 
 // 그룹핑·필터·표 org 표시는 '그 평가 기간'의 조직 기준(evaluatee_org_*), 없으면 현재 employee.org_* 폴백.
 const recordOrg = (record: EmployeeEvaluationRecord) =>

@@ -1,6 +1,5 @@
 import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { FullScreenLoader } from "@/components/ui/loader";
@@ -99,7 +98,6 @@ const App = () => (
     <ErrorBoundary>
     <TooltipProvider>
       <Toaster />
-      <Sonner />
       <ConfirmDialogProvider>
       <AuthProvider>
         <EvaluationMatrixProvider>

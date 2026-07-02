@@ -28,6 +28,7 @@ export const NOTIFICATION_ROLES: Record<NotificationType, UserRole[]> = {
   task_summary: ['evaluator'],
   evaluation_updated: ['evaluator'],
   user_assigned: ['evaluator'],
+  evaluation_submitted: ['evaluator'],
   evaluation_return_requested: ['evaluator'],
   evaluator_unassigned: ['evaluator'],
   // HR

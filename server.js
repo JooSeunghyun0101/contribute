@@ -1902,6 +1902,7 @@ const getTaskForEvaluationEntry = async (client, payload) => {
         t.id,
         t.task_id,
         t.evaluation_id,
+        t.deleted_at,
         e.evaluatee_id,
         e.evaluation_status,
         CASE
@@ -1939,6 +1940,15 @@ const getTaskForEvaluationEntry = async (client, payload) => {
   const task = rows[0];
   if (!task) {
     throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  }
+
+  // 소프트 삭제된 과업에 대한 채점(entry) 기록 차단 — 피평가자가 과업을 삭제·재제출한 뒤
+  // 평가자의 stale 탭이 저장하면 삭제 과업에 유령 점수가 남는 경로를 서버에서 원천 봉쇄.
+  if (task.deleted_at) {
+    throw Object.assign(
+      new Error('삭제된 과업에는 평가를 저장할 수 없습니다. 화면을 새로고침해 최신 과업 목록으로 다시 평가해 주세요.'),
+      { statusCode: 409 },
+    );
   }
 
   if (payload.evaluation_id && task.evaluation_id !== payload.evaluation_id) {
@@ -5782,6 +5792,58 @@ app.get('/api/admin/password-reset-requests', requireHr, async (req, res) => {
   } catch (err) {
     console.error('비밀번호 초기화 요청 목록 조회 실패:', err.message);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 사이드바 배지 카운트 — 역할별 '지금 액션이 필요한 건수'를 요청 1회로 반환.
+//   피평가자: 선택 기간 내 본인 평가 중 성과보고 미제출(제출 전 상태) 건수
+//   평가자:   본인 담당(현 배정 기준) 평가 중 검토 필요(submitted·evaluating) 건수
+//   HR:       변경요청·비밀번호 초기화 대기 건수 (HR 역할일 때만 계산)
+// 발령 취소 등 record_status 특수 케이스는 보드의 정밀 분류와 미세하게 다를 수 있는 근사치(배지 용도).
+app.get('/api/badge-counts', async (req, res) => {
+  if (!isDbAvailable) return res.json({});
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const me = String(req.session.employeeId);
+  const periodId = typeof req.query.periodId === 'string' && req.query.periodId ? req.query.periodId : null;
+  try {
+    const out = { myPendingSubmit: 0, reviewNeeded: 0, pendingChangeRequests: 0, pendingPasswordResets: 0 };
+    if (periodId) {
+      const mine = await pool.query(
+        `SELECT COUNT(*)::int AS c
+           FROM evaluations ev
+          WHERE ev.evaluatee_id::text = $1 AND ev.evaluation_period_id = $2
+            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND COALESCE(ev.evaluation_status, 'in-progress') NOT IN ('submitted','evaluating','completed','locked')`,
+        [me, periodId],
+      );
+      out.myPendingSubmit = mine.rows[0]?.c ?? 0;
+      const review = await pool.query(
+        `SELECT COUNT(*)::int AS c
+           FROM evaluations ev
+           LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+           LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+          WHERE ev.evaluation_period_id = $2
+            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) = $1
+            AND ev.evaluation_status IN ('submitted','evaluating')`,
+        [me, periodId],
+      );
+      out.reviewNeeded = review.rows[0]?.c ?? 0;
+    }
+    if (await requesterIsHr(req)) {
+      const cr = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM evaluator_change_requests WHERE status = 'pending'`,
+      );
+      out.pendingChangeRequests = cr.rows[0]?.c ?? 0;
+      const pr = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM password_reset_requests WHERE status = 'pending'`,
+      );
+      out.pendingPasswordResets = pr.rows[0]?.c ?? 0;
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('배지 카운트 조회 실패:', err.message);
+    res.json({});
   }
 });
 

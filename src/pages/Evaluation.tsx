@@ -404,9 +404,39 @@ const Evaluation = () => {
       });
       return;
     }
+    // 검증을 확인 다이얼로그 '앞'으로 — 승인한 뒤에야 거부당하는 역순 흐름을 없애고,
+    // 다이얼로그에는 실제 저장 결과(채점/피드백 현황·전환될 상태)를 요약해 보여준다.
+    const views = currentEvaluatorGroup?.tasks ?? [];
+    const total = views.length;
+    const scored = views.filter((v) => v.score != null).length;
+    const missingFeedbackTitles = views
+      .filter((v) => !(v.displayTask.feedback ?? '').trim())
+      .map((v) => v.displayTask.title || '제목 없음');
+    const totalWeight = views.reduce((sum, v) => sum + (v.displayTask.weight ?? 0), 0);
+    if (totalWeight !== 100) {
+      toast({
+        title: '저장할 수 없습니다 — 가중치 합계 오류',
+        description: `과업 가중치 합계가 ${totalWeight}%입니다(100% 필요). 가중치는 피평가자가 수정하는 값이므로, '피평가자에게 돌려보내기'로 조정을 요청하세요.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (missingFeedbackTitles.length > 0) {
+      toast({
+        title: `피드백 미작성 ${missingFeedbackTitles.length}건`,
+        description: `모든 과업에 피드백이 있어야 저장할 수 있습니다: ${missingFeedbackTitles.join(', ')}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    const willComplete = scored === total;
     const ok = await confirm({
       title: '최종 평가를 저장하시겠습니까?',
-      description: '저장 후에는 평가 단계가 완료로 전환됩니다.',
+      description: `채점 ${scored}/${total} · 피드백 ${total - missingFeedbackTitles.length}/${total}\n${
+        willComplete
+          ? "저장 후 평가 단계가 '완료'로 전환됩니다."
+          : `미채점 ${total - scored}건이 있어 '평가 중' 상태로 저장됩니다(완료 아님).`
+      }`,
       confirmText: '최종 저장',
     });
     if (!ok) return;
@@ -476,8 +506,12 @@ const Evaluation = () => {
     try {
       const ok = handleTemporarySave();
       toast({
-        title: ok ? '임시저장되었습니다.' : '임시저장할 내용이 없습니다.',
-        description: ok ? '평가 저장 전까지 점수와 진행 현황에는 반영되지 않습니다.' : undefined,
+        title: ok ? '이 브라우저에 임시저장되었습니다.' : '임시저장할 내용이 없습니다.',
+        // 임시저장은 서버(DB)가 아니라 이 브라우저의 localStorage에만 기록된다 — 사용자가
+        // '서버에 저장됐다'고 오인해 다른 PC에서 이어 작업하다 유실되는 사고를 문구로 예방.
+        description: ok
+          ? '지금 쓰는 브라우저에만 보관되며 다른 기기·다른 브라우저에서는 보이지 않습니다. 평가 저장 전까지 점수와 진행 현황에도 반영되지 않습니다.'
+          : undefined,
         variant: ok ? 'default' : 'destructive',
       });
     } finally {

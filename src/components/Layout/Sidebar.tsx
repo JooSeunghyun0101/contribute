@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
+import { useSidebarBadges, type SidebarBadgeCounts } from '@/hooks/useSidebarBadges';
 import type { UserRole } from '@/types';
 import {
   CountdownCard,
@@ -31,18 +32,20 @@ type MenuItem = {
   icon: IconComp;
   end?: boolean;
   group?: string;
+  /** 액션 필요 건수 배지 — badge-counts 응답의 어느 카운트를 표시할지. */
+  badgeKey?: keyof SidebarBadgeCounts;
 };
 
 const menus: Record<UserRole, MenuItem[]> = {
   evaluatee: [
     { to: '/my', label: '내 대시보드', icon: IconHome, end: true },
-    { to: '/my/tasks', label: '내 과업', icon: IconTarget },
+    { to: '/my/tasks', label: '내 과업', icon: IconTarget, badgeKey: 'myPendingSubmit' },
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
     { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/my/ai', label: 'AI 도움말', icon: IconSparkle },
   ],
   evaluator: [
-    { to: '/team', label: '평가 보드', icon: IconGrid, end: true },
+    { to: '/team', label: '평가 보드', icon: IconGrid, end: true, badgeKey: 'reviewNeeded' },
     { to: '/team/members', label: '담당 팀원', icon: IconUsers },
     { to: '/kpi', label: '조직 KPI', icon: IconTarget },
     { to: '/team/feedback', label: '피드백 내역', icon: IconMsg },
@@ -56,14 +59,14 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/kpi', label: '조직 KPI', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
     { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
-    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영' },
+    { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영', badgeKey: 'pendingChangeRequests' },
     { to: '/hr/audit-logs', label: '감사 로그', icon: IconFile, group: '운영' },
     { to: '/hr/reminders', label: '리마인드·AI검수', icon: IconBell, group: '운영' },
     { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
     { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },
-    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정' },
+    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정', badgeKey: 'pendingPasswordResets' },
   ],
 };
 
@@ -110,6 +113,9 @@ export const Sidebar = () => {
     }
     return { cycle, remaining: end ? `~ ${end}` : '진행 중', progress };
   }, [selectedPeriod]);
+
+  // 역할별 '액션 필요 건수' 배지 — 대기 업무(미제출·검토 필요·승인 대기)를 메뉴에서 바로 보이게.
+  const badges = useSidebarBadges(selectedPeriod?.id ?? null, Boolean(user));
 
   const list = user ? menus[user.role] ?? menus.evaluatee : [];
   const hasGroups = list.some((item) => item.group);
@@ -169,6 +175,7 @@ export const Sidebar = () => {
 
   const renderLink = (item: MenuItem) => {
     const Icon = item.icon;
+    const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
     return (
       <NavLink key={item.to} to={item.to} end={item.end} className="sd-sidebar-link">
         {({ isActive }) => (
@@ -205,7 +212,29 @@ export const Sidebar = () => {
               size={18}
               style={{ color: isActive ? 'var(--ok-orange)' : 'var(--fg-muted)', flexShrink: 0 }}
             />
-            <span>{item.label}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>{item.label}</span>
+            {badgeCount > 0 && (
+              <span
+                aria-label={`대기 ${badgeCount}건`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 20,
+                  height: 20,
+                  padding: '0 6px',
+                  borderRadius: 999,
+                  background: 'var(--ok-orange)',
+                  color: '#fff',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+              >
+                {badgeCount > 99 ? '99+' : badgeCount}
+              </span>
+            )}
           </span>
         )}
       </NavLink>

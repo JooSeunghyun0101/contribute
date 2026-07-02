@@ -30,6 +30,11 @@ export const setActiveRole = (role: string | null): void => {
   activeRole = role;
 };
 
+// 세션 만료(401)로 로그인 화면에 튕겨온 것을 Login 이 1회성 안내로 알리기 위한 sessionStorage 키.
+// AuthProvider 의 unauthorized 핸들러가 기록하고, Login 이 마운트 시 읽은 뒤 즉시 제거한다.
+// (사용자가 직접 로그아웃한 경로에서는 기록하지 않는다 — AuthContext 참조.)
+export const SESSION_EXPIRED_STORAGE_KEY = 'session-expired';
+
 // 세션 만료(401) 전역 처리기 — AuthProvider 가 등록해 사용자 상태를 비우고 로그인 화면으로 보낸다.
 // (인증 부팅 프로브 authService.me 는 별도 authFetch 라 여기서 트리거되지 않는다.)
 let onUnauthorized: (() => void) | null = null;
