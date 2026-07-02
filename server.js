@@ -7494,15 +7494,20 @@ const getPeriodDownwardChainIds = async (periodId, employeeId) => {
   const { rows } = await pool.query(
     `WITH RECURSIVE ev_edges AS (
        SELECT ev.evaluatee_id::text AS child,
-              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS parent
+              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS parent,
+              e.available_roles AS child_roles
          FROM evaluations ev
          LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
          LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
         WHERE ev.evaluation_period_id = $2 AND ev.record_status = 'active'
      ), down AS (
-       SELECT child FROM ev_edges WHERE parent = $1
+       SELECT child, child_roles FROM ev_edges WHERE parent = $1
        UNION
-       SELECT g.child FROM ev_edges g JOIN down d ON g.parent = d.child
+       -- 평가권한(evaluator) 없는 사람 아래로는 내려가지 않는다 — 퇴사자를 평가실무자(권한 없음)에게
+       -- 관례로 매칭해 두는데, 그 퇴사자들이 실무자의 평가자 체인으로 새는 것을 차단(마스터 체인 CTE 와 동일 규칙).
+       SELECT g.child, g.child_roles FROM ev_edges g
+         JOIN down d ON g.parent = d.child
+        WHERE 'evaluator' = ANY(d.child_roles)
      )
      SELECT DISTINCT child FROM down`,
     [base, periodId],
@@ -7538,15 +7543,26 @@ const kpiTupleKey = (t, level) => {
 // members=null 이면 전체(HR 관리자 탭·admin).
 const getOrgTuplesForMembers = async (periodId, membersOrNull) => {
   const { rows } = await pool.query(
-    `SELECT evaluatee_id,
-            evaluatee_org_corporation AS corporation, evaluatee_org_division AS division,
-            evaluatee_org_department AS department, evaluatee_org_team AS team
-       FROM evaluations WHERE evaluation_period_id = $1 AND record_status = 'active'`,
+    `SELECT ev.evaluatee_id,
+            ev.evaluatee_org_corporation AS corporation, ev.evaluatee_org_division AS division,
+            ev.evaluatee_org_department AS department, ev.evaluatee_org_team AS team,
+            COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS evaluator_id,
+            pe.available_roles AS evaluator_roles
+       FROM evaluations ev
+       LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+       LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+       LEFT JOIN employees pe ON pe.employee_id::text = COALESCE(h.new_evaluator_id::text, e.evaluator_id::text)
+      WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'`,
     [periodId],
   );
   const perLevel = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   const coverage = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   for (const e of rows) {
+    // 조직 선택지·전원소속 분모에서 제외하는 행:
+    //  ① 평가권한 없는 평가자에게 매칭된 행(퇴사자 관례: 평가실무자 매칭) — 유령 조직 노출 방지
+    //  ② 평가자 미배정 행 — 판정 불가 인원이 실제 팀장의 '전원 소속' 판정을 깨지 않게(중립 처리)
+    if (!e.evaluator_id) continue;
+    if (Array.isArray(e.evaluator_roles) && !e.evaluator_roles.includes('evaluator')) continue;
     const inMembers = membersOrNull === null || membersOrNull.has(String(e.evaluatee_id));
     for (const level of KPI_LEVELS) {
       if (!e[level]) continue;
@@ -7706,21 +7722,21 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId, req.session.employeeId],
     );
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-    // 조직별 '조직장(평가자)' 라벨 — 동명 조직(법인 간 같은 팀명)·유사 조직명을 사람 이름으로 구분하는 용도.
-    // 조직장 = 그 조직 구성원을 평가하면서, 본인도 그 조직 구성원이고, 본인의 평가자는 조직 밖인 사람
-    // (= 조직 내부 평가체인의 최상위). 단순 '담당 인원수 1위'는 팀 상위 레벨(부·본부)에서 가장 큰 팀의
-    // 팀장을 조직장으로 오표기하므로 쓰지 않는다. 팀 레벨만은 후보가 없으면 인원수 1위로 폴백(팀장이
-    // 평가 대상이 아닌 경우), 상위 레벨은 오표기 위험이 커 라벨을 생략한다.
+    // 조직별 '조직장' 라벨 — 동명 조직(법인 간 같은 팀명)·유사 조직명을 사람 이름으로 구분하는 용도.
+    // 조직장 = 그 조직 구성원 전원의 '상향 평가체인 경로'가 수렴하는 최심 공통 조상(LCA).
+    //   상향 경로는 기간 평가자 배정을 우선, 평가행이 없는 임원 구간은 employees.evaluator_id 폴백.
+    //   조직 소속 평가행이 없어도(임원 미평가) 조직장이 될 수 있고(예: 본부장), 팀은 자연히 팀장이 나온다.
+    //   후보는 '구성원 1명 이상을 실제 평가하는 사람'으로 한정(1인 조직에서 본인이 뽑히는 것 방지).
+    //   경로가 수렴하지 않으면(임원 체인 단절) 라벨 생략 — 오표기(이인성·박판근 사례)보다 생략.
+    // 평가권한 없는 평가자에게 매칭된 평가행(퇴사자 관례: 평가실무자 매칭)은 구성원에서 제외한다.
     const { rows: leaderRows } = await pool.query(
       `SELECT ev.evaluatee_id::text AS evaluatee_id,
               ev.evaluatee_org_corporation AS c, ev.evaluatee_org_division AS d,
               ev.evaluatee_org_department AS dep, ev.evaluatee_org_team AS t,
-              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS evaluator_id,
-              lead.name AS evaluator_name
+              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS evaluator_id
          FROM evaluations ev
          LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
          LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
-         LEFT JOIN employees lead ON lead.employee_id::text = COALESCE(h.new_evaluator_id::text, e.evaluator_id::text)
         WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'`,
       [periodId],
     );
@@ -7734,48 +7750,68 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       }
       return parts.join('|');
     };
-    // 개인별 소속(본인 평가 기준)과 평가자 — 체인 조건 판정용.
-    const orgOfMember = new Map(); // evaluatee_id → {c,d,dep,t}
-    const evaluatorOfMember = new Map(); // evaluatee_id → evaluator_id
-    const nameOfEvaluator = new Map(); // evaluator_id → name
-    for (const r of leaderRows) {
-      orgOfMember.set(r.evaluatee_id, { c: r.c, d: r.d, dep: r.dep, t: r.t });
-      if (r.evaluator_id) {
-        evaluatorOfMember.set(r.evaluatee_id, r.evaluator_id);
-        if (r.evaluator_name) nameOfEvaluator.set(r.evaluator_id, r.evaluator_name);
+    // 직원 마스터 — 이름·마스터 평가자(임원 상향 폴백)·평가권한.
+    const { rows: empRows } = await pool.query(
+      `SELECT employee_id::text AS id, name, evaluator_id::text AS ev, available_roles FROM employees`,
+    );
+    const masterParent = new Map(empRows.map((r) => [r.id, r.ev]));
+    const empName = new Map(empRows.map((r) => [r.id, r.name]));
+    const hasEvaluatorRole = new Map(
+      empRows.map((r) => [r.id, Array.isArray(r.available_roles) && r.available_roles.includes('evaluator')]),
+    );
+    const validLeaderRows = leaderRows.filter(
+      (r) => !r.evaluator_id || hasEvaluatorRole.get(r.evaluator_id) !== false,
+    );
+    const periodParent = new Map();
+    for (const r of validLeaderRows) if (r.evaluator_id) periodParent.set(r.evaluatee_id, r.evaluator_id);
+    const upPathCache = new Map();
+    const upPath = (id) => {
+      const hit = upPathCache.get(id);
+      if (hit) return hit;
+      const path = [id];
+      const guard = new Set([id]);
+      let cur = id;
+      for (let i = 0; i < 60; i++) {
+        const nxt = periodParent.get(cur) ?? masterParent.get(cur) ?? null;
+        if (!nxt || guard.has(nxt)) break;
+        guard.add(nxt);
+        path.push(nxt);
+        cur = nxt;
       }
-    }
-    // 조직(경로 키)별 평가자 담당 인원수(evaluator_id 기준 — 동명이인 합산 방지).
-    const leaderAgg = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
-    for (const r of leaderRows) {
-      if (!r.evaluator_id || !r.evaluator_name) continue;
+      upPathCache.set(id, path);
+      return path;
+    };
+    const membersByKey = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+    for (const r of validLeaderRows) {
       for (const lvl of KPI_LEVELS) {
         if (!r[leaderKeyCol[lvl]]) continue;
         const key = rowPathKey(r, lvl);
-        let m = leaderAgg[lvl].get(key);
-        if (!m) {
-          m = new Map();
-          leaderAgg[lvl].set(key, m);
+        let arr = membersByKey[lvl].get(key);
+        if (!arr) {
+          arr = [];
+          membersByKey[lvl].set(key, arr);
         }
-        m.set(r.evaluator_id, (m.get(r.evaluator_id) ?? 0) + 1);
+        arr.push(r.evaluatee_id);
       }
     }
     const leaders = {};
     for (const lvl of KPI_LEVELS) {
       leaders[lvl] = {};
-      // 법인 레벨은 조직장 라벨 생략 — 법인 대표·임원급은 평가 대상이 아닌 경우가 많아
-      // '조직 내 체인 최상위' 규칙이 실제 조직장이 아닌 최다 담당 부장을 뽑는다(예: OK→이인성 오표기).
-      if (lvl === 'corporation') continue;
-      for (const [key, m] of leaderAgg[lvl]) {
-        const byCount = [...m.entries()].sort((a, b) => b[1] - a[1]);
-        const qualified = byCount.filter(([id]) => {
-          if (rowPathKey(orgOfMember.get(id), lvl) !== key) return false; // 본인이 그 조직 구성원
-          const boss = evaluatorOfMember.get(id);
-          return !boss || rowPathKey(orgOfMember.get(boss), lvl) !== key; // 그의 평가자는 조직 밖(=체인 최상위)
-        });
-        const picked = qualified.length > 0 ? qualified : lvl === 'team' ? byCount : [];
-        const names = picked.map(([id]) => nameOfEvaluator.get(id)).filter(Boolean);
-        if (names.length > 0) leaders[lvl][key] = names;
+      for (const [key, members] of membersByKey[lvl]) {
+        // 평가자가 전혀 없는 구성원(미배정 — 경로가 본인뿐)은 수렴 판정에서 제외: 체인 정보가 없어
+        // 판정 불가일 뿐, 조직장 라벨을 지워야 할 근거가 아니다.
+        const anchored = members.filter((m) => upPath(m).length > 1);
+        if (anchored.length === 0) continue;
+        const first = upPath(anchored[0]);
+        const commonSet = new Set(first);
+        for (let i = 1; i < anchored.length && commonSet.size > 0; i++) {
+          const s = new Set(upPath(anchored[i]));
+          for (const el of [...commonSet]) if (!s.has(el)) commonSet.delete(el);
+        }
+        const evaluatesMember = new Set(anchored.map((m) => periodParent.get(m)).filter(Boolean));
+        const lca = first.find((el) => commonSet.has(el) && evaluatesMember.has(el));
+        const name = lca ? empName.get(lca) : null;
+        if (name) leaders[lvl][key] = [name];
       }
     }
     // 등록 폼 드롭다운용 — 정형화 조직 선택지(경로 튜플, 레벨별).
