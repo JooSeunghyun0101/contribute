@@ -30,17 +30,15 @@ type Props = {
   achieved?: number | null;
   target?: number | null;
   unit: string;
-  /** 배분 합계(과/미배분 점검용). 있으면 목표 대비 배분 표시. */
-  allocated?: number | null;
   /** 방향 — lower 면 '목표 이하 유지'가 달성. 미지정 시 higher. */
   direction?: KpiDirection;
-  /** lower 방향에서 실적 미입력(합계 0)과 실적 0 을 구분하는 신호(서버 has_actuals). */
+  /** lower 방향에서 실적 미입력과 실적 0 을 구분하는 신호(서버 has_actuals). */
   hasActuals?: boolean;
   compact?: boolean;
 };
 
 // 진척 막대 — 달성률에 따라 OK 매트릭스 색을 재사용(4점=달성 색).
-const KpiProgressBar = ({ achieved, target, unit, allocated, direction = 'higher', hasActuals, compact = false }: Props) => {
+const KpiProgressBar = ({ achieved, target, unit, direction = 'higher', hasActuals, compact = false }: Props) => {
   const pct = kpiProgressPct(achieved, target, direction, hasActuals);
   const clamped = Math.min(100, Math.max(0, pct));
   // 0~100% 를 매트릭스 점수 1~4 로 매핑해 색 일관성 유지.
@@ -66,12 +64,6 @@ const KpiProgressBar = ({ achieved, target, unit, allocated, direction = 'higher
       <div style={{ height: compact ? 6 : 8, background: 'var(--bg-muted)', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${clamped}%`, background: color, borderRadius: 4, transition: 'width 0.4s' }} />
       </div>
-      {allocated != null && target != null && target > 0 && direction !== 'lower' && (
-        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-          배분 {formatKpiValue(allocated, unit)} ({kpiProgressPct(allocated, target)}%)
-          {allocated > target ? ' · 과배분' : allocated < target ? ' · 미배분' : ''}
-        </span>
-      )}
     </div>
   );
 };

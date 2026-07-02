@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Target, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, Target, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { SpiralLoader } from '@/components/ui/loader';
 import KpiProgressBar, { formatKpiValue } from '@/components/Kpi/KpiProgressBar';
@@ -8,7 +8,7 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import type { KpiNode, KpiOrgChoice, KpiOrgLevel, OrgKpi, TaskKpiAllocation } from '@/types/kpi';
+import type { KpiNode, KpiOrgChoice, KpiOrgLevel, OrgKpi } from '@/types/kpi';
 
 const LEVEL_LABEL: Record<KpiOrgLevel, string> = {
   corporation: '법인',
@@ -42,6 +42,8 @@ type KpiForm = {
   unit: string;
   target_value: string;
   direction: 'higher' | 'lower';
+  /** 실적 직접 입력('' = 미입력) — 과업 배분 제거 후 KPI 단독 관리. */
+  achieved_value: string;
   description: string;
 };
 
@@ -57,6 +59,7 @@ const emptyForm = (level: KpiOrgLevel = 'division'): KpiForm => ({
   unit: '억',
   target_value: '',
   direction: 'higher',
+  achieved_value: '',
   description: '',
 });
 
@@ -174,7 +177,6 @@ const KpiManagePage = () => {
   // '하위 KPI 추가'로 열렸을 때의 부모 — 조직 선택지를 그 부모 조직 하위로 한정.
   const [seedParent, setSeedParent] = useState<KpiNode | null>(null);
   const [saving, setSaving] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const periodId = selectedPeriodId;
 
@@ -245,6 +247,7 @@ const KpiManagePage = () => {
       unit: k.unit,
       target_value: String(k.target_value ?? ''),
       direction: k.direction,
+      achieved_value: k.achieved_value == null ? '' : String(k.achieved_value),
       description: k.description ?? '',
     });
   };
@@ -254,6 +257,12 @@ const KpiManagePage = () => {
     const target = Number(form.target_value);
     if (!form.org_key.trim() || !form.name.trim() || !form.unit.trim() || !(target > 0)) {
       toast({ title: '조직·이름·단위·목표(0보다 큰 값)를 확인해 주세요.', variant: 'destructive' });
+      return;
+    }
+    const achievedRaw = form.achieved_value.trim();
+    const achieved = achievedRaw === '' ? null : Number(achievedRaw);
+    if (achieved !== null && !Number.isFinite(achieved)) {
+      toast({ title: '실적은 숫자로 입력해 주세요.', variant: 'destructive' });
       return;
     }
     try {
@@ -274,6 +283,7 @@ const KpiManagePage = () => {
           unit: form.unit.trim(),
           target_value: target,
           direction: form.direction,
+          achieved_value: achieved,
           description: form.description.trim() || null,
         });
       } else {
@@ -285,6 +295,7 @@ const KpiManagePage = () => {
           unit: form.unit.trim(),
           target_value: target,
           direction: form.direction,
+          achieved_value: achieved,
           description: form.description.trim() || null,
         });
       }
@@ -306,7 +317,7 @@ const KpiManagePage = () => {
   const deleteKpi = async (k: OrgKpi) => {
     const ok = await confirm({
       title: `"${k.name}" KPI를 삭제할까요?`,
-      description: '하위 KPI와 과업 배분도 함께 삭제됩니다.',
+      description: '하위 KPI도 함께 삭제됩니다.',
       variant: 'danger',
       confirmText: '삭제',
     });
@@ -324,18 +335,10 @@ const KpiManagePage = () => {
     }
   };
 
-  const toggleExpand = (id: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
   if (!periodId) {
     return (
       <>
-        <PageHeader title="조직 KPI" subtitle="조직 목표를 등록하고 과업과 정렬합니다." />
+        <PageHeader title="조직 KPI" subtitle="조직 목표를 등록하고 실적·달성률을 관리합니다." />
         <div style={{ padding: '24px 32px' }}>
           <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>평가기간을 먼저 선택해 주세요.</div>
         </div>
@@ -347,7 +350,7 @@ const KpiManagePage = () => {
     <>
       <PageHeader
         title="조직 KPI"
-        subtitle={`${selectedPeriod?.name ?? ''} — 조직 목표를 등록하고 과업과 정렬합니다.`}
+        subtitle={`${selectedPeriod?.name ?? ''} — 조직 목표를 등록하고 실적·달성률을 관리합니다.`}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={load} disabled={isLoading}>
@@ -426,7 +429,6 @@ const KpiManagePage = () => {
 
             <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
             {rows.map(({ node, depth }) => {
-              const isOpen = expanded.has(node.id);
               // 범위 밖 상위 KPI — 롤업 맥락용으로 트리에 포함되지만 관리(수정·삭제·하위추가·실적)는 불가.
               const readOnly = node.can_manage === false;
               return (
@@ -442,19 +444,6 @@ const KpiManagePage = () => {
                       borderLeft: `3px solid ${LEVEL_ACCENT[node.org_level]}`,
                     }}
                   >
-                    <button
-                      onClick={() => toggleExpand(node.id)}
-                      className="sd-btn sd-btn-ghost sd-btn-xs"
-                      style={{ flexShrink: 0, padding: 4 }}
-                      disabled={readOnly}
-                      title={
-                        readOnly
-                          ? '읽기 전용 — 배분 상세는 관리 범위의 KPI에서만 볼 수 있습니다.'
-                          : '배분 내역'
-                      }
-                    >
-                      {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </button>
                     <div style={{ minWidth: 0, flex: '1 1 280px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, fontSize: 'var(--fs-body)' }}>{node.name}</span>
@@ -535,7 +524,6 @@ const KpiManagePage = () => {
                         achieved={node.rolled_achieved}
                         target={node.target_value}
                         unit={node.unit}
-                        allocated={node.rolled_allocated}
                         direction={node.direction}
                         hasActuals={node.has_actuals}
                         compact
@@ -589,14 +577,6 @@ const KpiManagePage = () => {
                       </button>
                     </div>
                   </div>
-                  {isOpen && (
-                    <AllocationPanel
-                      kpiId={node.id}
-                      unit={node.unit}
-                      editable={isSelectedPeriodEditable && !readOnly}
-                      onChanged={load}
-                    />
-                  )}
                 </div>
               );
             })}
@@ -612,6 +592,7 @@ const KpiManagePage = () => {
           orgOptions={orgOptions}
           periodId={periodId}
           seedParent={seedParent}
+          hasChildren={Boolean(form.id && flatKpis.find((k) => k.id === form.id)?.children?.length)}
           isHr={isHr}
           saving={saving}
           onSubmit={submitForm}
@@ -625,172 +606,6 @@ const KpiManagePage = () => {
   );
 };
 
-// ── 배분 내역 패널 (실적 인라인 편집) ─────────────────────────────
-const AllocationPanel = ({
-  kpiId,
-  unit,
-  editable,
-  onChanged,
-}: {
-  kpiId: string;
-  unit: string;
-  editable: boolean;
-  onChanged: () => void;
-}) => {
-  const { toast } = useToast();
-  const confirm = useConfirm();
-  const [allocs, setAllocs] = useState<(TaskKpiAllocation & { evaluatee_name?: string })[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      const detail = await kpiService.get(kpiId);
-      setAllocs(detail.allocations as (TaskKpiAllocation & { evaluatee_name?: string })[]);
-      setDrafts(
-        Object.fromEntries(
-          (detail.allocations as TaskKpiAllocation[]).map((a) => [a.id, a.achieved_value == null ? '' : String(a.achieved_value)]),
-        ),
-      );
-    } catch (error) {
-      toast({
-        title: '배분 내역을 불러오지 못했습니다.',
-        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
-        variant: 'destructive',
-      });
-      setAllocs([]);
-    }
-  }, [kpiId, toast]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  const saveAchieved = async (a: TaskKpiAllocation) => {
-    const raw = drafts[a.id];
-    const achieved = raw === '' || raw == null ? null : Number(raw);
-    if (achieved != null && Number.isNaN(achieved)) {
-      toast({ title: '실적은 숫자로 입력해 주세요.', variant: 'destructive' });
-      return;
-    }
-    try {
-      setBusyId(a.id);
-      await kpiService.upsertAllocations(kpiId, [
-        {
-          task_uuid: a.task_uuid,
-          task_id: a.task_id,
-          evaluation_id: a.evaluation_id,
-          allocated_target: a.allocated_target,
-          achieved_value: achieved,
-          note: a.note ?? null,
-        },
-      ]);
-      await reload();
-      onChanged();
-      toast({ title: '실적을 저장했습니다.' });
-    } catch (error) {
-      toast({
-        title: '실적 저장 실패',
-        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
-        variant: 'destructive',
-      });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const removeAlloc = async (a: TaskKpiAllocation) => {
-    const ok = await confirm({ title: '이 과업 배분을 해제할까요?', variant: 'danger', confirmText: '해제' });
-    if (!ok) return;
-    try {
-      setBusyId(a.id);
-      await kpiService.removeAllocation(kpiId, a.id);
-      await reload();
-      onChanged();
-      toast({ title: '배분을 해제했습니다.' });
-    } catch (error) {
-      toast({
-        title: '배분 해제 실패',
-        description: error instanceof Error ? error.message : '다시 시도해 주세요.',
-        variant: 'destructive',
-      });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <div style={{ background: 'var(--bg-muted)', padding: '12px 18px 16px', borderTop: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 'var(--fs-xs)', fontWeight: 800, color: 'var(--fg-subtle)', letterSpacing: '0.06em', marginBottom: 8 }}>
-        과업 배분 · 실적
-      </div>
-      {allocs == null ? (
-        <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>불러오는 중…</div>
-      ) : allocs.length === 0 ? (
-        <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-          배분된 과업이 없습니다. 평가 화면의 과업 카드에서 이 KPI에 정렬하세요.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {allocs.map((a) => (
-            <div
-              key={a.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                padding: '10px 12px',
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 'var(--fs-sm)' }}>{a.evaluatee_name ?? '피평가자'}</div>
-                <div
-                  style={{
-                    fontSize: 'var(--fs-xs)',
-                    color: 'var(--fg-muted)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={a.task_title ?? undefined}
-                >
-                  {a.task_title ? `${a.task_title} · ` : ''}배분 {formatKpiValue(a.allocated_target, unit)}
-                </div>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)' }}>
-                실적
-                <input
-                  className="sd-input"
-                  style={{ width: 110 }}
-                  inputMode="decimal"
-                  value={drafts[a.id] ?? ''}
-                  disabled={!editable}
-                  onChange={(e) => setDrafts((p) => ({ ...p, [a.id]: e.target.value }))}
-                />
-                <span style={{ color: 'var(--fg-muted)' }}>{unit}</span>
-              </label>
-              {editable && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="sd-btn sd-btn-primary sd-btn-xs" onClick={() => saveAchieved(a)} disabled={busyId === a.id}>
-                    저장
-                  </button>
-                  <button className="sd-btn sd-btn-ghost sd-btn-xs" onClick={() => removeAlloc(a)} disabled={busyId === a.id} style={{ color: 'var(--danger)' }}>
-                    <X size={13} />
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── KPI 등록/수정 모달 ─────────────────────────────────────────
 const KpiFormModal = ({
   form,
@@ -798,6 +613,7 @@ const KpiFormModal = ({
   orgOptions,
   periodId,
   seedParent,
+  hasChildren,
   isHr,
   saving,
   onSubmit,
@@ -808,6 +624,8 @@ const KpiFormModal = ({
   orgOptions: OrgOptions | null;
   periodId: string;
   seedParent: OrgKpi | null;
+  /** 수정 대상에 하위 KPI 가 있으면 실적 직접 입력 대신 하위 합산을 안내. */
+  hasChildren: boolean;
   isHr: boolean;
   saving: boolean;
   onSubmit: () => void;
@@ -1013,7 +831,16 @@ const KpiFormModal = ({
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             목표값
-            <input className="sd-input" inputMode="decimal" value={form.target_value} onChange={(e) => set({ target_value: e.target.value })} placeholder="5000" />
+            {/* 숫자 전용 — 문자 입력 자체를 차단(type=number). */}
+            <input
+              className="sd-input"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              value={form.target_value}
+              onChange={(e) => set({ target_value: e.target.value })}
+              placeholder="5000"
+            />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             단위
@@ -1067,6 +894,25 @@ const KpiFormModal = ({
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
+            실적 (선택)
+            <input
+              className="sd-input"
+              type="number"
+              inputMode="decimal"
+              step="any"
+              value={form.achieved_value}
+              disabled={hasChildren}
+              onChange={(e) => set({ achieved_value: e.target.value })}
+              placeholder={hasChildren ? '' : '미입력'}
+            />
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+              {hasChildren
+                ? '하위 KPI가 연결된 KPI는 실적이 하위에서 자동 합산됩니다(직접 입력 불가).'
+                : '이 KPI의 실적을 직접 입력합니다. 상위 KPI가 있으면 자동 합산됩니다.'}
+            </span>
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
             설명 (선택)
             <textarea
               className="sd-input"
@@ -1091,8 +937,8 @@ const KpiFormModal = ({
               lineHeight: 1.5,
             }}
           >
-            %·점 같은 비율/점수형 단위는 과업·하위 KPI 실적이 <b>단순 합산</b>되어 왜곡될 수 있습니다(예: 88점+92점=180점).
-            과업 1개에만 배분하거나 합산 가능한 단위(억·건·명)를 권장합니다.
+            %·점 같은 비율/점수형 단위는 하위 KPI 실적이 <b>단순 합산</b>되어 왜곡될 수 있습니다(예: 88점+92점=180점).
+            하위 연결 없이 단독으로 쓰거나 합산 가능한 단위(억·건·명)를 권장합니다.
           </div>
         )}
 

@@ -6,9 +6,6 @@ import type {
   KpiOrgLevel,
   OrgKpiInput,
   OrgKpiUpdate,
-  TaskKpiAllocation,
-  AllocationInput,
-  KpiCandidatesResponse,
 } from '@/types/kpi';
 import { apiErrorHandler } from '@/utils/errorHandler';
 
@@ -69,14 +66,6 @@ export const kpiService = {
     }
   },
 
-  async get(id: string): Promise<OrgKpi & { allocations: TaskKpiAllocation[]; children: OrgKpi[] }> {
-    try {
-      return await apiFetch(`/api/org-kpis/${id}`);
-    } catch (error) {
-      throw apiErrorHandler.handleApiError(error);
-    }
-  },
-
   async create(input: OrgKpiInput): Promise<OrgKpi> {
     try {
       return await apiFetch<OrgKpi>('/api/org-kpis', {
@@ -109,15 +98,6 @@ export const kpiService = {
     }
   },
 
-  /** 평가건에 정렬 가능한 KPI 후보(피평가자 조직 매칭) + 매칭 기준 조직. */
-  async candidatesForEvaluation(evaluationId: string): Promise<KpiCandidatesResponse> {
-    try {
-      return await apiFetch<KpiCandidatesResponse>(`/api/evaluations/${evaluationId}/kpi-candidates`);
-    } catch (error) {
-      throw apiErrorHandler.handleApiError(error);
-    }
-  },
-
   /** 상위 KPI 연결 후보 — 조직 상위 경로의 같은 단위 KPI(가시성 무관, 연결 대상 조회 전용). */
   async parentCandidates(params: {
     periodId: string;
@@ -143,33 +123,4 @@ export const kpiService = {
     }
   },
 
-  /** 과업의 정렬 KPI(배분) 목록. */
-  async allocationsByTask(taskId: string): Promise<TaskKpiAllocation[]> {
-    try {
-      return await apiFetch<TaskKpiAllocation[]>(`/api/tasks/${taskId}/kpi-allocations`);
-    } catch (error) {
-      throw apiErrorHandler.handleApiError(error);
-    }
-  },
-
-  /** 한 KPI의 과업 배분/실적 upsert(배치). */
-  async upsertAllocations(kpiId: string, items: AllocationInput[]): Promise<TaskKpiAllocation[]> {
-    try {
-      return await apiFetch<TaskKpiAllocation[]>(`/api/org-kpis/${kpiId}/allocations`, {
-        method: 'PUT',
-        body: JSON.stringify({ allocations: items }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      throw apiErrorHandler.handleApiError(error);
-    }
-  },
-
-  async removeAllocation(kpiId: string, allocId: string): Promise<void> {
-    try {
-      await apiFetch(`/api/org-kpis/${kpiId}/allocations/${allocId}`, { method: 'DELETE' });
-    } catch (error) {
-      throw apiErrorHandler.handleApiError(error);
-    }
-  },
 };

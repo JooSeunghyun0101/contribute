@@ -6,7 +6,6 @@ import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { AiContentText } from '@/components/ui/AiContentText';
 import { NumBadge, Pill } from '@/components/brand';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
-import TaskKpiPanel from '@/components/Kpi/TaskKpiPanel';
 import {
   GrowthLevelExpectationContent,
   ScoreExpectationContent,
@@ -796,13 +795,6 @@ const TaskDetail = ({
             </div>
           </div>
         </div>
-
-        <TaskKpiPanel
-          taskUuid={task.id}
-          taskId={task.taskId ?? task.task_id ?? task.id}
-          evaluationId={task.evaluation_id ?? task.evaluationId ?? ''}
-          canEdit={group.canEdit}
-        />
       </div>
 
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

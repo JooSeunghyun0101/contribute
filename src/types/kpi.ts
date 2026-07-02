@@ -1,5 +1,6 @@
-// 조직 KPI 정렬 기능 타입.
-// 정량(억/%/건) 목표를 조직 단위로 등록하고 과업에 배분·실적 추적. 트리(parent_kpi_id) 자동 롤업.
+// 조직 KPI 타입.
+// 정량(억/건 등) 목표를 조직 단위로 등록하고 실적을 KPI 에 직접 입력. 트리(parent_kpi_id) 자동 롤업.
+// 과업 배분 기능은 2026-07-02 사용자 결정으로 제거 — KPI 는 과업·점수와 분리해 단독 관리.
 
 export type KpiOrgLevel = 'corporation' | 'division' | 'department' | 'team';
 export type KpiDirection = 'higher' | 'lower';
@@ -22,17 +23,17 @@ export interface OrgKpi {
   unit: string;
   target_value: number;
   direction: KpiDirection;
+  /** 실적 직접 입력(NULL=미입력) — 폼 프리필용. 롤업 값은 rolled_achieved. */
+  achieved_value?: number | null;
   description?: string | null;
   owner_id?: string | null;
   status: KpiStatus;
   created_by: string;
   created_at?: string;
   updated_at?: string;
-  // 서버 집계(읽기 전용) — 노드 자체 합 + 트리 롤업.
+  // 서버 집계(읽기 전용) — 노드 자체 실적 + 트리 롤업.
   own_achieved?: number;
-  own_allocated?: number;
   rolled_achieved?: number;
-  rolled_allocated?: number;
   /** direction 반영 진척률(0~1+, 초과 허용). higher=실적/목표, lower=목표/실적(미입력=0). */
   progress?: number;
   /** 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분. */
@@ -44,42 +45,6 @@ export interface OrgKpi {
 /** 트리 노드 — OrgKpi + 자식. GET /api/org-kpis/tree 응답. */
 export interface KpiNode extends OrgKpi {
   children: KpiNode[];
-}
-
-/** 과업 ↔ KPI 배분/실적. */
-export interface TaskKpiAllocation {
-  id: string;
-  kpi_id: string;
-  task_uuid: string;
-  task_id: string;
-  evaluation_id: string;
-  allocated_target: number;
-  achieved_value?: number | null;
-  note?: string | null;
-  updated_by?: string | null;
-  created_at?: string;
-  updated_at?: string;
-  // 조회 편의(서버 조인) — KPI 메타.
-  kpi_name?: string;
-  kpi_unit?: string;
-  kpi_org_level?: KpiOrgLevel;
-  kpi_org_key?: string;
-  kpi_target?: number | null;
-  kpi_direction?: KpiDirection;
-  // GET :id 응답 조인 — 피평가자명·과업 제목(동일인 다과업 배분 구분용).
-  evaluatee_name?: string;
-  task_title?: string | null;
-}
-
-/** GET /api/evaluations/:id/kpi-candidates 응답 — 후보 + 매칭 기준(피평가자 조직). */
-export interface KpiCandidatesResponse {
-  candidates: OrgKpi[];
-  evaluatee_org: {
-    corporation: string | null;
-    division: string | null;
-    department: string | null;
-    team: string | null;
-  } | null;
 }
 
 export interface OrgKpiInput {
@@ -94,6 +59,7 @@ export interface OrgKpiInput {
   unit: string;
   target_value: number;
   direction?: KpiDirection;
+  achieved_value?: number | null;
   description?: string | null;
   owner_id?: string | null;
 }
@@ -111,13 +77,3 @@ export interface KpiOrgChoice {
 export type OrgKpiUpdate = Partial<Omit<OrgKpiInput, 'evaluation_period_id'>> & {
   status?: KpiStatus;
 };
-
-/** 배분 upsert 한 건 (PUT /api/org-kpis/:id/allocations 배치 항목). */
-export interface AllocationInput {
-  task_uuid: string;
-  task_id: string;
-  evaluation_id: string;
-  allocated_target: number;
-  achieved_value?: number | null;
-  note?: string | null;
-}
