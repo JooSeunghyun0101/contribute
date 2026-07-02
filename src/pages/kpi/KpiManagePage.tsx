@@ -71,6 +71,22 @@ const choicePathKey = (t: KpiOrgChoice, level: KpiOrgLevel): string => {
 };
 const choiceLabel = (t: KpiOrgChoice): string =>
   [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
+
+// 조직 튜플이 어떤 KPI(부모)의 하위 조직인가 — 부모 레벨 값 일치 + 부모의 상위 경로와 충돌 없음.
+const choiceUnderParent = (c: KpiOrgChoice, parent: OrgKpi): boolean => {
+  if (c[parent.org_level] !== parent.org_key) return false;
+  for (const l of LEVEL_ORDER) {
+    if (LEVEL_DEPTH[l] >= LEVEL_DEPTH[parent.org_level]) break;
+    const pv =
+      l === 'corporation'
+        ? parent.org_path_corporation
+        : l === 'division'
+          ? parent.org_path_division
+          : parent.org_path_department;
+    if (pv && c[l] !== pv) return false;
+  }
+  return true;
+};
 // 선택지 튜플 → 폼 필드 반영(조상 경로까지 함께).
 const applyChoiceToForm = (base: KpiForm, level: KpiOrgLevel, choice: KpiOrgChoice): KpiForm => ({
   ...base,
@@ -81,23 +97,24 @@ const applyChoiceToForm = (base: KpiForm, level: KpiOrgLevel, choice: KpiOrgChoi
   org_path_department: LEVEL_DEPTH[level] > LEVEL_DEPTH.department ? choice.department ?? '' : '',
 });
 
-// 폼 상태 → 선택 키(조상 경로 + 해당 레벨 org_key). 조상이 비면 null(레거시 — 매칭 불가).
+// 폼 상태 → 선택 키(조상 경로 + 해당 레벨 org_key). 서버 kpiTupleKey 와 동일하게 빈 계층도
+// '' 조각으로 포함한다 — 중간 계층이 원래 없는 조직(예: 본부 없는 법인)이 레거시로 오인되지 않게.
+// org_key 가 없을 때만 null(미선택).
 const formPathKey = (form: KpiForm): string | null => {
+  if (!form.org_key) return null;
   const parts: string[] = [];
   for (const l of LEVEL_ORDER) {
     if (l === form.org_level) {
-      if (!form.org_key) return null;
       parts.push(form.org_key);
       break;
     }
-    const v =
+    parts.push(
       l === 'corporation'
         ? form.org_path_corporation
         : l === 'division'
           ? form.org_path_division
-          : form.org_path_department;
-    if (!v) return null;
-    parts.push(v);
+          : form.org_path_department,
+    );
   }
   return parts.join('|');
 };
@@ -446,9 +463,11 @@ const KpiManagePage = () => {
                         />
                         {(() => {
                           // 동명 조직 구분 — 조직장(체인 최상위 평가자)을 경로 키로 조회해 표기.
-                          // 경로 미저장(레거시) KPI 는 잘못된 이름을 다느니 라벨을 생략한다.
+                          // 경로 판별: 새 폼으로 저장된 KPI 는 법인 경로가 반드시 채워진다(중간 계층은
+                          // 원래 없어서 NULL 일 수 있음). 법인 경로까지 없는 비-법인 KPI = 레거시 → 라벨 생략.
+                          const pathKnown =
+                            node.org_level === 'corporation' || Boolean(node.org_path_corporation);
                           const parts: string[] = [];
-                          let pathKnown = true;
                           for (const l of LEVEL_ORDER) {
                             const v =
                               l === node.org_level
@@ -458,11 +477,7 @@ const KpiManagePage = () => {
                                   : l === 'division'
                                     ? node.org_path_division
                                     : node.org_path_department;
-                            if (!v) {
-                              pathKnown = false;
-                              break;
-                            }
-                            parts.push(v);
+                            parts.push(v ?? '');
                             if (l === node.org_level) break;
                           }
                           const names = pathKnown
@@ -502,14 +517,32 @@ const KpiManagePage = () => {
                       />
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <button
-                        className="sd-btn sd-btn-ghost sd-btn-xs"
-                        onClick={() => startCreate(node)}
-                        disabled={!isSelectedPeriodEditable || node.org_level === 'team'}
-                        title={node.org_level === 'team' ? '팀 아래 하위 KPI는 없습니다.' : '하위 KPI 추가'}
-                      >
-                        <Plus size={14} />
-                      </button>
+                      {(() => {
+                        // 하위 조직 조합이 하나도 없으면(팀 데이터 없는 부 등) 죽은 모달 대신 버튼을 비활성.
+                        const choices = orgOptions?.orgChoices;
+                        const hasChildOrg =
+                          node.org_level !== 'team' &&
+                          (!choices ||
+                            LEVEL_ORDER.slice(LEVEL_DEPTH[node.org_level] + 1).some((lvl) =>
+                              (choices[lvl] ?? []).some((c) => choiceUnderParent(c, node)),
+                            ));
+                        return (
+                          <button
+                            className="sd-btn sd-btn-ghost sd-btn-xs"
+                            onClick={() => startCreate(node)}
+                            disabled={!isSelectedPeriodEditable || !hasChildOrg}
+                            title={
+                              node.org_level === 'team'
+                                ? '팀 아래 하위 KPI는 없습니다.'
+                                : !hasChildOrg
+                                  ? '이 조직 하위에 등록 가능한 조직이 없습니다(이 평가기간 평가 대상 기준).'
+                                  : '하위 KPI 추가'
+                            }
+                          >
+                            <Plus size={14} />
+                          </button>
+                        );
+                      })()}
                       <button
                         className="sd-btn sd-btn-outline sd-btn-xs"
                         onClick={() => startEdit(node)}
@@ -766,21 +799,7 @@ const KpiFormModal = ({
   const orgChoiceList = useMemo(() => {
     const all = orgOptions?.orgChoices?.[form.org_level] ?? [];
     if (!seedParent) return all;
-    return all.filter((c) => {
-      if (c[seedParent.org_level] !== seedParent.org_key) return false;
-      // 부모 KPI 에 경로가 있으면 그 경로와도 일치해야 함(동명 상위조직 구분).
-      for (const l of LEVEL_ORDER) {
-        if (LEVEL_DEPTH[l] >= LEVEL_DEPTH[seedParent.org_level]) break;
-        const pv =
-          l === 'corporation'
-            ? seedParent.org_path_corporation
-            : l === 'division'
-              ? seedParent.org_path_division
-              : seedParent.org_path_department;
-        if (pv && c[l] !== pv) return false;
-      }
-      return true;
-    });
+    return all.filter((c) => choiceUnderParent(c, seedParent));
   }, [orgOptions, form.org_level, seedParent]);
 
   const selectedOrgKey = formPathKey(form);
@@ -799,6 +818,9 @@ const KpiFormModal = ({
     let cancelled = false;
     if (!form.org_key || !unitTrimmed || form.org_level === 'corporation') {
       setParentOptions([]);
+      // 직전 fetch 가 in-flight 인 채 이 분기로 오면 cleanup(cancelled) 때문에 finally 가
+      // 로딩을 못 풀어 '불러오는 중…'이 고착된다 — 여기서 명시적으로 해제.
+      setParentLoading(false);
       return;
     }
     setParentLoading(true);
@@ -902,6 +924,11 @@ const KpiFormModal = ({
                 </option>
               ))}
             </select>
+            {levelOptions.length === 0 && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                이 평가기간에 조직 데이터가 없어 KPI를 등록할 수 없습니다.
+              </span>
+            )}
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
             조직
@@ -909,6 +936,7 @@ const KpiFormModal = ({
             <select
               className="sd-input"
               value={legacyOrg ? '__legacy__' : selectedChoice ? choicePathKey(selectedChoice, form.org_level) : ''}
+              disabled={orgChoiceList.length === 0 && !legacyOrg}
               onChange={(e) => {
                 const choice = orgChoiceList.find((c) => choicePathKey(c, form.org_level) === e.target.value);
                 if (!choice) return;
@@ -940,6 +968,13 @@ const KpiFormModal = ({
             {legacyOrg && (
               <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
                 이 KPI는 조직 경로가 저장되지 않은 이전 형식입니다. 목록에서 다시 선택하면 경로가 채워집니다.
+              </span>
+            )}
+            {orgChoiceList.length === 0 && !legacyOrg && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                {seedParent
+                  ? `'${seedParent.org_key}' 하위에 등록 가능한 ${LEVEL_LABEL[form.org_level]} 조직이 없습니다(이 평가기간에 해당 조직 평가 대상 없음).`
+                  : `이 평가기간에 선택 가능한 ${LEVEL_LABEL[form.org_level]} 조직이 없습니다.`}
               </span>
             )}
           </label>
