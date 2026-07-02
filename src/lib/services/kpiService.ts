@@ -57,10 +57,10 @@ export const kpiService = {
     manageable: { corporation: string[]; division: string[]; department: string[]; team: string[] };
     /** 레벨별 { 경로키(법인|본부|부|팀, 레벨까지 '|' 연결): 조직장 이름[] } — 체인 최상위 우선. */
     leaders: Record<KpiOrgLevel, Record<string, string[]>>;
-    /** 정형화 조직 선택지 — 평가자=본인 평가 범위, HR=체인 최상위 관할, admin(무사번)=전체. */
+    /** 정형화 조직 선택지 — 평가자 탭=평가대상 전원이 내 하향 체인인 조직만, HR 관리자 탭=전체. */
     orgChoices: Record<KpiOrgLevel, KpiOrgChoice[]>;
-    /** 적용된 범위 규칙 — 배너 안내용. hr 이면 topName=기준이 된 체인 최상위 평가자. */
-    scopeInfo: { mode: 'all' | 'hr' | 'chain'; topName: string | null };
+    /** 적용된 범위 규칙 — 배너 안내용. all=HR 관리자 탭(전사), chain=평가자 탭(내 체인). */
+    scopeInfo: { mode: 'all' | 'chain' };
   }> {
     try {
       return await apiFetch(`/api/org-kpis/org-options${qs({ periodId })}`);

@@ -390,18 +390,11 @@ const KpiManagePage = () => {
             }}
           >
             <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> —{' '}
-            {orgOptions.scopeInfo.mode === 'hr' ? (
-              <>
-                내 평가체인 최상위 평가자
-                {orgOptions.scopeInfo.topName ? <b>({orgOptions.scopeInfo.topName})</b> : null}가 관할하는 조직
-                범위의 KPI만 표시·등록됩니다. 다른 계열·체인의 조직은 선택지에도 나타나지 않습니다.
-              </>
-            ) : (
-              <>
-                <b>내가 등록한 KPI와 내 하위 평가체인이 등록한 KPI</b>가 표시되고, 그에 연결된 상위 KPI는{' '}
-                <b>읽기 전용</b>으로 함께 표시됩니다.
-              </>
-            )}
+            <>
+              <b>내가 등록한 KPI와 내 하위 평가체인이 등록한 KPI</b>가 표시되고, 그에 연결된 상위 KPI는{' '}
+              <b>읽기 전용</b>으로 함께 표시됩니다. KPI 등록은{' '}
+              <b>내가 평가하는 인원(직접·간접) 전원이 소속된 조직</b>에만 가능합니다.
+            </>
           </div>
         )}
 

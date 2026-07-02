@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7506,77 +7506,40 @@ const kpiActingAsHr = async (req) => {
   return claim !== 'evaluator' && claim !== 'evaluatee';
 };
 
-// 임의 기준자의 하향 평가체인 employee_id Set(본인 포함) — 평가자 노드를 통해서만 하강.
-const getDownwardChainIdsOf = async (employeeId) => {
+// 평가기간 기준 하향 체인 — 그 기간 evaluations 의 평가자 배정(assignment_history 반영)으로
+// evaluatee→evaluator 간선을 만들어 기준자 아래 전원을 구한다(본인 포함).
+// 마스터(employees.evaluator_id) 체인은 현재 조직 기준이라 마감된 과거 기간(예: 2025)의
+// "그때 내가 평가하던" 범위와 어긋난다 — KPI 는 기간 단위이므로 기간 체인을 쓴다.
+const getPeriodDownwardChainIds = async (periodId, employeeId) => {
   const base = String(employeeId);
   const { rows } = await pool.query(
-    `WITH RECURSIVE down AS (
-       SELECT employee_id, evaluator_id, available_roles, 1 AS depth
-         FROM employees WHERE evaluator_id::text = $1
-       UNION ALL
-       SELECT e.employee_id, e.evaluator_id, e.available_roles, d.depth + 1
-         FROM employees e
-         JOIN down d ON e.evaluator_id::text = d.employee_id::text
-        WHERE d.depth < 50 AND 'evaluator' = ANY(d.available_roles)
+    `WITH RECURSIVE ev_edges AS (
+       SELECT ev.evaluatee_id::text AS child,
+              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS parent
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.evaluation_period_id = $2 AND ev.record_status = 'active'
+     ), down AS (
+       SELECT child FROM ev_edges WHERE parent = $1
+       UNION
+       SELECT g.child FROM ev_edges g JOIN down d ON g.parent = d.child
      )
-     SELECT DISTINCT employee_id FROM down`,
-    [base],
+     SELECT DISTINCT child FROM down`,
+    [base, periodId],
   );
-  const set = new Set(rows.map((r) => String(r.employee_id)));
+  const set = new Set(rows.map((r) => String(r.child)));
   set.add(base); // 본인 포함
   return set;
 };
 
-// 상향 평가체인 최상위 평가자 — 나 → 내 평가자 → … (평가자 없음/순환이면 중단).
-// 요청자가 employees 에 없으면 null(시스템 관리자 계정 등 — 범위 제한 없음).
-const getUpwardChainTopId = async (employeeId) => {
-  let cur = (
-    await pool.query(`SELECT employee_id::text AS id, evaluator_id::text AS ev FROM employees WHERE employee_id::text = $1`, [
-      String(employeeId),
-    ])
-  ).rows[0];
-  if (!cur) return null;
-  const guard = new Set([cur.id]);
-  for (let i = 0; i < 50 && cur.ev && !guard.has(cur.ev); i++) {
-    guard.add(cur.ev);
-    const next = (
-      await pool.query(`SELECT employee_id::text AS id, evaluator_id::text AS ev FROM employees WHERE employee_id::text = $1`, [cur.ev])
-    ).rows[0];
-    if (!next) break;
-    cur = next;
-  }
-  return cur.id;
-};
-
-// KPI 요청 스코프 — 조직 선택 범위와 가시성의 단일 기준.
-//  - 'all'  : 사번 없는 관리자 계정(admin 등) HR 모드 → 전체.
-//  - 'hr'   : HR 모드 + 사번 있음 → 내 평가체인 최상위 평가자(T)의 관할(T 하향 체인) 인원 범위.
-//             예) 지주 인사팀 박판근 → T=박준형 → 박준형 라인 전체. 다른 계열(OK경영관리본부 등)은
-//             선택지에도 안 뜨고 그 조직의 KPI 도 보이지 않는다(사용자 요구 2026-07-02).
-//  - 'chain': 평가자 모드 → 본인 하향 체인.
-const getKpiScope = async (req) => {
-  const me = String(req.session.employeeId);
-  if (await kpiActingAsHr(req)) {
-    // 시스템 관리자 계정은 전체 — admin 은 employees 에 행이 있어도(로그인 요건) 평가체인 밖이다.
-    if (me === 'admin') return { mode: 'all', members: null, topId: null };
-    const topId = await getUpwardChainTopId(me);
-    if (!topId) return { mode: 'all', members: null, topId: null };
-    const members = await getDownwardChainIdsOf(topId);
-    // 체인에 전혀 연결되지 않은 관리 전용 계정(평가자 없음·하향 체인 없음·본인 평가행도 없음) = 전체.
-    // 체인에 연결된 HR(예: 박판근)은 최상위 평가자 관할로 제한된다.
-    if (topId === me && members.size === 1) {
-      const hasOwnEvaluation =
-        (
-          await pool.query(
-            `SELECT 1 FROM evaluations WHERE evaluatee_id::text = $1 AND COALESCE(record_status, 'active') = 'active' LIMIT 1`,
-            [me],
-          )
-        ).rows.length > 0;
-      if (!hasOwnEvaluation) return { mode: 'all', members: null, topId: null };
-    }
-    return { mode: 'hr', members, topId };
-  }
-  return { mode: 'chain', members: await getDownwardChainIdsOf(me), topId: null };
+// KPI 요청 스코프 — 조직 선택 범위와 가시성의 단일 기준. 화면 탭(활성 역할)로만 갈린다.
+//  - 'all'  : HR 관리자 탭(활성 역할 hr) → 전사 KPI 전체(admin 과 동일).
+//  - 'chain': 평가자 탭 → 그 평가기간의 본인 하향 체인 기준(HR 겸직자도 일반 평가자와 동일).
+// (사용자 요구 2026-07-02 3차 — 이전의 '체인 최상위 평가자 관할' 제한을 대체)
+const getKpiScope = async (req, periodId) => {
+  if (await kpiActingAsHr(req)) return { mode: 'all', members: null };
+  return { mode: 'chain', members: await getPeriodDownwardChainIds(periodId, String(req.session.employeeId)) };
 };
 
 // 조직 경로 튜플 키 — 최상위(법인)부터 해당 레벨까지 '|' 로 연결(동명 조직 구분의 기준 키).
@@ -7589,8 +7552,11 @@ const kpiTupleKey = (t, level) => {
   return parts.join('|');
 };
 
-// 조직 '경로 튜플'(레벨별) — 주어진 인원 집합(null=전체)의 실제 조직 조합.
-// 정형화 드롭다운의 원천이자 등록/변경 검증·HR 가시성 기준. 반환: 레벨별 Map(pathKey → 튜플).
+// 조직 '경로 튜플'(레벨별) — 등록 가능 조직 선택지·검증의 원천. 반환: 레벨별 Map(pathKey → 튜플).
+// members(내 하향 체인)가 주어지면 '그 조직의 평가대상 전원이 members 에 속하는' 조직만 남긴다 —
+// 일부만 평가하는 상위 조직(부·본부·법인)은 그 레벨에서 빈 목록이 된다.
+// 예) 인사기획팀만 평가하는 박판근: 팀 레벨=인사기획팀 1개, 부·본부·법인 레벨=없음. (사용자 요구 3차)
+// members=null 이면 전체(HR 관리자 탭·admin).
 const getOrgTuplesForMembers = async (periodId, membersOrNull) => {
   const { rows } = await pool.query(
     `SELECT evaluatee_id,
@@ -7600,8 +7566,9 @@ const getOrgTuplesForMembers = async (periodId, membersOrNull) => {
     [periodId],
   );
   const perLevel = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  const coverage = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   for (const e of rows) {
-    if (membersOrNull !== null && !membersOrNull.has(String(e.evaluatee_id))) continue; // 범위 내 인원의 조직만
+    const inMembers = membersOrNull === null || membersOrNull.has(String(e.evaluatee_id));
     for (const level of KPI_LEVELS) {
       if (!e[level]) continue;
       const tuple = { corporation: null, division: null, department: null, team: null };
@@ -7609,27 +7576,32 @@ const getOrgTuplesForMembers = async (periodId, membersOrNull) => {
         tuple[l] = e[l] ?? null;
         if (l === level) break;
       }
-      perLevel[level].set(kpiTupleKey(tuple, level), tuple);
+      const key = kpiTupleKey(tuple, level);
+      if (!perLevel[level].has(key)) perLevel[level].set(key, tuple);
+      let cov = coverage[level].get(key);
+      if (!cov) {
+        cov = { total: 0, inMembers: 0 };
+        coverage[level].set(key, cov);
+      }
+      cov.total += 1;
+      if (inMembers) cov.inMembers += 1;
+    }
+  }
+  if (membersOrNull !== null) {
+    for (const level of KPI_LEVELS) {
+      for (const [key, cov] of coverage[level]) {
+        if (cov.inMembers === 0 || cov.inMembers !== cov.total) perLevel[level].delete(key); // 전원 소속 조직만
+      }
     }
   }
   return perLevel;
 };
 
-// KPI 가시성 판정기 — 스코프 모드별.
-//  'all'  : 전부. 'chain': 생성자(created_by)가 내 하향 체인. 'hr': KPI 조직이 관할 조직 범위 내(조직 기준,
-//  레거시 NULL 경로는 이름 매칭 관용) — 생성자가 admin 이어도 내 관할 조직 KPI 면 보인다.
+// KPI 가시성 판정기 — 'all': 전부(HR 관리자 탭). 'chain': 생성자(created_by)가 그 기간 내 하향 체인(평가자 탭).
 const buildKpiVisibility = async (req, periodId) => {
-  const scope = await getKpiScope(req);
+  const scope = await getKpiScope(req, periodId);
   if (scope.mode === 'all') return { scope, visible: () => true };
-  if (scope.mode === 'chain') return { scope, visible: (k) => scope.members.has(String(k.created_by)) };
-  const tuples = await getOrgTuplesForMembers(periodId, scope.members);
-  return {
-    scope,
-    // 조직 기준 + 생성자 폴백 — 기중 조직명 변경/재업로드로 KPI 의 조직 스냅샷이 현재 평가 튜플과
-    // 어긋나도, 관할 체인 구성원이 만든 KPI 는 고아화되지 않고 조회·정정(조직 재지정)이 가능해야 한다.
-    visible: (k) =>
-      canCreateOrgTuple(tuples, k.org_level, k.org_key, k) || scope.members.has(String(k.created_by)),
-  };
+  return { scope, visible: (k) => scope.members.has(String(k.created_by)) };
 };
 // 등록/변경 허용 검사 — (레벨·조직명·경로)가 실제 평가 데이터의 조직 조합과 일치해야 한다.
 // path 값이 비어 있으면(레거시) 이름 일치만 요구해 기존 KPI 수정을 깨지 않는다.
@@ -7812,6 +7784,9 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
     const leaders = {};
     for (const lvl of KPI_LEVELS) {
       leaders[lvl] = {};
+      // 법인 레벨은 조직장 라벨 생략 — 법인 대표·임원급은 평가 대상이 아닌 경우가 많아
+      // '조직 내 체인 최상위' 규칙이 실제 조직장이 아닌 최다 담당 부장을 뽑는다(예: OK→이인성 오표기).
+      if (lvl === 'corporation') continue;
       for (const [key, m] of leaderAgg[lvl]) {
         const byCount = [...m.entries()].sort((a, b) => b[1] - a[1]);
         const qualified = byCount.filter(([id]) => {
@@ -7825,15 +7800,9 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       }
     }
     // 등록 폼 드롭다운용 — 정형화 조직 선택지(경로 튜플, 레벨별).
-    // 평가자=본인 평가 범위(하위체인), HR=체인 최상위 평가자 관할, admin(무사번)=전체.
-    const scope = await getKpiScope(req);
+    // 평가자 탭=평가대상 전원이 내 하향 체인에 속하는 조직만, HR 관리자 탭=전체.
+    const scope = await getKpiScope(req, periodId);
     const creatableTuples = await getOrgTuplesForMembers(periodId, scope.members);
-    // 배너 안내용 — 어떤 범위 규칙이 적용됐는지 + HR 스코프면 기준 최상위 평가자 이름.
-    let scopeTopName = null;
-    if (scope.mode === 'hr' && scope.topId) {
-      scopeTopName =
-        (await pool.query(`SELECT name FROM employees WHERE employee_id::text = $1`, [scope.topId])).rows[0]?.name ?? null;
-    }
     const labelOfTuple = (t) => [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
     const orgChoices = {};
     const manageableOut = {};
@@ -7860,7 +7829,7 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       manageable: manageableOut,
       leaders,
       orgChoices,
-      scopeInfo: { mode: scope.mode, topName: scopeTopName },
+      scopeInfo: { mode: scope.mode },
     });
   } catch (err) {
     console.error('Error fetching KPI org options:', err.message);
@@ -7888,7 +7857,7 @@ app.get('/api/org-kpis/parent-candidates', requireHrOrEvaluator, async (req, res
   try {
     // 요청된 조상 경로가 '요청자 스코프 조직의 실제 상위 경로'인지 검증 — 임의 조직명을 넣어
     // 타 계열 KPI 메타(이름·목표)를 열거하는 것을 차단. 정상 폼은 드롭다운 튜플만 보내므로 영향 없음.
-    const scope = await getKpiScope(req);
+    const scope = await getKpiScope(req, periodId);
     const creatable = await getOrgTuplesForMembers(periodId, scope.members);
     const ancMatchesMyOrg = [...creatable[orgLevel].values()].some((t) =>
       kpiAncestorLevels(orgLevel).every((l) => !anc[l] || t[l] === anc[l]),
@@ -8000,17 +7969,15 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
   }
   const orgPath = normalizeKpiPath(orgLevel, b);
   // 등록 조직은 정형화 드롭다운(경로 튜플) 기준으로 서버에서도 검증 —
-  //   평가자: 본인이 평가하는(하위체인) 조직 조합만. HR: 체인 최상위 관할 범위의 실존 조합만(유령 KPI 차단).
-  const scope = await getKpiScope(req);
+  //   평가자 탭: 평가대상 전원이 내 하향 체인에 속하는 조직만. HR 탭: 실존 조합만(유령 KPI 차단).
+  const scope = await getKpiScope(req, periodId);
   const creatableTuples = await getOrgTuplesForMembers(periodId, scope.members);
   if (!canCreateOrgTuple(creatableTuples, orgLevel, orgKey, orgPath)) {
     return res.status(scope.mode === 'chain' ? 403 : 400).json({
       error:
         scope.mode === 'chain'
-          ? '본인이 평가하는 조직의 KPI만 등록할 수 있습니다.'
-          : scope.mode === 'hr'
-            ? '내 관할(평가체인 최상위 기준) 조직 범위 밖이거나 평가 데이터에 없는 조직입니다. 목록에서 선택해 주세요.'
-            : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다. 목록에서 선택해 주세요.',
+          ? '내가 평가하는 인원 전원이 소속된 조직에만 KPI를 등록할 수 있습니다.'
+          : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다. 목록에서 선택해 주세요.',
     });
   }
   const client = await pool.connect();
@@ -8082,16 +8049,11 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
-    // 수정권 = 스코프 기준(평가자: 생성자 체인, HR: 관할 조직 범위, admin: 전체).
+    // 수정권 = 스코프 기준(평가자 탭: 생성자 체인, HR 관리자 탭: 전체).
     const { scope, visible } = await buildKpiVisibility(req, existing.evaluation_period_id);
     if (scope.mode !== 'all' && !visible(existing)) {
       await client.query('ROLLBACK');
-      return res.status(403).json({
-        error:
-          scope.mode === 'hr'
-            ? '내 관할(평가체인 최상위 기준) 조직 범위 밖의 KPI는 수정할 수 없습니다.'
-            : '본인 또는 하위 평가자가 만든 KPI만 수정할 수 있습니다.',
-      });
+      return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 수정할 수 있습니다.' });
     }
     // 조직(레벨·이름·경로) 머지 — 경로 재구성은 (a) 경로 필드가 명시로 왔거나 (b) 레벨/조직명이
     // 실제로 바뀐 경우에만. 경로 없이 이름·레벨이 동일한 요청(경로 개념이 없는 구버전 클라이언트의
@@ -8125,10 +8087,8 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
         return res.status(scope.mode === 'chain' ? 403 : 400).json({
           error:
             scope.mode === 'chain'
-              ? '평가 범위 밖의 조직으로 변경할 수 없습니다.'
-              : scope.mode === 'hr'
-                ? '내 관할(평가체인 최상위 기준) 조직 범위 밖이거나 평가 데이터에 없는 조직입니다.'
-                : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다.',
+              ? '내가 평가하는 인원 전원이 소속된 조직으로만 변경할 수 있습니다.'
+              : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다.',
         });
       }
     }
@@ -8243,16 +8203,11 @@ app.delete('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
-    // 삭제권 = 스코프 기준(평가자: 생성자 체인, HR: 관할 조직 범위, admin: 전체). 서브트리도 함께 삭제됨.
+    // 삭제권 = 스코프 기준(평가자 탭: 생성자 체인, HR 관리자 탭: 전체). 서브트리도 함께 삭제됨.
     const { scope: delScope, visible: delVisible } = await buildKpiVisibility(req, kpi.evaluation_period_id);
     if (delScope.mode !== 'all' && !delVisible(kpi)) {
       await client.query('ROLLBACK');
-      return res.status(403).json({
-        error:
-          delScope.mode === 'hr'
-            ? '내 관할(평가체인 최상위 기준) 조직 범위 밖의 KPI는 삭제할 수 없습니다.'
-            : '본인 또는 하위 평가자가 만든 KPI만 삭제할 수 있습니다.',
-      });
+      return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 삭제할 수 있습니다.' });
     }
     await client.query('DELETE FROM org_kpis WHERE id = $1', [req.params.id]); // 자식·배분은 ON DELETE CASCADE
     await insertAdminAuditLog(client, {
@@ -8351,14 +8306,9 @@ app.put('/api/org-kpis/:id/allocations', requireHrOrEvaluator, async (req, res) 
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
     }
-    // 스코프 게이트 — HR 모드는 관할 조직 KPI 만(조회 403 과 경계 일치), admin 은 전체.
-    // 평가자 모드는 아래 canAccessEvaluation(담당 평가 여부)로 검사한다.
-    const { scope: allocScope, visible: allocVisible } = await buildKpiVisibility(req, kpi.evaluation_period_id);
-    if (allocScope.mode === 'hr' && !allocVisible(kpi)) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: '내 관할(평가체인 최상위 기준) 조직 범위 밖의 KPI에는 배분할 수 없습니다.' });
-    }
-    const isHr = allocScope.mode !== 'chain';
+    // 관리자 권한 = HR 관리자 탭(전체). 평가자 탭은 아래 canAccessEvaluation(담당 평가 여부)로
+    // 검사한다 — HR 겸직자도 평가자 탭에서는 일반 평가자와 동일 기준.
+    const isHr = (await getKpiScope(req, kpi.evaluation_period_id)).mode === 'all';
     const orgCol = KPI_LEVEL_ORG_COL[kpi.org_level];
     const out = [];
     for (const it of items) {
@@ -8472,18 +8422,8 @@ app.delete('/api/org-kpis/:id/allocations/:allocId', requireHrOrEvaluator, async
       await client.query('ROLLBACK');
       return res.status(404).json({ error: '배분을 찾을 수 없습니다.' });
     }
-    // 스코프 게이트 — PUT allocations 와 동일 경계(HR 모드=관할 조직 KPI 만).
-    const { rows: kpiRows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [req.params.id]);
-    const allocKpi = kpiRows[0];
-    const { scope: allocScope, visible: allocVisible } = await buildKpiVisibility(
-      req,
-      allocKpi?.evaluation_period_id ?? alloc.evaluation_period_id,
-    );
-    if (allocScope.mode === 'hr' && allocKpi && !allocVisible(allocKpi)) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: '내 관할(평가체인 최상위 기준) 조직 범위 밖의 KPI 배분은 삭제할 수 없습니다.' });
-    }
-    const isHr = allocScope.mode !== 'chain';
+    // 관리자 권한 = HR 관리자 탭(전체). 평가자 탭은 canAccessEvaluation(담당 평가 여부)로 검사.
+    const isHr = (await getKpiScope(req, alloc.evaluation_period_id)).mode === 'all';
     if (!isHr && !(await canAccessEvaluation(req, alloc, { allowLineDescendant: true }))) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: '해당 배분을 삭제할 권한이 없습니다.' });
