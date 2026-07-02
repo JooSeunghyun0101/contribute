@@ -209,7 +209,9 @@ const TaskKpiPanel = ({ taskUuid, taskId, evaluationId, canEdit }: Props) => {
                   <option value="">선택…</option>
                   {availableCandidates.map((c) => (
                     <option key={c.id} value={c.id}>
-                      [{LEVEL_LABEL[c.org_level]}·{c.org_key}] {c.name} (목표 {formatKpiValue(c.target_value, c.unit)})
+                      [{LEVEL_LABEL[c.org_level]}·{c.org_key}
+                      {c.org_path_corporation ? `·${c.org_path_corporation}` : ''}] {c.name} (목표{' '}
+                      {formatKpiValue(c.target_value, c.unit)})
                     </option>
                   ))}
                 </select>

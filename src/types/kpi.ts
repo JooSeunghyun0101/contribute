@@ -10,8 +10,14 @@ export interface OrgKpi {
   id: string;
   evaluation_period_id: string;
   parent_kpi_id: string | null;
+  /** 재루팅 등으로 부모가 안 보여도 '어디에 연결됐는지' 표시용(서버 조인). */
+  parent_name?: string | null;
   org_level: KpiOrgLevel;
   org_key: string;
+  /** 상위 조직 경로 — 동명 조직 구분(레거시 행은 NULL=이름 단독 매칭). */
+  org_path_corporation?: string | null;
+  org_path_division?: string | null;
+  org_path_department?: string | null;
   name: string;
   unit: string;
   target_value: number;
@@ -79,12 +85,25 @@ export interface OrgKpiInput {
   parent_kpi_id?: string | null;
   org_level: KpiOrgLevel;
   org_key: string;
+  org_path_corporation?: string | null;
+  org_path_division?: string | null;
+  org_path_department?: string | null;
   name: string;
   unit: string;
   target_value: number;
   direction?: KpiDirection;
   description?: string | null;
   owner_id?: string | null;
+}
+
+/** 정형화 조직 선택지(경로 튜플) — org-options.orgChoices 항목. 레벨까지의 값만 채워지고 나머지는 null. */
+export interface KpiOrgChoice {
+  corporation: string | null;
+  division: string | null;
+  department: string | null;
+  team: string | null;
+  /** 그 조직의 조직장(체인 최상위 평가자) — 없으면 null. */
+  leader?: string | null;
 }
 
 export type OrgKpiUpdate = Partial<Omit<OrgKpiInput, 'evaluation_period_id'>> & {

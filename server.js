@@ -7318,11 +7318,25 @@ app.delete('/api/evaluation-periods/:id', requireHr, async (req, res) => {
  * 기존 정성 점수(매트릭스)는 무변경 — KPI는 평가 화면 "참고 지표"로만 강조(부분 반영). */
 
 const KPI_LEVEL_DEPTH = { corporation: 0, division: 1, department: 2, team: 3 };
+const KPI_LEVELS = ['corporation', 'division', 'department', 'team'];
 const KPI_LEVEL_ORG_COL = {
   corporation: 'evaluatee_org_corporation',
   division: 'evaluatee_org_division',
   department: 'evaluatee_org_department',
   team: 'evaluatee_org_team',
+};
+// 조직 경로(상위 조상) 저장 — 동명 조직(법인 간 같은 팀명) 구분. org_key=해당 레벨 값, 그보다 상위만 경로 컬럼에.
+const KPI_PATH_COLS = { corporation: 'org_path_corporation', division: 'org_path_division', department: 'org_path_department' };
+const kpiAncestorLevels = (orgLevel) =>
+  ['corporation', 'division', 'department'].filter((l) => KPI_LEVEL_DEPTH[l] < KPI_LEVEL_DEPTH[orgLevel]);
+// body 의 경로 입력을 레벨에 맞게 정규화 — 조상 레벨만 채우고 나머지는 NULL.
+const normalizeKpiPath = (orgLevel, body) => {
+  const out = { org_path_corporation: null, org_path_division: null, org_path_department: null };
+  for (const l of kpiAncestorLevels(orgLevel)) {
+    const v = String(body?.[KPI_PATH_COLS[l]] ?? '').trim();
+    out[KPI_PATH_COLS[l]] = v || null;
+  }
+  return out;
 };
 const kpiNum = (v) => (v == null ? null : Number(v));
 
@@ -7380,6 +7394,10 @@ const buildKpiTree = (rows) => {
     if (parent) parent.children.push(r);
     else roots.push(r);
   }
+  // 상위 KPI 이름 — 비-HR 트리에서 부모가 가시성 밖이라 재루팅되어도 '어디에 연결됐는지'는 보여준다.
+  for (const r of rows) {
+    r.parent_name = r.parent_kpi_id ? byId.get(r.parent_kpi_id)?.name ?? null : null;
+  }
   const seen = new Set();
   const visit = (node) => {
     if (seen.has(node.id)) return; // 손상 데이터 순환 방어
@@ -7402,6 +7420,10 @@ const serializeKpiBase = (r) => ({
   parent_kpi_id: r.parent_kpi_id,
   org_level: r.org_level,
   org_key: r.org_key,
+  org_path_corporation: r.org_path_corporation ?? null,
+  org_path_division: r.org_path_division ?? null,
+  org_path_department: r.org_path_department ?? null,
+  parent_name: r.parent_name ?? null,
   name: r.name,
   unit: r.unit,
   target_value: kpiNum(r.target_value),
@@ -7427,8 +7449,9 @@ const serializeAllocation = (r) => ({
   achieved_value: kpiNum(r.achieved_value),
 });
 
-// parent_kpi_id 검증: 같은 기간·상위 레벨·같은 단위·순환 금지.
-const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, unit }) => {
+// parent_kpi_id 검증: 같은 기간·상위 레벨·같은 단위·조직 경로 정합·순환 금지.
+// childPath: 이 KPI 의 조상 조직 { corporation, division, department } (모르면 null — 레거시 관용).
+const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, unit, childPath }) => {
   if (!parentKpiId) return;
   const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [parentKpiId]);
   const parent = rows[0];
@@ -7442,6 +7465,19 @@ const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, 
   if (KPI_LEVEL_DEPTH[orgLevel] <= KPI_LEVEL_DEPTH[parent.org_level])
     fail('상위 KPI는 더 상위 조직 레벨이어야 합니다.');
   if (parent.unit !== unit) fail('상위 KPI와 단위가 같아야 롤업됩니다.');
+  // 조직 경로 정합 — 상위 KPI 는 이 KPI 조직의 '실제 상위 조직'이어야 한다(엉뚱한 본부·부 연결 금지).
+  // 경로를 모르는(NULL) 쪽은 관용해 레거시 KPI 를 깨지 않는다.
+  if (childPath) {
+    const ancestorAtParentLevel = childPath[parent.org_level] ?? null;
+    if (ancestorAtParentLevel && parent.org_key !== ancestorAtParentLevel) {
+      fail(`상위 KPI 조직(${parent.org_key})이 이 KPI의 상위 조직(${ancestorAtParentLevel})과 다릅니다.`);
+    }
+    for (const l of kpiAncestorLevels(parent.org_level)) {
+      const pv = parent[KPI_PATH_COLS[l]];
+      const cv = childPath[l];
+      if (pv && cv && pv !== cv) fail('상위 KPI의 조직 경로가 이 KPI의 조직 경로와 다릅니다.');
+    }
+  }
   // 순환 방지: parent 에서 위로 올라가며 자기 자신(id)에 도달하면 거부.
   if (id) {
     let cur = parent;
@@ -7496,10 +7532,20 @@ const getDownwardChainIds = async (req, actingAsHr) => {
 const kpiVisibleTo = (chainOrNull, kpi) =>
   chainOrNull === null || chainOrNull.has(String(kpi.created_by));
 
-// 생성 가능 조직(레벨별) — 요청자가 평가하는(하위체인) 사람들의 조직. HR 은 전체 distinct.
-// 가시성과 별개: '어떤 조직에 KPI를 만들 수 있나'를 정하며, 폼 드롭다운에도 쓰인다.
-const getCreatableOrgs = async (req, periodId, actingAsHr) => {
-  const chain = await getDownwardChainIds(req, actingAsHr); // HR 모드→null
+// 조직 경로 튜플 키 — 최상위(법인)부터 해당 레벨까지 '|' 로 연결(동명 조직 구분의 기준 키).
+const kpiTupleKey = (t, level) => {
+  const parts = [];
+  for (const l of KPI_LEVELS) {
+    parts.push(t[l] ?? '');
+    if (l === level) break;
+  }
+  return parts.join('|');
+};
+
+// 등록 가능 조직 '경로 튜플'(레벨별) — 요청자가 평가하는(하위체인) 인원들의 실제 조직 조합. HR 은 전체.
+// 정형화 드롭다운의 원천이자 등록/변경 검증 기준. 반환: 레벨별 Map(pathKey → 튜플).
+const getCreatableOrgTuples = async (req, periodId, actingAsHr) => {
+  const chain = await getDownwardChainIds(req, actingAsHr); // HR 모드→null(전체)
   const { rows } = await pool.query(
     `SELECT evaluatee_id,
             evaluatee_org_corporation AS corporation, evaluatee_org_division AS division,
@@ -7507,18 +7553,37 @@ const getCreatableOrgs = async (req, periodId, actingAsHr) => {
        FROM evaluations WHERE evaluation_period_id = $1 AND record_status = 'active'`,
     [periodId],
   );
-  const lvl = { corporation: new Set(), division: new Set(), department: new Set(), team: new Set() };
+  const perLevel = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   for (const e of rows) {
     if (chain !== null && !chain.has(String(e.evaluatee_id))) continue; // 비-HR: 체인 인원의 조직만
-    for (const k of ['corporation', 'division', 'department', 'team']) if (e[k]) lvl[k].add(e[k]);
+    for (const level of KPI_LEVELS) {
+      if (!e[level]) continue;
+      const tuple = { corporation: null, division: null, department: null, team: null };
+      for (const l of KPI_LEVELS) {
+        tuple[l] = e[l] ?? null;
+        if (l === level) break;
+      }
+      perLevel[level].set(kpiTupleKey(tuple, level), tuple);
+    }
   }
-  return lvl;
+  return perLevel;
 };
-// 생성 권한: HR 모드이거나, 그 (레벨·조직)이 요청자 평가 범위(하위체인 인원의 조직)에 포함.
-const canCreateInOrg = async (req, periodId, level, key, actingAsHr) => {
-  if (actingAsHr) return true;
-  const creatable = await getCreatableOrgs(req, periodId, actingAsHr);
-  return Boolean(creatable[level] && creatable[level].has(key));
+// 등록/변경 허용 검사 — (레벨·조직명·경로)가 실제 평가 데이터의 조직 조합과 일치해야 한다.
+// path 값이 비어 있으면(레거시) 이름 일치만 요구해 기존 KPI 수정을 깨지 않는다.
+const canCreateOrgTuple = (perLevel, level, orgKey, path) => {
+  for (const tuple of perLevel[level].values()) {
+    if (tuple[level] !== orgKey) continue;
+    let ok = true;
+    for (const l of kpiAncestorLevels(level)) {
+      const want = path?.[KPI_PATH_COLS[l]] ?? null;
+      if (want && tuple[l] !== want) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
 };
 
 // GET 목록(평면) — own_*/rolled_*/progress 동봉. 롤업 위해 기간 전체 로드 후 필터.
@@ -7633,6 +7698,15 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId],
     );
     const leaderKeyCol = { corporation: 'c', division: 'd', department: 'dep', team: 't' };
+    // 조직 식별은 이름이 아니라 '경로 키'(법인|본부|부|팀, 해당 레벨까지) — 동명 조직을 섞지 않는다.
+    const rowPathKey = (o, lvl) => {
+      const parts = [];
+      for (const l of KPI_LEVELS) {
+        parts.push(o?.[leaderKeyCol[l]] ?? '');
+        if (l === lvl) break;
+      }
+      return parts.join('|');
+    };
     // 개인별 소속(본인 평가 기준)과 평가자 — 체인 조건 판정용.
     const orgOfMember = new Map(); // evaluatee_id → {c,d,dep,t}
     const evaluatorOfMember = new Map(); // evaluatee_id → evaluator_id
@@ -7644,46 +7718,50 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
         if (r.evaluator_name) nameOfEvaluator.set(r.evaluator_id, r.evaluator_name);
       }
     }
-    // 조직별 평가자 담당 인원수(evaluator_id 기준 — 동명이인 합산 방지).
+    // 조직(경로 키)별 평가자 담당 인원수(evaluator_id 기준 — 동명이인 합산 방지).
     const leaderAgg = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
     for (const r of leaderRows) {
       if (!r.evaluator_id || !r.evaluator_name) continue;
-      for (const lvl of Object.keys(leaderKeyCol)) {
-        const org = r[leaderKeyCol[lvl]];
-        if (!org) continue;
-        let m = leaderAgg[lvl].get(org);
+      for (const lvl of KPI_LEVELS) {
+        if (!r[leaderKeyCol[lvl]]) continue;
+        const key = rowPathKey(r, lvl);
+        let m = leaderAgg[lvl].get(key);
         if (!m) {
           m = new Map();
-          leaderAgg[lvl].set(org, m);
+          leaderAgg[lvl].set(key, m);
         }
         m.set(r.evaluator_id, (m.get(r.evaluator_id) ?? 0) + 1);
       }
     }
     const leaders = {};
-    for (const lvl of Object.keys(leaderKeyCol)) {
-      const col = leaderKeyCol[lvl];
+    for (const lvl of KPI_LEVELS) {
       leaders[lvl] = {};
-      for (const [org, m] of leaderAgg[lvl]) {
+      for (const [key, m] of leaderAgg[lvl]) {
         const byCount = [...m.entries()].sort((a, b) => b[1] - a[1]);
         const qualified = byCount.filter(([id]) => {
-          if (orgOfMember.get(id)?.[col] !== org) return false; // 본인이 조직 구성원이어야 함
+          if (rowPathKey(orgOfMember.get(id), lvl) !== key) return false; // 본인이 그 조직 구성원
           const boss = evaluatorOfMember.get(id);
-          return !boss || orgOfMember.get(boss)?.[col] !== org; // 그의 평가자는 조직 밖(=체인 최상위)
+          return !boss || rowPathKey(orgOfMember.get(boss), lvl) !== key; // 그의 평가자는 조직 밖(=체인 최상위)
         });
         const picked = qualified.length > 0 ? qualified : lvl === 'team' ? byCount : [];
         const names = picked.map(([id]) => nameOfEvaluator.get(id)).filter(Boolean);
-        if (names.length > 0) leaders[lvl][org] = names;
+        if (names.length > 0) leaders[lvl][key] = names;
       }
     }
-    // 등록 폼용 — 요청자가 KPI를 만들 수 있는 조직(평가하는 조직, 레벨별). HR 은 전체.
-    const creatable = await getCreatableOrgs(req, periodId, await kpiActingAsHr(req));
-    const sortKo = (s) => [...s].sort((a, b) => a.localeCompare(b, 'ko-KR'));
-    const manageableOut = {
-      corporation: sortKo(creatable.corporation),
-      division: sortKo(creatable.division),
-      department: sortKo(creatable.department),
-      team: sortKo(creatable.team),
-    };
+    // 등록 폼 드롭다운용 — 정형화 조직 선택지(경로 튜플, 레벨별). 비-HR 은 본인 평가 범위(하위체인)만.
+    const actingAsHr = await kpiActingAsHr(req);
+    const creatableTuples = await getCreatableOrgTuples(req, periodId, actingAsHr);
+    const labelOfTuple = (t) => [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
+    const orgChoices = {};
+    const manageableOut = {};
+    for (const lvl of KPI_LEVELS) {
+      orgChoices[lvl] = [...creatableTuples[lvl].entries()]
+        .map(([key, t]) => ({ ...t, leader: leaders[lvl][key]?.[0] ?? null }))
+        .sort((a, b) => labelOfTuple(a).localeCompare(labelOfTuple(b), 'ko-KR'));
+      manageableOut[lvl] = [...new Set(orgChoices[lvl].map((t) => t[lvl]).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'ko-KR'),
+      );
+    }
     res.json({
       corporation: uniq('c'),
       division: uniq('d'),
@@ -7698,9 +7776,57 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       myTeams,
       manageable: manageableOut,
       leaders,
+      orgChoices,
     });
   } catch (err) {
     console.error('Error fetching KPI org options:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 상위 KPI 연결 후보 — 이 KPI 조직의 '상위 경로'에 있는 같은 기간·같은 단위·상위 레벨 KPI.
+// 생성자-체인 가시성과 무관(연결 대상 조회일 뿐 관리 권한이 아님) → 팀장이 본부장 KPI 에 직접 연결 가능.
+// :id 라우트보다 먼저 등록해야 'parent-candidates' 가 :id 로 잡히지 않는다.
+app.get('/api/org-kpis/parent-candidates', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const periodId = req.query.periodId;
+  const orgLevel = String(req.query.orgLevel ?? '');
+  const unit = String(req.query.unit ?? '').trim();
+  if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !unit) {
+    return res.status(400).json({ error: 'periodId·orgLevel·unit 이 필요합니다.' });
+  }
+  // 이 KPI 조직의 조상 값(정형화 드롭다운에서 온 경로). 모르는 레벨의 후보는 내지 않는다(오연결 방지).
+  const anc = {
+    corporation: String(req.query.corporation ?? '').trim() || null,
+    division: String(req.query.division ?? '').trim() || null,
+    department: String(req.query.department ?? '').trim() || null,
+  };
+  try {
+    const conds = [];
+    const params = [periodId, unit];
+    for (const l of kpiAncestorLevels(orgLevel)) {
+      if (!anc[l]) continue;
+      const parts = [`org_level = '${l}'`];
+      params.push(anc[l]);
+      parts.push(`org_key = $${params.length}`);
+      for (const u of kpiAncestorLevels(l)) {
+        if (!anc[u]) continue;
+        params.push(anc[u]);
+        parts.push(`(${KPI_PATH_COLS[u]} IS NULL OR ${KPI_PATH_COLS[u]} = $${params.length})`);
+      }
+      conds.push(`(${parts.join(' AND ')})`);
+    }
+    if (conds.length === 0) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT * FROM org_kpis
+        WHERE evaluation_period_id = $1 AND status = 'active' AND unit = $2
+          AND (${conds.join(' OR ')})
+        ORDER BY CASE org_level WHEN 'department' THEN 0 WHEN 'division' THEN 1 ELSE 2 END, name`,
+      params,
+    );
+    res.json(rows.map(serializeKpiBase));
+  } catch (err) {
+    console.error('Error fetching KPI parent candidates:', err.message);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -7754,23 +7880,55 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
   if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !orgKey || !name || !unit || !(targetValue > 0)) {
     return res.status(400).json({ error: '필수 항목(기간·조직레벨·조직·이름·단위·목표>0)을 확인하세요.' });
   }
+  const orgPath = normalizeKpiPath(orgLevel, b);
   const actingAsHr = await kpiActingAsHr(req);
-  if (!actingAsHr) {
-    // 본인이 평가하는(하위체인) 조직에만 KPI 등록 가능. 등록한 KPI는 본인+상위평가자만 조회.
-    // (HR 역할이라도 '평가자 모드'면 여기로 — 자기 평가조직에만 등록)
-    if (!(await canCreateInOrg(req, periodId, orgLevel, orgKey, actingAsHr))) {
-      return res.status(403).json({ error: '본인이 평가하는 조직의 KPI만 등록할 수 있습니다.' });
-    }
+  // 등록 조직은 정형화 드롭다운(경로 튜플) 기준으로 서버에서도 검증 —
+  //   비-HR: 본인이 평가하는(하위체인) 조직 조합만. HR: 그 기간 평가 데이터에 실존하는 조합만(유령 KPI 차단).
+  const creatableTuples = await getCreatableOrgTuples(req, periodId, actingAsHr);
+  if (!canCreateOrgTuple(creatableTuples, orgLevel, orgKey, orgPath)) {
+    return res.status(actingAsHr ? 400 : 403).json({
+      error: actingAsHr
+        ? '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다. 목록에서 선택해 주세요.'
+        : '본인이 평가하는 조직의 KPI만 등록할 수 있습니다.',
+    });
   }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await validateKpiParent(client, { id: null, parentKpiId: b.parent_kpi_id ?? null, periodId, orgLevel, unit });
+    await validateKpiParent(client, {
+      id: null,
+      parentKpiId: b.parent_kpi_id ?? null,
+      periodId,
+      orgLevel,
+      unit,
+      childPath: {
+        corporation: orgPath.org_path_corporation,
+        division: orgPath.org_path_division,
+        department: orgPath.org_path_department,
+      },
+    });
     const { rows } = await client.query(
       `INSERT INTO org_kpis
-         (evaluation_period_id, parent_kpi_id, org_level, org_key, name, unit, target_value, direction, description, owner_id, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active',$11) RETURNING *`,
-      [periodId, b.parent_kpi_id ?? null, orgLevel, orgKey, name, unit, targetValue, direction, b.description ?? null, b.owner_id ?? null, req.session.employeeId],
+         (evaluation_period_id, parent_kpi_id, org_level, org_key,
+          org_path_corporation, org_path_division, org_path_department,
+          name, unit, target_value, direction, description, owner_id, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active',$14) RETURNING *`,
+      [
+        periodId,
+        b.parent_kpi_id ?? null,
+        orgLevel,
+        orgKey,
+        orgPath.org_path_corporation,
+        orgPath.org_path_division,
+        orgPath.org_path_department,
+        name,
+        unit,
+        targetValue,
+        direction,
+        b.description ?? null,
+        b.owner_id ?? null,
+        req.session.employeeId,
+      ],
     );
     await insertAdminAuditLog(client, {
       actionType: 'kpi_create',
@@ -7805,27 +7963,53 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
     }
     const actingAsHr = await kpiActingAsHr(req);
     if (!actingAsHr) {
-      // 생성자-체인: 본인 또는 하위 평가자가 만든 KPI만 수정. 조직 변경 시 새 조직은 평가 범위여야 함.
+      // 생성자-체인: 본인 또는 하위 평가자가 만든 KPI만 수정.
       const chain = await getDownwardChainIds(req, actingAsHr);
       if (!kpiVisibleTo(chain, existing)) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 수정할 수 있습니다.' });
       }
-      const nextLevel = b.org_level ?? existing.org_level;
-      const nextKey = b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key;
-      if (
-        (nextLevel !== existing.org_level || nextKey !== existing.org_key) &&
-        !(await canCreateInOrg(req, existing.evaluation_period_id, nextLevel, nextKey, actingAsHr))
-      ) {
+    }
+    // 조직(레벨·이름·경로) 머지 — 조직 관련 필드가 하나라도 오면 경로를 새 입력 기준으로 재구성.
+    const orgProvided =
+      b.org_level !== undefined ||
+      b.org_key !== undefined ||
+      b.org_path_corporation !== undefined ||
+      b.org_path_division !== undefined ||
+      b.org_path_department !== undefined;
+    const nextLevel = b.org_level ?? existing.org_level;
+    const nextKey = b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key;
+    const nextPath = orgProvided
+      ? normalizeKpiPath(nextLevel, b)
+      : {
+          org_path_corporation: existing.org_path_corporation,
+          org_path_division: existing.org_path_division,
+          org_path_department: existing.org_path_department,
+        };
+    const orgChanged =
+      nextLevel !== existing.org_level ||
+      nextKey !== existing.org_key ||
+      nextPath.org_path_corporation !== existing.org_path_corporation ||
+      nextPath.org_path_division !== existing.org_path_division ||
+      nextPath.org_path_department !== existing.org_path_department;
+    if (orgChanged) {
+      // 새 조직 조합은 실제 평가 데이터에 존재해야 하고, 비-HR 은 본인 평가 범위여야 함.
+      const creatableTuples = await getCreatableOrgTuples(req, existing.evaluation_period_id, actingAsHr);
+      if (!canCreateOrgTuple(creatableTuples, nextLevel, nextKey, nextPath)) {
         await client.query('ROLLBACK');
-        return res.status(403).json({ error: '평가 범위 밖의 조직으로 변경할 수 없습니다.' });
+        return res.status(actingAsHr ? 400 : 403).json({
+          error: actingAsHr
+            ? '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다.'
+            : '평가 범위 밖의 조직으로 변경할 수 없습니다.',
+        });
       }
     }
     // 변경할 필드 머지(미지정은 기존값 유지)
     const next = {
       parent_kpi_id: b.parent_kpi_id !== undefined ? b.parent_kpi_id : existing.parent_kpi_id,
-      org_level: b.org_level ?? existing.org_level,
-      org_key: b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key,
+      org_level: nextLevel,
+      org_key: nextKey,
+      ...nextPath,
       name: b.name !== undefined ? String(b.name).trim() : existing.name,
       unit: b.unit !== undefined ? String(b.unit).trim() : existing.unit,
       target_value: b.target_value !== undefined ? Number(b.target_value) : Number(existing.target_value),
@@ -7847,6 +8031,11 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       periodId: existing.evaluation_period_id,
       orgLevel: next.org_level,
       unit: next.unit,
+      childPath: {
+        corporation: next.org_path_corporation,
+        division: next.org_path_division,
+        department: next.org_path_department,
+      },
     });
     // 자식 일관성: 단위/레벨 변경 시 자식이 깨지지 않는지.
     const { rows: kids } = await client.query('SELECT org_level, unit FROM org_kpis WHERE parent_kpi_id = $1', [req.params.id]);
@@ -7856,10 +8045,27 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
     }
     const { rows } = await client.query(
       `UPDATE org_kpis SET
-         parent_kpi_id=$1, org_level=$2, org_key=$3, name=$4, unit=$5, target_value=$6,
-         direction=$7, description=$8, owner_id=$9, status=$10, updated_at=now()
-       WHERE id=$11 RETURNING *`,
-      [next.parent_kpi_id, next.org_level, next.org_key, next.name, next.unit, next.target_value, next.direction, next.description, next.owner_id, next.status, req.params.id],
+         parent_kpi_id=$1, org_level=$2, org_key=$3,
+         org_path_corporation=$4, org_path_division=$5, org_path_department=$6,
+         name=$7, unit=$8, target_value=$9,
+         direction=$10, description=$11, owner_id=$12, status=$13, updated_at=now()
+       WHERE id=$14 RETURNING *`,
+      [
+        next.parent_kpi_id,
+        next.org_level,
+        next.org_key,
+        next.org_path_corporation,
+        next.org_path_division,
+        next.org_path_department,
+        next.name,
+        next.unit,
+        next.target_value,
+        next.direction,
+        next.description,
+        next.owner_id,
+        next.status,
+        req.params.id,
+      ],
     );
     await insertAdminAuditLog(client, {
       actionType: 'kpi_update',
@@ -7929,13 +8135,21 @@ app.get('/api/evaluations/:evalId/kpi-candidates', guardEvaluationParam('evalId'
       )
     ).rows[0];
     if (!ev) return res.json({ candidates: [], evaluatee_org: null });
+    // 경로(org_path_*)가 있는 KPI 는 피평가자의 상위 조직까지 일치해야 후보가 된다 —
+    // 동명 조직(다른 법인 같은 팀명) KPI 가 남의 조직 후보로 새지 않게. NULL 경로(레거시)는 이름만 매칭.
     const { rows } = await pool.query(
       `SELECT * FROM org_kpis
         WHERE evaluation_period_id = $1 AND status = 'active'
           AND ( (org_level='corporation' AND org_key = $2)
-             OR (org_level='division'    AND org_key = $3)
-             OR (org_level='department'  AND org_key = $4)
-             OR (org_level='team'        AND org_key = $5) )
+             OR (org_level='division'    AND org_key = $3
+                 AND (org_path_corporation IS NULL OR org_path_corporation = $2))
+             OR (org_level='department'  AND org_key = $4
+                 AND (org_path_corporation IS NULL OR org_path_corporation = $2)
+                 AND (org_path_division   IS NULL OR org_path_division   = $3))
+             OR (org_level='team'        AND org_key = $5
+                 AND (org_path_corporation IS NULL OR org_path_corporation = $2)
+                 AND (org_path_division   IS NULL OR org_path_division   = $3)
+                 AND (org_path_department IS NULL OR org_path_department = $4)) )
         ORDER BY org_level, name`,
       [ev.evaluation_period_id, ev.c, ev.d, ev.dep, ev.t],
     );
@@ -7999,6 +8213,9 @@ app.put('/api/org-kpis/:id/allocations', requireHrOrEvaluator, async (req, res) 
       // 평가행 + 권한/정렬 검증
       const { rows: evRows } = await client.query(
         `SELECT ev.id, ev.evaluatee_id, ev.${orgCol} AS org_val,
+                ev.evaluatee_org_corporation AS org_corporation,
+                ev.evaluatee_org_division    AS org_division,
+                ev.evaluatee_org_department  AS org_department,
                 h.new_evaluator_id AS assigned_evaluator_id, e.evaluator_id AS current_evaluator_id
            FROM evaluations ev
            LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
@@ -8021,6 +8238,15 @@ app.put('/api/org-kpis/:id/allocations', requireHrOrEvaluator, async (req, res) 
         const e = new Error('과업 피평가자의 조직이 KPI 조직과 일치하지 않습니다.');
         e.statusCode = 400;
         throw e;
+      }
+      // KPI 에 상위 경로가 저장돼 있으면 그 경로까지 일치해야 배분 가능(동명 조직 오배분 차단).
+      for (const l of kpiAncestorLevels(kpi.org_level)) {
+        const want = kpi[KPI_PATH_COLS[l]];
+        if (want && String(evRow[`org_${l}`] ?? '') !== want) {
+          const e = new Error('과업 피평가자의 상위 조직 경로가 KPI 조직 경로와 일치하지 않습니다.');
+          e.statusCode = 400;
+          throw e;
+        }
       }
       // 과업이 그 평가 소속이고 삭제되지 않았는지
       const { rows: tRows } = await client.query(

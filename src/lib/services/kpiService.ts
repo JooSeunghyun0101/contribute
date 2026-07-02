@@ -2,6 +2,8 @@ import { apiFetch } from '@/lib/api';
 import type {
   OrgKpi,
   KpiNode,
+  KpiOrgChoice,
+  KpiOrgLevel,
   OrgKpiInput,
   OrgKpiUpdate,
   TaskKpiAllocation,
@@ -44,7 +46,7 @@ export const kpiService = {
     }
   },
 
-  /** 폼 드롭다운용 조직 옵션(레벨별) + 요청자 본인 조직 + 조직별 조직장(평가자) 라벨. */
+  /** 폼 드롭다운용 조직 옵션(레벨별) + 요청자 본인 조직 + 조직장 라벨 + 정형화 경로 튜플(orgChoices). */
   async orgOptions(periodId: string): Promise<{
     corporation: string[];
     division: string[];
@@ -53,13 +55,10 @@ export const kpiService = {
     mine: { corporation: string | null; division: string | null; department: string | null; team: string | null };
     myTeams: string[];
     manageable: { corporation: string[]; division: string[]; department: string[]; team: string[] };
-    /** 레벨별 { 조직명: 평가자 이름[] } — 담당 인원수 내림차순(팀 레벨은 사실상 팀장 1명). */
-    leaders: {
-      corporation: Record<string, string[]>;
-      division: Record<string, string[]>;
-      department: Record<string, string[]>;
-      team: Record<string, string[]>;
-    };
+    /** 레벨별 { 경로키(법인|본부|부|팀, 레벨까지 '|' 연결): 조직장 이름[] } — 체인 최상위 우선. */
+    leaders: Record<KpiOrgLevel, Record<string, string[]>>;
+    /** 정형화 조직 선택지 — 비-HR 은 본인 평가 범위(하위체인)만, HR 은 전체. */
+    orgChoices: Record<KpiOrgLevel, KpiOrgChoice[]>;
   }> {
     try {
       return await apiFetch(`/api/org-kpis/org-options${qs({ periodId })}`);
@@ -112,6 +111,31 @@ export const kpiService = {
   async candidatesForEvaluation(evaluationId: string): Promise<KpiCandidatesResponse> {
     try {
       return await apiFetch<KpiCandidatesResponse>(`/api/evaluations/${evaluationId}/kpi-candidates`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  /** 상위 KPI 연결 후보 — 조직 상위 경로의 같은 단위 KPI(가시성 무관, 연결 대상 조회 전용). */
+  async parentCandidates(params: {
+    periodId: string;
+    orgLevel: KpiOrgLevel;
+    unit: string;
+    corporation?: string | null;
+    division?: string | null;
+    department?: string | null;
+  }): Promise<OrgKpi[]> {
+    try {
+      return await apiFetch<OrgKpi[]>(
+        `/api/org-kpis/parent-candidates${qs({
+          periodId: params.periodId,
+          orgLevel: params.orgLevel,
+          unit: params.unit,
+          corporation: params.corporation,
+          division: params.division,
+          department: params.department,
+        })}`,
+      );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

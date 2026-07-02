@@ -8,7 +8,7 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import type { KpiNode, KpiOrgLevel, OrgKpi, TaskKpiAllocation } from '@/types/kpi';
+import type { KpiNode, KpiOrgChoice, KpiOrgLevel, OrgKpi, TaskKpiAllocation } from '@/types/kpi';
 
 const LEVEL_LABEL: Record<KpiOrgLevel, string> = {
   corporation: '법인',
@@ -34,6 +34,10 @@ type KpiForm = {
   parent_kpi_id: string;
   org_level: KpiOrgLevel;
   org_key: string;
+  // 상위 조직 경로 — 정형화 드롭다운 선택 시 함께 채워져 동명 조직을 구분('' = 미지정/레거시).
+  org_path_corporation: string;
+  org_path_division: string;
+  org_path_department: string;
   name: string;
   unit: string;
   target_value: string;
@@ -46,12 +50,57 @@ const emptyForm = (level: KpiOrgLevel = 'division'): KpiForm => ({
   parent_kpi_id: '',
   org_level: level,
   org_key: '',
+  org_path_corporation: '',
+  org_path_division: '',
+  org_path_department: '',
   name: '',
   unit: '억',
   target_value: '',
   direction: 'higher',
   description: '',
 });
+
+// 경로 튜플 → 선택 키(법인|본부|부|팀, 레벨까지) — 서버 leaders/orgChoices 키와 동일 규칙.
+const choicePathKey = (t: KpiOrgChoice, level: KpiOrgLevel): string => {
+  const parts: string[] = [];
+  for (const l of LEVEL_ORDER) {
+    parts.push(t[l] ?? '');
+    if (l === level) break;
+  }
+  return parts.join('|');
+};
+const choiceLabel = (t: KpiOrgChoice): string =>
+  [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
+// 선택지 튜플 → 폼 필드 반영(조상 경로까지 함께).
+const applyChoiceToForm = (base: KpiForm, level: KpiOrgLevel, choice: KpiOrgChoice): KpiForm => ({
+  ...base,
+  org_level: level,
+  org_key: choice[level] ?? '',
+  org_path_corporation: level !== 'corporation' ? choice.corporation ?? '' : '',
+  org_path_division: LEVEL_DEPTH[level] > LEVEL_DEPTH.division ? choice.division ?? '' : '',
+  org_path_department: LEVEL_DEPTH[level] > LEVEL_DEPTH.department ? choice.department ?? '' : '',
+});
+
+// 폼 상태 → 선택 키(조상 경로 + 해당 레벨 org_key). 조상이 비면 null(레거시 — 매칭 불가).
+const formPathKey = (form: KpiForm): string | null => {
+  const parts: string[] = [];
+  for (const l of LEVEL_ORDER) {
+    if (l === form.org_level) {
+      if (!form.org_key) return null;
+      parts.push(form.org_key);
+      break;
+    }
+    const v =
+      l === 'corporation'
+        ? form.org_path_corporation
+        : l === 'division'
+          ? form.org_path_division
+          : form.org_path_department;
+    if (!v) return null;
+    parts.push(v);
+  }
+  return parts.join('|');
+};
 
 const flatten = (nodes: KpiNode[], depth = 0, acc: { node: KpiNode; depth: number }[] = []) => {
   for (const n of nodes) {
@@ -61,8 +110,9 @@ const flatten = (nodes: KpiNode[], depth = 0, acc: { node: KpiNode; depth: numbe
   return acc;
 };
 
-const OrgBadge = ({ level, orgKey }: { level: KpiOrgLevel; orgKey: string }) => (
+const OrgBadge = ({ level, orgKey, path }: { level: KpiOrgLevel; orgKey: string; path?: string }) => (
   <span
+    title={path || undefined}
     style={{
       display: 'inline-flex',
       alignItems: 'center',
@@ -104,6 +154,8 @@ const KpiManagePage = () => {
   const [orgOptions, setOrgOptions] = useState<OrgOptions | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [form, setForm] = useState<KpiForm | null>(null);
+  // '하위 KPI 추가'로 열렸을 때의 부모 — 조직 선택지를 그 부모 조직 하위로 한정.
+  const [seedParent, setSeedParent] = useState<KpiNode | null>(null);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -144,31 +196,34 @@ const KpiManagePage = () => {
   }, [flatKpis, tree]);
 
   const startCreate = (parent?: KpiNode) => {
+    setSeedParent(parent ?? null);
     if (parent) {
-      const childLevelIdx = Math.min(LEVEL_DEPTH[parent.org_level] + 1, 3);
+      const childLevel = LEVEL_ORDER[Math.min(LEVEL_DEPTH[parent.org_level] + 1, 3)];
       setForm({
-        ...emptyForm(LEVEL_ORDER[childLevelIdx]),
+        ...emptyForm(childLevel),
         parent_kpi_id: parent.id,
         unit: parent.unit,
-        org_level: LEVEL_ORDER[childLevelIdx],
       });
-    } else if (!isHr) {
-      // 평가자: 본인이 총괄하는 조직(평가체인 기반). 가장 상위 레벨을 기본으로.
-      const m = orgOptions?.manageable;
-      const lvl = LEVEL_ORDER.find((l) => (m?.[l]?.length ?? 0) > 0) ?? 'team';
-      const opts = m?.[lvl] ?? [];
-      setForm({ ...emptyForm(lvl), org_key: opts.length === 1 ? opts[0] : '' });
     } else {
-      setForm(emptyForm('division'));
+      // 가장 상위의 선택 가능 레벨을 기본으로. 선택지가 1개뿐이면 미리 채운다.
+      const choices = orgOptions?.orgChoices;
+      const lvl = LEVEL_ORDER.find((l) => (choices?.[l]?.length ?? 0) > 0) ?? (isHr ? 'division' : 'team');
+      const opts = choices?.[lvl] ?? [];
+      const base = emptyForm(lvl);
+      setForm(opts.length === 1 ? applyChoiceToForm(base, lvl, opts[0]) : base);
     }
   };
 
   const startEdit = (k: OrgKpi) => {
+    setSeedParent(null);
     setForm({
       id: k.id,
       parent_kpi_id: k.parent_kpi_id ?? '',
       org_level: k.org_level,
       org_key: k.org_key,
+      org_path_corporation: k.org_path_corporation ?? '',
+      org_path_division: k.org_path_division ?? '',
+      org_path_department: k.org_path_department ?? '',
       name: k.name,
       unit: k.unit,
       target_value: String(k.target_value ?? ''),
@@ -177,13 +232,6 @@ const KpiManagePage = () => {
     });
   };
 
-  const parentChoices = useMemo(() => {
-    if (!form) return [];
-    return flatKpis.filter(
-      (k) => k.id !== form.id && LEVEL_DEPTH[k.org_level] < LEVEL_DEPTH[form.org_level] && k.unit === form.unit,
-    );
-  }, [flatKpis, form]);
-
   const submitForm = async () => {
     if (!form || !periodId) return;
     const target = Number(form.target_value);
@@ -191,25 +239,20 @@ const KpiManagePage = () => {
       toast({ title: '조직·이름·단위·목표(0보다 큰 값)를 확인해 주세요.', variant: 'destructive' });
       return;
     }
-    // 자유입력 오타로 어떤 과업과도 매칭되지 않는 '유령 KPI'를 조용히 만들지 않게 확인.
-    // (비-HR은 서버가 등록 가능 조직을 강제하므로 HR 경로만 해당)
-    const knownOrgs = isHr ? orgOptions?.[form.org_level] ?? [] : orgOptions?.manageable?.[form.org_level] ?? [];
-    if (isHr && knownOrgs.length > 0 && !knownOrgs.includes(form.org_key.trim())) {
-      const ok = await confirm({
-        title: `'${form.org_key.trim()}' 조직과 일치하는 평가 대상이 없습니다.`,
-        description:
-          '이대로 등록하면 어떤 평가 화면의 정렬 후보에도 나타나지 않습니다. 조직명 오타라면 취소 후 목록에서 선택해 주세요.',
-        confirmText: '이대로 등록',
-      });
-      if (!ok) return;
-    }
     try {
       setSaving(true);
+      // 조직은 정형화 드롭다운에서 온 경로 튜플('' → null) — 서버가 실존 조합인지 재검증한다.
+      const orgPayload = {
+        org_level: form.org_level,
+        org_key: form.org_key.trim(),
+        org_path_corporation: form.org_path_corporation.trim() || null,
+        org_path_division: form.org_path_division.trim() || null,
+        org_path_department: form.org_path_department.trim() || null,
+      };
       if (form.id) {
         await kpiService.update(form.id, {
           parent_kpi_id: form.parent_kpi_id || null,
-          org_level: form.org_level,
-          org_key: form.org_key.trim(),
+          ...orgPayload,
           name: form.name.trim(),
           unit: form.unit.trim(),
           target_value: target,
@@ -220,8 +263,7 @@ const KpiManagePage = () => {
         await kpiService.create({
           evaluation_period_id: periodId,
           parent_kpi_id: form.parent_kpi_id || null,
-          org_level: form.org_level,
-          org_key: form.org_key.trim(),
+          ...orgPayload,
           name: form.name.trim(),
           unit: form.unit.trim(),
           target_value: target,
@@ -230,6 +272,7 @@ const KpiManagePage = () => {
         });
       }
       setForm(null);
+      setSeedParent(null);
       await load();
       toast({ title: form.id ? 'KPI를 수정했습니다.' : 'KPI를 등록했습니다.' });
     } catch (error) {
@@ -389,16 +432,54 @@ const KpiManagePage = () => {
                     <div style={{ minWidth: 0, flex: '1 1 280px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, fontSize: 'var(--fs-body)' }}>{node.name}</span>
-                        <OrgBadge level={node.org_level} orgKey={node.org_key} />
+                        <OrgBadge
+                          level={node.org_level}
+                          orgKey={node.org_key}
+                          path={[
+                            node.org_path_corporation,
+                            node.org_path_division,
+                            node.org_path_department,
+                            node.org_key,
+                          ]
+                            .filter(Boolean)
+                            .join(' › ')}
+                        />
                         {(() => {
-                          // 동명 조직(법인 간 같은 팀명) 구분 — 조직장(평가자) 이름을 함께 표기.
-                          const names = orgOptions?.leaders?.[node.org_level]?.[node.org_key];
+                          // 동명 조직 구분 — 조직장(체인 최상위 평가자)을 경로 키로 조회해 표기.
+                          // 경로 미저장(레거시) KPI 는 잘못된 이름을 다느니 라벨을 생략한다.
+                          const parts: string[] = [];
+                          let pathKnown = true;
+                          for (const l of LEVEL_ORDER) {
+                            const v =
+                              l === node.org_level
+                                ? node.org_key
+                                : l === 'corporation'
+                                  ? node.org_path_corporation
+                                  : l === 'division'
+                                    ? node.org_path_division
+                                    : node.org_path_department;
+                            if (!v) {
+                              pathKnown = false;
+                              break;
+                            }
+                            parts.push(v);
+                            if (l === node.org_level) break;
+                          }
+                          const names = pathKnown
+                            ? orgOptions?.leaders?.[node.org_level]?.[parts.join('|')]
+                            : undefined;
                           return names?.length ? (
                             <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
                               조직장 {names[0]}
                             </span>
                           ) : null;
                         })()}
+                        {depth === 0 && node.parent_kpi_id && node.parent_name && (
+                          // 비-HR 트리는 가시성 밖 부모를 재루팅해 최상위처럼 보이므로, 연결 사실을 표기.
+                          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
+                            ↑ 상위: {node.parent_name}
+                          </span>
+                        )}
                         {node.children?.length ? (
                           <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
                             하위 {node.children.length}
@@ -469,11 +550,15 @@ const KpiManagePage = () => {
           form={form}
           setForm={setForm}
           orgOptions={orgOptions}
-          parentChoices={parentChoices}
+          periodId={periodId}
+          seedParent={seedParent}
           isHr={isHr}
           saving={saving}
           onSubmit={submitForm}
-          onClose={() => setForm(null)}
+          onClose={() => {
+            setForm(null);
+            setSeedParent(null);
+          }}
         />
       )}
     </>
@@ -651,7 +736,8 @@ const KpiFormModal = ({
   form,
   setForm,
   orgOptions,
-  parentChoices,
+  periodId,
+  seedParent,
   isHr,
   saving,
   onSubmit,
@@ -660,22 +746,93 @@ const KpiFormModal = ({
   form: KpiForm;
   setForm: (f: KpiForm) => void;
   orgOptions: OrgOptions | null;
-  parentChoices: OrgKpi[];
+  periodId: string;
+  seedParent: OrgKpi | null;
   isHr: boolean;
   saving: boolean;
   onSubmit: () => void;
   onClose: () => void;
 }) => {
   const confirm = useConfirm();
-  // HR=전체 레벨. 비-HR=본인이 총괄하는(평가체인) 레벨만. 조직 후보도 총괄 조직으로 한정.
-  const levelOptions: KpiOrgLevel[] = isHr
-    ? LEVEL_ORDER
-    : LEVEL_ORDER.filter((l) => (orgOptions?.manageable?.[l]?.length ?? 0) > 0);
-  const orgKeyChoices = isHr
-    ? orgOptions
-      ? orgOptions[form.org_level]
-      : []
-    : orgOptions?.manageable?.[form.org_level] ?? [];
+  // 레벨 선택지 = 조직 선택지가 있는 레벨만(HR=전체 데이터, 비-HR=본인 평가 범위).
+  // '하위 KPI 추가'로 열렸으면 부모보다 아래 레벨만.
+  const levelOptions: KpiOrgLevel[] = LEVEL_ORDER.filter(
+    (l) =>
+      (orgOptions?.orgChoices?.[l]?.length ?? 0) > 0 &&
+      (!seedParent || LEVEL_DEPTH[l] > LEVEL_DEPTH[seedParent.org_level]),
+  );
+
+  // 조직 선택지 — 정형화 경로 튜플. seedParent 가 있으면 그 부모 조직 하위 조합으로 한정.
+  const orgChoiceList = useMemo(() => {
+    const all = orgOptions?.orgChoices?.[form.org_level] ?? [];
+    if (!seedParent) return all;
+    return all.filter((c) => {
+      if (c[seedParent.org_level] !== seedParent.org_key) return false;
+      // 부모 KPI 에 경로가 있으면 그 경로와도 일치해야 함(동명 상위조직 구분).
+      for (const l of LEVEL_ORDER) {
+        if (LEVEL_DEPTH[l] >= LEVEL_DEPTH[seedParent.org_level]) break;
+        const pv =
+          l === 'corporation'
+            ? seedParent.org_path_corporation
+            : l === 'division'
+              ? seedParent.org_path_division
+              : seedParent.org_path_department;
+        if (pv && c[l] !== pv) return false;
+      }
+      return true;
+    });
+  }, [orgOptions, form.org_level, seedParent]);
+
+  const selectedOrgKey = formPathKey(form);
+  const selectedChoice = selectedOrgKey
+    ? orgChoiceList.find((c) => choicePathKey(c, form.org_level) === selectedOrgKey) ?? null
+    : null;
+  // 레거시(경로 미저장) KPI 수정: 현재 값을 유지하는 합성 옵션을 노출해 수정 진입을 막지 않는다.
+  const legacyOrg = Boolean(form.org_key && !selectedChoice);
+
+  // 상위 KPI 연결 후보 — 조직·단위가 정해지면 서버에서 상위 경로의 같은 단위 KPI 를 조회.
+  // 생성자-체인 가시성과 무관하므로 팀장이 본부장 KPI 에도 연결할 수 있다.
+  const [parentOptions, setParentOptions] = useState<OrgKpi[]>([]);
+  const [parentLoading, setParentLoading] = useState(false);
+  const unitTrimmed = form.unit.trim();
+  useEffect(() => {
+    let cancelled = false;
+    if (!form.org_key || !unitTrimmed || form.org_level === 'corporation') {
+      setParentOptions([]);
+      return;
+    }
+    setParentLoading(true);
+    kpiService
+      .parentCandidates({
+        periodId,
+        orgLevel: form.org_level,
+        unit: unitTrimmed,
+        corporation: form.org_path_corporation.trim() || undefined,
+        division: form.org_path_division.trim() || undefined,
+        department: form.org_path_department.trim() || undefined,
+      })
+      .then((rows) => {
+        if (!cancelled) setParentOptions(rows.filter((r) => r.id !== form.id));
+      })
+      .catch(() => {
+        if (!cancelled) setParentOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setParentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    periodId,
+    form.id,
+    form.org_level,
+    form.org_key,
+    unitTrimmed,
+    form.org_path_corporation,
+    form.org_path_division,
+    form.org_path_department,
+  ]);
 
   const set = (patch: Partial<KpiForm>) => setForm({ ...form, ...patch });
 
@@ -728,7 +885,16 @@ const KpiFormModal = ({
               className="sd-input"
               value={form.org_level}
               disabled={levelOptions.length <= 1}
-              onChange={(e) => set({ org_level: e.target.value as KpiOrgLevel, org_key: '', parent_kpi_id: '' })}
+              onChange={(e) =>
+                set({
+                  org_level: e.target.value as KpiOrgLevel,
+                  org_key: '',
+                  org_path_corporation: '',
+                  org_path_division: '',
+                  org_path_department: '',
+                  parent_kpi_id: seedParent ? form.parent_kpi_id : '',
+                })
+              }
             >
               {levelOptions.map((lv) => (
                 <option key={lv} value={lv}>
@@ -737,35 +903,45 @@ const KpiFormModal = ({
               ))}
             </select>
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
             조직
-            <input
+            {/* 정형화 드롭다운 — 실제 평가 데이터의 조직 조합(경로 포함)만 선택 가능. 동명 조직은 경로·조직장으로 구분. */}
+            <select
               className="sd-input"
-              list="kpi-org-keys"
-              value={form.org_key}
-              onChange={(e) => set({ org_key: e.target.value })}
-              placeholder={`${LEVEL_LABEL[form.org_level]}명`}
-            />
-            <datalist id="kpi-org-keys">
-              {orgKeyChoices.map((o) => {
-                const names = orgOptions?.leaders?.[form.org_level]?.[o];
-                return (
-                  <option key={o} value={o}>
-                    {names?.length ? `조직장(평가자): ${names[0]}${names.length > 1 ? ` 외 ${names.length - 1}` : ''}` : undefined}
-                  </option>
-                );
-              })}
-            </datalist>
-            {(() => {
-              // 선택한 조직의 조직장(평가자)을 함께 보여줘 동명·유사 조직 선택 실수를 줄인다.
-              const names = orgOptions?.leaders?.[form.org_level]?.[form.org_key.trim()];
-              return names?.length ? (
-                <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
-                  조직장(평가자): {names[0]}
-                  {names.length > 1 ? ` 외 ${names.length - 1}명` : ''}
-                </span>
-              ) : null;
-            })()}
+              value={legacyOrg ? '__legacy__' : selectedChoice ? choicePathKey(selectedChoice, form.org_level) : ''}
+              onChange={(e) => {
+                const choice = orgChoiceList.find((c) => choicePathKey(c, form.org_level) === e.target.value);
+                if (!choice) return;
+                setForm({
+                  ...applyChoiceToForm(form, form.org_level, choice),
+                  // 조직이 바뀌면 상위 KPI 후보도 달라진다 — 하위 추가로 고정된 부모가 아니면 초기화.
+                  parent_kpi_id: seedParent ? form.parent_kpi_id : '',
+                });
+              }}
+            >
+              <option value="">선택…</option>
+              {legacyOrg && (
+                <option value="__legacy__" disabled>
+                  (현재) {form.org_key} — 경로 미지정(레거시)
+                </option>
+              )}
+              {orgChoiceList.map((c) => (
+                <option key={choicePathKey(c, form.org_level)} value={choicePathKey(c, form.org_level)}>
+                  {choiceLabel(c)}
+                  {c.leader ? ` — 조직장 ${c.leader}` : ''}
+                </option>
+              ))}
+            </select>
+            {selectedChoice?.leader && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                조직장(평가자): {selectedChoice.leader}
+              </span>
+            )}
+            {legacyOrg && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                이 KPI는 조직 경로가 저장되지 않은 이전 형식입니다. 목록에서 다시 선택하면 경로가 채워집니다.
+              </span>
+            )}
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
@@ -796,19 +972,36 @@ const KpiFormModal = ({
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             상위 KPI (선택)
+            {/* 후보 = 이 조직의 '상위 경로'에 있는 같은 단위 KPI(가시성 무관) — 팀장이 본부 KPI에 직접 연결 가능. */}
             <select
               className="sd-input"
               value={form.parent_kpi_id}
               onChange={(e) => set({ parent_kpi_id: e.target.value })}
-              disabled={parentChoices.length === 0}
+              disabled={parentLoading || (parentOptions.length === 0 && !form.parent_kpi_id)}
             >
               <option value="">없음 (최상위)</option>
-              {parentChoices.map((p) => (
+              {form.parent_kpi_id && !parentOptions.some((p) => p.id === form.parent_kpi_id) && (
+                <option value={form.parent_kpi_id}>
+                  {seedParent?.name ? `(선택됨) ${seedParent.name}` : '(기존 상위 KPI 연결 유지)'}
+                </option>
+              )}
+              {parentOptions.map((p) => (
                 <option key={p.id} value={p.id}>
-                  [{LEVEL_LABEL[p.org_level]}] {p.name}
+                  [{LEVEL_LABEL[p.org_level]}·{p.org_key}] {p.name} (목표 {formatKpiValue(p.target_value, p.unit)})
                 </option>
               ))}
             </select>
+            <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+              {parentLoading
+                ? '상위 KPI 후보를 불러오는 중…'
+                : form.org_level === 'corporation'
+                  ? '법인 KPI는 최상위입니다.'
+                  : !form.org_key
+                    ? '조직을 먼저 선택하면 연결 가능한 상위 KPI가 표시됩니다.'
+                    : parentOptions.length === 0 && !form.parent_kpi_id
+                      ? '연결 가능한 상위 KPI가 없습니다 — 상위 조직에 같은 단위의 KPI가 등록돼 있어야 합니다.'
+                      : '실적은 상위 KPI로 자동 합산됩니다.'}
+            </span>
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800, gridColumn: 'span 2' }}>
