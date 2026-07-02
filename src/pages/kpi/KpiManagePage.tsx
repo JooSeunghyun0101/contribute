@@ -453,7 +453,12 @@ const KpiManagePage = () => {
                       onClick={() => toggleExpand(node.id)}
                       className="sd-btn sd-btn-ghost sd-btn-xs"
                       style={{ flexShrink: 0, padding: 4 }}
-                      title="배분 내역"
+                      disabled={readOnly}
+                      title={
+                        readOnly
+                          ? '읽기 전용 — 배분 상세는 관리 범위의 KPI에서만 볼 수 있습니다.'
+                          : '배분 내역'
+                      }
                     >
                       {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
