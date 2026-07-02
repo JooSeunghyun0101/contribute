@@ -14,8 +14,9 @@ const DESTINATIONS: Partial<Record<NotificationType, Partial<Record<UserRole, st
   evaluation_reopened: { evaluatee: '/my/tasks' },
   feedback_added: { evaluatee: '/my/feedback' },
   evaluation_completed: { evaluatee: '/my/feedback' },
-  // task_updated 는 평가자가 과업을 수정해 "피평가자"가 받는 흐름(useEvaluationDataDB)이 실제라 양쪽 다 매핑
-  task_updated: { evaluatee: '/my/tasks', evaluator: '/team' },
+  // task_updated 는 평가자가 과업을 수정해 "피평가자"가 받는 알림(발송처: useEvaluationDataDB 단일).
+  // evaluator 매핑을 두면 겸직자가 평가자 탭에서 클릭 시 무관한 보드로 이동하므로 evaluatee 만 둔다.
+  task_updated: { evaluatee: '/my/tasks' },
 
   // 평가자 — 평가 보드(/team)로
   evaluation_submitted: { evaluator: '/team' },

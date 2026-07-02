@@ -272,6 +272,10 @@ export const Sidebar = () => {
       {hasGroups
         ? groups.map(({ group, items }, idx) => {
             const isCollapsed = collapsed.has(group);
+            // 그룹을 접어두면(영속) 안의 대기 배지가 안 보이므로, 접힌 동안 합계를 헤더에 노출.
+            const collapsedBadgeSum = isCollapsed
+              ? items.reduce((sum, item) => sum + (item.badgeKey ? badges[item.badgeKey] : 0), 0)
+              : 0;
             return (
               <Fragment key={group}>
                 {/* 카테고리 헤딩 — 항목과 명확히 구분되는 섹션 라벨(작고·흐리고·자간 넓게). 그룹 사이 구분선. */}
@@ -305,16 +309,38 @@ export const Sidebar = () => {
                   >
                     {group}
                   </span>
-                  <ChevronDown
-                    size={13}
-                    style={{
-                      color: 'var(--fg-subtle)',
-                      opacity: 0.6,
-                      transform: isCollapsed ? 'rotate(-90deg)' : 'none',
-                      transition: 'transform 160ms',
-                      flexShrink: 0,
-                    }}
-                  />
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {collapsedBadgeSum > 0 && (
+                      <span
+                        aria-label={`대기 ${collapsedBadgeSum}건`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: 18,
+                          height: 18,
+                          padding: '0 5px',
+                          borderRadius: 999,
+                          background: 'var(--ok-orange)',
+                          color: '#fff',
+                          fontSize: 10,
+                          fontWeight: 800,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {collapsedBadgeSum > 99 ? '99+' : collapsedBadgeSum}
+                      </span>
+                    )}
+                    <ChevronDown
+                      size={13}
+                      style={{
+                        color: 'var(--fg-subtle)',
+                        opacity: 0.6,
+                        transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                        transition: 'transform 160ms',
+                      }}
+                    />
+                  </span>
                 </button>
                 <AccordionMotion
                   isOpen={!isCollapsed}

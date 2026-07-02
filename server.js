@@ -7614,11 +7614,16 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId, req.session.employeeId],
     );
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-    // 조직별 '조직장(평가자)' 라벨 — 그 조직 평가대상을 담당 인원수 순으로. 팀 레벨은 사실상 팀장 1명.
-    // 동명 조직(법인 간 같은 팀명)·비슷한 조직명을 사람 이름으로 구분해 고르게 하는 용도.
+    // 조직별 '조직장(평가자)' 라벨 — 동명 조직(법인 간 같은 팀명)·유사 조직명을 사람 이름으로 구분하는 용도.
+    // 조직장 = 그 조직 구성원을 평가하면서, 본인도 그 조직 구성원이고, 본인의 평가자는 조직 밖인 사람
+    // (= 조직 내부 평가체인의 최상위). 단순 '담당 인원수 1위'는 팀 상위 레벨(부·본부)에서 가장 큰 팀의
+    // 팀장을 조직장으로 오표기하므로 쓰지 않는다. 팀 레벨만은 후보가 없으면 인원수 1위로 폴백(팀장이
+    // 평가 대상이 아닌 경우), 상위 레벨은 오표기 위험이 커 라벨을 생략한다.
     const { rows: leaderRows } = await pool.query(
-      `SELECT ev.evaluatee_org_corporation AS c, ev.evaluatee_org_division AS d,
+      `SELECT ev.evaluatee_id::text AS evaluatee_id,
+              ev.evaluatee_org_corporation AS c, ev.evaluatee_org_division AS d,
               ev.evaluatee_org_department AS dep, ev.evaluatee_org_team AS t,
+              COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS evaluator_id,
               lead.name AS evaluator_name
          FROM evaluations ev
          LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
@@ -7628,9 +7633,21 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
       [periodId],
     );
     const leaderKeyCol = { corporation: 'c', division: 'd', department: 'dep', team: 't' };
+    // 개인별 소속(본인 평가 기준)과 평가자 — 체인 조건 판정용.
+    const orgOfMember = new Map(); // evaluatee_id → {c,d,dep,t}
+    const evaluatorOfMember = new Map(); // evaluatee_id → evaluator_id
+    const nameOfEvaluator = new Map(); // evaluator_id → name
+    for (const r of leaderRows) {
+      orgOfMember.set(r.evaluatee_id, { c: r.c, d: r.d, dep: r.dep, t: r.t });
+      if (r.evaluator_id) {
+        evaluatorOfMember.set(r.evaluatee_id, r.evaluator_id);
+        if (r.evaluator_name) nameOfEvaluator.set(r.evaluator_id, r.evaluator_name);
+      }
+    }
+    // 조직별 평가자 담당 인원수(evaluator_id 기준 — 동명이인 합산 방지).
     const leaderAgg = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
     for (const r of leaderRows) {
-      if (!r.evaluator_name) continue;
+      if (!r.evaluator_id || !r.evaluator_name) continue;
       for (const lvl of Object.keys(leaderKeyCol)) {
         const org = r[leaderKeyCol[lvl]];
         if (!org) continue;
@@ -7639,14 +7656,23 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
           m = new Map();
           leaderAgg[lvl].set(org, m);
         }
-        m.set(r.evaluator_name, (m.get(r.evaluator_name) ?? 0) + 1);
+        m.set(r.evaluator_id, (m.get(r.evaluator_id) ?? 0) + 1);
       }
     }
     const leaders = {};
     for (const lvl of Object.keys(leaderKeyCol)) {
+      const col = leaderKeyCol[lvl];
       leaders[lvl] = {};
       for (const [org, m] of leaderAgg[lvl]) {
-        leaders[lvl][org] = [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+        const byCount = [...m.entries()].sort((a, b) => b[1] - a[1]);
+        const qualified = byCount.filter(([id]) => {
+          if (orgOfMember.get(id)?.[col] !== org) return false; // 본인이 조직 구성원이어야 함
+          const boss = evaluatorOfMember.get(id);
+          return !boss || orgOfMember.get(boss)?.[col] !== org; // 그의 평가자는 조직 밖(=체인 최상위)
+        });
+        const picked = qualified.length > 0 ? qualified : lvl === 'team' ? byCount : [];
+        const names = picked.map(([id]) => nameOfEvaluator.get(id)).filter(Boolean);
+        if (names.length > 0) leaders[lvl][org] = names;
       }
     }
     // 등록 폼용 — 요청자가 KPI를 만들 수 있는 조직(평가하는 조직, 레벨별). HR 은 전체.

@@ -955,7 +955,10 @@ const EvaluationAccordionCard = ({
                       className="sd-btn sd-btn-outline sd-btn-sm"
                       onClick={() => handleSave(false)}
                       disabled={
-                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && !hasUnsavedEdits)
+                        // view 모드는 '기존 과업의 미저장 변경'이 있을 때만 활성 — 복원된 새 과업
+                        // draft(hasUnsavedEdits 에는 포함)는 이 버튼 경로로 저장되지 않아
+                        // 아무것도 안 하고 성공 토스트만 뜨는 헛동작이 된다.
+                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && dirtyTaskCount === 0)
                       }
                       title={
                         canEditTasks

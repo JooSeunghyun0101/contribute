@@ -22,9 +22,11 @@ export const NOTIFICATION_ROLES: Record<NotificationType, UserRole[]> = {
   evaluation_completed: ['evaluatee'],
   evaluation_reopened: ['evaluatee'],
   evaluator_changed: ['evaluatee'],
+  // task_updated 는 평가자가 과업(점수·피드백)을 수정했을 때 "피평가자"가 받는 알림
+  // (발송처: useEvaluationDataDB handleSave — recipientId=피평가자). 평가자 분류였던 것을 정정.
+  task_updated: ['evaluatee'],
   // 평가자 — 내가 '평가하는' 입장에서 받는 알림
   task_content_changed: ['evaluator'],
-  task_updated: ['evaluator'],
   task_summary: ['evaluator'],
   evaluation_updated: ['evaluator'],
   user_assigned: ['evaluator'],

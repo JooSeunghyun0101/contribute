@@ -1289,15 +1289,25 @@ export const useEvaluationDataDB = (
       // 'completed'로 확정되지 않는다.
       const screenTaskIds = new Set(tasksToSave.map((task) => task.id));
       const tasksAddedAfterLoad = dbTasks.filter((t) => !screenTaskIds.has(t.id));
-      const isComplete = dbTasks.every((t) => {
-        const draft = tasksToSave.find((task) => task.id === t.id);
-        if (draft?.score !== undefined && draft?.score !== null) return true;
-        return getCurrentDbEntry(t.id)?.score != null;
-      });
-      if (tasksAddedAfterLoad.length > 0) {
+      const tasksRemovedAfterLoad = tasksToSave.filter((task) => !dbTasks.some((t) => t.id === task.id));
+      // 살아있는 과업 0건이면 [].every()=true(공진리)로 '과업 없는 완료'가 확정되므로 명시적으로 미완료 처리.
+      // 화면에 있는 과업은 방금 upsert 한 화면 값이 곧 최종값 — 점수를 지운 과업이 예전 DB entry 로
+      // '채점됨' 판정되지 않도록, DB entry 폴백은 화면에 없던 과업에만 적용한다.
+      const isComplete =
+        dbTasks.length > 0 &&
+        dbTasks.every((t) => {
+          const draft = tasksToSave.find((task) => task.id === t.id);
+          if (draft) return draft.score !== undefined && draft.score !== null;
+          return getCurrentDbEntry(t.id)?.score != null;
+        });
+      if (tasksAddedAfterLoad.length > 0 || tasksRemovedAfterLoad.length > 0) {
+        const parts = [
+          tasksAddedAfterLoad.length > 0 ? `새 과업 ${tasksAddedAfterLoad.length}건 등록됨` : null,
+          tasksRemovedAfterLoad.length > 0 ? `화면의 과업 ${tasksRemovedAfterLoad.length}건 삭제됨` : null,
+        ].filter(Boolean);
         toast({
           title: '피평가자가 과업을 변경했습니다',
-          description: `화면에 없던 과업 ${tasksAddedAfterLoad.length}건이 새로 등록되어 있습니다. 저장 후 갱신된 목록에서 새 과업도 채점해 주세요.`,
+          description: `${parts.join(' · ')}. 저장 후 갱신된 목록을 확인하고 새 과업을 채점해 주세요.`,
         });
       }
       await evaluationService.updateEvaluation(evaluation.id, {
