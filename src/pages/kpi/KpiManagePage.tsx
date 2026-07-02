@@ -377,8 +377,8 @@ const KpiManagePage = () => {
           </div>
         )}
 
-        {/* 가시성 규칙 안내 — 생성자-평가체인 모델은 화면만 봐서는 알 수 없어 반드시 명시한다. */}
-        {!isHr && (
+        {/* 범위 규칙 안내 — 스코프 모델은 화면만 봐서는 알 수 없어 반드시 명시한다. */}
+        {orgOptions?.scopeInfo && orgOptions.scopeInfo.mode !== 'all' && (
           <div
             className="sd-card"
             style={{
@@ -389,10 +389,19 @@ const KpiManagePage = () => {
               lineHeight: 1.6,
             }}
           >
-            <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> — 이 목록에는{' '}
-            <b>내가 등록한 KPI와 내 하위 평가체인(내가 평가하는 평가자들)이 등록한 KPI</b>만 표시됩니다. 상위
-            조직·다른 체인의 KPI는 여기 나타나지 않지만, 평가 화면의 정렬 후보에는 피평가자 조직 기준으로 표시될 수
-            있습니다.
+            <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> —{' '}
+            {orgOptions.scopeInfo.mode === 'hr' ? (
+              <>
+                내 평가체인 최상위 평가자
+                {orgOptions.scopeInfo.topName ? <b>({orgOptions.scopeInfo.topName})</b> : null}가 관할하는 조직
+                범위의 KPI만 표시·등록됩니다. 다른 계열·체인의 조직은 선택지에도 나타나지 않습니다.
+              </>
+            ) : (
+              <>
+                <b>내가 등록한 KPI와 내 하위 평가체인이 등록한 KPI</b>가 표시되고, 그에 연결된 상위 KPI는{' '}
+                <b>읽기 전용</b>으로 함께 표시됩니다.
+              </>
+            )}
           </div>
         )}
 
@@ -425,6 +434,8 @@ const KpiManagePage = () => {
             <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
             {rows.map(({ node, depth }) => {
               const isOpen = expanded.has(node.id);
+              // 범위 밖 상위 KPI — 롤업 맥락용으로 트리에 포함되지만 관리(수정·삭제·하위추가·실적)는 불가.
+              const readOnly = node.can_manage === false;
               return (
                 <div key={node.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <div
@@ -449,6 +460,22 @@ const KpiManagePage = () => {
                     <div style={{ minWidth: 0, flex: '1 1 280px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, fontSize: 'var(--fs-body)' }}>{node.name}</span>
+                        {readOnly && (
+                          <span
+                            style={{
+                              fontSize: 'var(--fs-xs)',
+                              fontWeight: 700,
+                              color: 'var(--fg-subtle)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 999,
+                              padding: '1px 8px',
+                              background: 'var(--bg-muted)',
+                            }}
+                            title="내 범위 밖의 상위 조직 KPI — 하위 KPI의 롤업 맥락을 보여주기 위해 표시됩니다."
+                          >
+                            읽기 전용
+                          </span>
+                        )}
                         <OrgBadge
                           level={node.org_level}
                           orgKey={node.org_key}
@@ -530,13 +557,15 @@ const KpiManagePage = () => {
                           <button
                             className="sd-btn sd-btn-ghost sd-btn-xs"
                             onClick={() => startCreate(node)}
-                            disabled={!isSelectedPeriodEditable || !hasChildOrg}
+                            disabled={!isSelectedPeriodEditable || !hasChildOrg || readOnly}
                             title={
-                              node.org_level === 'team'
-                                ? '팀 아래 하위 KPI는 없습니다.'
-                                : !hasChildOrg
-                                  ? '이 조직 하위에 등록 가능한 조직이 없습니다(이 평가기간 평가 대상 기준).'
-                                  : '하위 KPI 추가'
+                              readOnly
+                                ? '내 범위 밖의 상위 조직 KPI(읽기 전용)입니다.'
+                                : node.org_level === 'team'
+                                  ? '팀 아래 하위 KPI는 없습니다.'
+                                  : !hasChildOrg
+                                    ? '이 조직 하위에 등록 가능한 조직이 없습니다(이 평가기간 평가 대상 기준).'
+                                    : '하위 KPI 추가'
                             }
                           >
                             <Plus size={14} />
@@ -546,17 +575,17 @@ const KpiManagePage = () => {
                       <button
                         className="sd-btn sd-btn-outline sd-btn-xs"
                         onClick={() => startEdit(node)}
-                        disabled={!isSelectedPeriodEditable}
-                        title="수정"
+                        disabled={!isSelectedPeriodEditable || readOnly}
+                        title={readOnly ? '내 범위 밖의 상위 조직 KPI(읽기 전용)입니다.' : '수정'}
                       >
                         <Pencil size={14} />
                       </button>
                       <button
                         className="sd-btn sd-btn-ghost sd-btn-xs"
                         onClick={() => deleteKpi(node)}
-                        disabled={!isSelectedPeriodEditable}
+                        disabled={!isSelectedPeriodEditable || readOnly}
                         style={{ color: 'var(--danger)' }}
-                        title="삭제"
+                        title={readOnly ? '내 범위 밖의 상위 조직 KPI(읽기 전용)입니다.' : '삭제'}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -566,7 +595,7 @@ const KpiManagePage = () => {
                     <AllocationPanel
                       kpiId={node.id}
                       unit={node.unit}
-                      editable={isSelectedPeriodEditable}
+                      editable={isSelectedPeriodEditable && !readOnly}
                       onChanged={load}
                     />
                   )}

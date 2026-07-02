@@ -37,6 +37,8 @@ export interface OrgKpi {
   progress?: number;
   /** 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분. */
   has_actuals?: boolean;
+  /** 요청자가 관리(수정·삭제·하위추가·실적입력)할 수 있는가 — false면 범위 밖 상위 KPI(읽기 전용). */
+  can_manage?: boolean;
 }
 
 /** 트리 노드 — OrgKpi + 자식. GET /api/org-kpis/tree 응답. */
