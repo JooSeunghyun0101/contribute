@@ -5132,6 +5132,54 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
   }
 });
 
+// ── 배정이력 벌크 조회 (S5) ─────────────────────────────────────────────────
+// 평가보드가 피평가자마다 이력을 개별 조회(N+1)하던 것을 한 요청으로 묶는다.
+// 응답 행·노출 범위는 위 단건 라우트와 동일(세션 사용자, h.* + 조인 이름), 키=사번.
+app.post('/api/evaluator-assignment-history/bulk', async (req, res) => {
+  if (!isDbAvailable) return res.json({});
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const ids = Array.isArray(req.body?.employee_ids)
+    ? [...new Set(req.body.employee_ids.map((v) => String(v)).filter(Boolean))]
+    : [];
+  if (ids.length === 0) return res.json({});
+  if (ids.length > 500) {
+    return res.status(400).json({ error: '한 번에 조회 가능한 인원(500)을 초과했습니다.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+        SELECT
+          h.*,
+          prev.name AS previous_evaluator_name,
+          next.name AS new_evaluator_name,
+          actor.name AS changed_by_name,
+          cancel_actor.name AS cancelled_by_name,
+          p.name AS evaluation_period_name,
+          p.evaluation_year
+        FROM evaluator_assignment_history h
+        LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
+        LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
+        LEFT JOIN employees actor ON actor.employee_id = h.changed_by
+        LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
+        LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
+        WHERE h.employee_id = ANY($1::text[])
+        ORDER BY h.changed_at DESC, h.id DESC
+      `,
+      [ids]
+    );
+    const out = {};
+    for (const id of ids) out[id] = [];
+    for (const row of rows) {
+      (out[row.employee_id] ??= []).push(row);
+    }
+    res.json(out);
+  } catch (err) {
+    if (MISSING_PERIOD_SCHEMA_CODES.has(err.code)) return res.json({});
+    console.error('Error fetching evaluator assignment history (bulk):', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // 단일 배정 이력 행을 취소(되돌림)한다. 정정행이면 superseded 된 원본을 다시 살린다.
 // 호출자가 트랜잭션(BEGIN/COMMIT)을 관리한다. 가드 위반 시 statusCode 를 가진 에러를 throw.
 const cancelEvaluatorAssignmentHistoryRow = async (client, { historyId, actorId, reason }) => {
