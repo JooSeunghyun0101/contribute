@@ -5020,6 +5020,81 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
 });
 
 
+// ── 임시저장 draft 서버 보관 (S2) ────────────────────────────────────────────
+// localStorage 임시저장의 서버 승격 — 기기 간 이어서 작성, 브라우저 데이터 삭제 유실 방지.
+// payload 는 클라이언트 draft 맵 그대로 보관(서버는 내용을 해석하지 않는다). 접근은 소유자
+// (세션 사용자) 본인 것만. 빈 payload 저장 = 삭제. POST 는 PUT 과 동일 동작으로, 탭 종료
+// 직전 fetch keepalive 전송 경로다.
+const UI_DRAFT_MAX_BYTES = 200 * 1024;
+const uiDraftKeyOf = (req) => {
+  const key = String(req.params.key ?? '').trim();
+  return key && key.length <= 300 ? key : null;
+};
+app.get('/api/drafts/:key', async (req, res) => {
+  if (!isDbAvailable) return res.json(null);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT payload, updated_at FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2',
+      [String(req.session.employeeId), key]
+    );
+    res.json(rows[0] ?? null);
+  } catch (err) {
+    console.error('Error fetching ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+const upsertUiDraft = async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  const payload = req.body?.payload;
+  try {
+    if (!payload || typeof payload !== 'object' || Object.keys(payload).length === 0) {
+      await pool.query('DELETE FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2', [
+        String(req.session.employeeId),
+        key,
+      ]);
+      return res.json({ ok: true, cleared: true });
+    }
+    const json = JSON.stringify(payload);
+    if (Buffer.byteLength(json, 'utf8') > UI_DRAFT_MAX_BYTES) {
+      return res.status(413).json({ error: '임시저장 데이터가 너무 큽니다.' });
+    }
+    await pool.query(
+      `INSERT INTO ui_drafts (owner_id, draft_key, payload, updated_at)
+       VALUES ($1, $2, $3::jsonb, NOW())
+       ON CONFLICT (owner_id, draft_key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [String(req.session.employeeId), key, json]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error saving ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+};
+app.put('/api/drafts/:key', upsertUiDraft);
+app.post('/api/drafts/:key', upsertUiDraft);
+app.delete('/api/drafts/:key', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  try {
+    await pool.query('DELETE FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2', [
+      String(req.session.employeeId),
+      key,
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, res) => {
   if (!isDbAvailable) {
     return res.json([]);

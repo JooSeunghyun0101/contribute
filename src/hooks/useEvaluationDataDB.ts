@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { draftService } from '@/lib/services/draftService';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
@@ -88,19 +89,26 @@ const normalizeDrafts = (
   return normalized;
 };
 
-const readStoredDrafts = (storageKey: string, validTaskIds: Set<string>) => {
-  if (!storageKey || typeof window === 'undefined') return {};
+// 로컬 draft 복원 — 서버 draft(updated_at)와 최신 비교를 위해 savedAt 도 함께 반환한다(S2).
+const readStoredDrafts = (
+  storageKey: string,
+  validTaskIds: Set<string>,
+): { map: Record<string, TaskDraft>; savedAt: string | null } => {
+  if (!storageKey || typeof window === 'undefined') return { map: {}, savedAt: null };
 
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return {};
+    if (!raw) return { map: {}, savedAt: null };
 
     const parsed = JSON.parse(raw);
     const draftMap = parsed?.tasks ?? parsed;
-    return normalizeDrafts(draftMap, validTaskIds);
+    return {
+      map: normalizeDrafts(draftMap, validTaskIds),
+      savedAt: typeof parsed?.savedAt === 'string' ? parsed.savedAt : null,
+    };
   } catch (error) {
     console.warn('임시저장 데이터 복원 실패:', error);
-    return {};
+    return { map: {}, savedAt: null };
   }
 };
 
@@ -108,6 +116,8 @@ const writeStoredDrafts = (storageKey: string, drafts: Record<string, TaskDraft>
   if (!storageKey || typeof window === 'undefined') return;
 
   const normalized = normalizeDrafts(drafts);
+  // S2: 서버 draft 도 동기화 — 기기 간 이어서 작성(빈 맵 = 서버측 삭제). 실패는 서비스가 무시.
+  draftService.save(storageKey, normalized);
   if (Object.keys(normalized).length === 0) {
     window.localStorage.removeItem(storageKey);
     return;
@@ -253,6 +263,8 @@ export const useEvaluationDataDB = (
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (Object.keys(taskDraftsRef.current).length === 0) return;
       writeStoredDrafts(draftStorageKey, taskDraftsRef.current);
+      // S2: 언로드 중 일반 fetch(PUT) 는 중단될 수 있어 keepalive 로 서버 플러시를 보장.
+      draftService.flush(draftStorageKey, normalizeDrafts(taskDraftsRef.current));
       event.preventDefault();
       event.returnValue = '';
     };
@@ -785,7 +797,25 @@ export const useEvaluationDataDB = (
       setEvaluationData(evaluationDataResult);
 
       const validTaskIds = new Set(tasksWithHistory.map(task => task.id));
-      setTaskDrafts(readStoredDrafts(draftStorageKey, validTaskIds));
+      // S2: 로컬(localStorage)과 서버 draft 중 '더 최신'을 복원 — 다른 기기에서 쓰던 임시저장을
+      // 이어서 작성. 조회 전용 화면은 편집이 없으므로 서버 조회를 생략한다. 서버 실패 시 로컬만.
+      const localDrafts = readStoredDrafts(draftStorageKey, validTaskIds);
+      let restoredDrafts = localDrafts.map;
+      if (!readOnly) {
+        const remote = await draftService.get(draftStorageKey);
+        if (remote?.payload) {
+          const remoteMap = normalizeDrafts(
+            remote.payload as Record<string, TaskDraft>,
+            validTaskIds,
+          );
+          const remoteNewer =
+            !localDrafts.savedAt ||
+            new Date(remote.updated_at).getTime() > new Date(localDrafts.savedAt).getTime();
+          if (remoteNewer && Object.keys(remoteMap).length > 0) restoredDrafts = remoteMap;
+        }
+        if (isStale()) return;
+      }
+      setTaskDrafts(restoredDrafts);
 
       
     } catch (error) {

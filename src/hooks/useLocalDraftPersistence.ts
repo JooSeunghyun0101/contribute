@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { draftService } from '@/lib/services/draftService';
 
 type DraftMap = Record<string, unknown>;
 
@@ -44,6 +45,8 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
   const restoredKeyRef = useRef<string | null>(null);
 
   // 복원: storageKey 별 1회, 기반 데이터 준비 후, 현재 비어있을 때만(활성 편집 보호).
+  // S2: 로컬 복원 후 서버 draft 를 조회해 '더 최신'이면 교체한다(다른 기기에서 쓰던 임시저장).
+  // 단 그 사이 사용자가 입력을 시작했으면(복원본과 달라졌으면) 건드리지 않는다.
   useEffect(() => {
     if (!storageKey || !ready) return;
     if (restoredKeyRef.current === storageKey) return;
@@ -51,12 +54,7 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
     // 로드 중 입력으로 일시적으로 non-empty 였다고 해서 이후(재로드 등) 복원이 영구히 막히지 않게 한다.
     if (Object.keys(draftsRef.current).length > 0) return;
     restoredKeyRef.current = storageKey;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const map = (parsed?.drafts ?? parsed) as DraftMap;
-      if (!map || typeof map !== 'object') return;
+    const filterValid = (map: DraftMap): DraftMap | null => {
       const vk = validKeyRef.current;
       const filtered: DraftMap = {};
       let any = false;
@@ -65,27 +63,68 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
         filtered[k] = map[k];
         any = true;
       }
-      if (any) setDraftsRef.current(filtered as T);
+      return any ? filtered : null;
+    };
+    let localSavedAt: string | null = null;
+    let appliedLocal: DraftMap | null = null;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        localSavedAt = typeof parsed?.savedAt === 'string' ? parsed.savedAt : null;
+        const map = (parsed?.drafts ?? parsed) as DraftMap;
+        if (map && typeof map === 'object') {
+          const filtered = filterValid(map);
+          if (filtered) {
+            setDraftsRef.current(filtered as T);
+            appliedLocal = filtered;
+          }
+        }
+      }
     } catch {
       /* 파싱 실패 무시 */
     }
+    void draftService.get(storageKey).then((remote) => {
+      if (!remote?.payload || typeof remote.payload !== 'object') return;
+      if (
+        localSavedAt &&
+        new Date(remote.updated_at).getTime() <= new Date(localSavedAt).getTime()
+      ) {
+        return; // 로컬이 더 최신
+      }
+      const filtered = filterValid(remote.payload as DraftMap);
+      if (!filtered) return;
+      const current = draftsRef.current;
+      const untouched =
+        Object.keys(current).length === 0 ||
+        JSON.stringify(current) === JSON.stringify(appliedLocal);
+      if (untouched) setDraftsRef.current(filtered as T);
+    });
   }, [storageKey, ready]);
 
   // 디바운스 자동저장(레이스-세이프: key·snapshot 캡처). ready 전에는 쓰지 않음.
+  // S2: 같은 타이밍에 서버 draft 도 동기화(빈 맵 = 서버측 삭제, 실패는 서비스가 무시).
   useEffect(() => {
     if (!storageKey || !ready) return;
     const key = storageKey;
     const snapshot = drafts;
-    const timer = setTimeout(() => writeMap(key, snapshot), debounceMs);
+    const timer = setTimeout(() => {
+      writeMap(key, snapshot);
+      draftService.save(key, snapshot);
+    }, debounceMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drafts, ready]);
 
   // 종료/언마운트 시 동기 플러시(디바운스 대기분 보존). ready 전에는 미부착(빈 맵으로 저장본 삭제 방지).
+  // S2: 언로드 중 일반 fetch 는 중단될 수 있어 keepalive 로 서버 플러시를 보장.
   useEffect(() => {
     if (!storageKey || !ready) return;
     const key = storageKey;
-    const flush = () => writeMap(key, draftsRef.current);
+    const flush = () => {
+      writeMap(key, draftsRef.current);
+      draftService.flush(key, draftsRef.current);
+    };
     window.addEventListener('beforeunload', flush);
     return () => {
       window.removeEventListener('beforeunload', flush);
