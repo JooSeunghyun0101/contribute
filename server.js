@@ -9483,6 +9483,210 @@ app.put('/api/task-evaluation-entry', guardTaskParam('task_uuid', 'body'), async
     client.release();
   }
 });
+// ── 평가 일괄 저장 (S3) ─────────────────────────────────────────────────────
+// 평가자 '평가 저장'이 과업당 entry upsert(N) + 피드백 히스토리(M) + 평가상태(1) + 알림(L)
+// 순차 요청이던 것을 한 트랜잭션·한 요청으로 묶는다 — 왕복 제거에 더해, 중간 실패 시 일부
+// 과업만 반영되던 비원자성도 제거(전체 롤백). 항목별 가드(삭제 과업 409·기간 잠금·취소 423
+// 등)는 단건 라우트와 동일 헬퍼를 그대로 사용한다. AI 검수는 이 요청에 포함되지 않는다 —
+// 클라이언트가 저장 응답 후 백그라운드로 수행해 ai-review 라우트로 기록한다(S3 비동기화).
+app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const b = req.body || {};
+  const evaluationId = b.evaluation_id;
+  const items = Array.isArray(b.entries) ? b.entries : [];
+  const nextStatus = b.evaluation_status;
+  if (!evaluationId || items.length === 0) {
+    return res.status(400).json({ error: 'evaluation_id 와 entries 가 필요합니다.' });
+  }
+  if (items.length > 200) {
+    return res.status(400).json({ error: '한 번에 저장 가능한 과업 수(200)를 초과했습니다.' });
+  }
+  if (nextStatus !== undefined && nextStatus !== 'completed' && nextStatus !== 'evaluating') {
+    return res.status(400).json({ error: "evaluation_status 는 'completed' 또는 'evaluating' 만 허용됩니다." });
+  }
+
+  const client = await pool.connect();
+  try {
+    // 권한: 과업들이 전부 같은 평가 소속이므로 평가 단위 1회 검사(guardTaskParam 과 동일 기준).
+    const { rows: accessRows } = await pool.query(
+      `SELECT ev.evaluatee_id,
+              h.new_evaluator_id AS assigned_evaluator_id,
+              e.evaluator_id AS current_evaluator_id
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.id = $1`,
+      [evaluationId]
+    );
+    if (accessRows.length === 0) return res.status(404).json({ error: '평가를 찾을 수 없습니다.' });
+    if (!(await canAccessEvaluation(req, accessRows[0]))) {
+      return res.status(403).json({ error: '해당 평가에 접근할 권한이 없습니다.' });
+    }
+    const evaluateeId = accessRows[0].evaluatee_id ?? null;
+
+    // 단건 라우트와 동일: 비-HR은 세션 본인을 평가자로 강제.
+    const isHr = await requesterIsHr(req).catch(() => false);
+    const evaluatorId = isHr && b.evaluator_id ? String(b.evaluator_id) : req.session.employeeId;
+    const { rows: selfRows } = await pool.query(
+      'SELECT name FROM employees WHERE employee_id::text = $1 LIMIT 1',
+      [evaluatorId]
+    );
+    const evaluatorName = selfRows[0]?.name ?? b.evaluator_name ?? evaluatorId;
+
+    await client.query('BEGIN');
+    const savedEntries = [];
+    const touchedTaskUuids = [];
+    // 편집 가능/배정이력은 평가·평가자 단위 판정이라 1회면 충분(단건 라우트에선 매 호출 반복).
+    let editableAsserted = false;
+    let assignmentHistoryId = null;
+    for (const raw of items) {
+      const payload = normalizeTaskEvaluationEntryPayload({ ...raw, evaluation_id: evaluationId });
+      payload.evaluator_id = evaluatorId;
+      payload.evaluator_name = evaluatorName;
+      if (payload.score !== null && !Number.isFinite(payload.score)) {
+        throw Object.assign(new Error('score must be a number or null'), { statusCode: 400 });
+      }
+      const task = await getTaskForEvaluationEntry(client, payload);
+      if (!editableAsserted) {
+        await assertTaskEvaluationEntryEditable(client, task, payload);
+        assignmentHistoryId = await getAssignmentHistoryIdForEvaluationEntry(client, task, payload);
+        editableAsserted = true;
+      }
+
+      const { rows: priorEntryRows } = await client.query(
+        `SELECT score, contribution_method, contribution_scope, feedback
+           FROM task_evaluation_entries
+          WHERE task_uuid = $1 AND evaluator_id = $2`,
+        [task.id, evaluatorId]
+      );
+      const priorEntry = priorEntryRows[0] ?? null;
+
+      const { rows } = await client.query(
+        `
+          INSERT INTO task_evaluation_entries (
+            task_uuid, task_id, evaluation_id, evaluator_id, evaluator_name,
+            contribution_method, contribution_scope, score, feedback, feedback_date,
+            assignment_history_id, status
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::timestamptz, NOW()),$11,'active')
+          ON CONFLICT (task_uuid, evaluator_id) DO UPDATE SET
+            evaluator_name = EXCLUDED.evaluator_name,
+            contribution_method = EXCLUDED.contribution_method,
+            contribution_scope = EXCLUDED.contribution_scope,
+            score = EXCLUDED.score,
+            feedback = EXCLUDED.feedback,
+            feedback_date = EXCLUDED.feedback_date,
+            assignment_history_id = COALESCE(EXCLUDED.assignment_history_id, task_evaluation_entries.assignment_history_id),
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [
+          task.id,
+          task.task_id,
+          task.evaluation_id,
+          evaluatorId,
+          evaluatorName,
+          payload.contribution_method,
+          payload.contribution_scope,
+          payload.score,
+          payload.feedback,
+          payload.feedback_date,
+          assignmentHistoryId,
+        ]
+      );
+      const savedEntry = rows[0];
+      savedEntries.push(savedEntry);
+      touchedTaskUuids.push(task.id);
+
+      // 감사로그: 단건 라우트와 동일 — 실제 변경된 경우에만 old→new 기록.
+      const entryChanged =
+        !priorEntry ||
+        priorEntry.score !== savedEntry.score ||
+        priorEntry.contribution_method !== savedEntry.contribution_method ||
+        priorEntry.contribution_scope !== savedEntry.contribution_scope ||
+        (priorEntry.feedback ?? '') !== (savedEntry.feedback ?? '');
+      if (entryChanged) {
+        await insertAdminAuditLog(client, {
+          actionType: 'evaluation_score_change',
+          actorId: req.session.employeeId,
+          targetEmployeeId: task.evaluatee_id ?? null,
+          previousValue: priorEntry
+            ? {
+                score: priorEntry.score,
+                contribution_method: priorEntry.contribution_method,
+                contribution_scope: priorEntry.contribution_scope,
+                feedback: priorEntry.feedback,
+              }
+            : null,
+          newValue: {
+            score: savedEntry.score,
+            contribution_method: savedEntry.contribution_method,
+            contribution_scope: savedEntry.contribution_scope,
+            feedback: savedEntry.feedback,
+          },
+          reason: `과업 평가 ${priorEntry ? '수정' : '입력'} · 평가자 ${evaluatorName}(${evaluatorId}) · task ${task.task_id}`,
+        });
+      }
+
+      // 피드백 히스토리 — 변경 감지는 클라이언트가 entry 비교로 이미 수행(단건 흐름과 동일 기준).
+      if (raw.create_feedback_history && (payload.feedback ?? '').trim()) {
+        await client.query(
+          `INSERT INTO feedback_history
+             (task_id, task_uuid, evaluation_id, evaluator_id, task_evaluation_entry_id, content, evaluator_name, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'active')`,
+          [task.task_id, task.id, task.evaluation_id, evaluatorId, savedEntry.id, payload.feedback, evaluatorName]
+        );
+      }
+
+      // 알림 — 클라이언트 발송(과업당 1요청)을 서버 이관. insertNotificationRow 는 SAVEPOINT 라
+      // 알림 실패가 저장을 되돌리지 않는다.
+      const changeDetails =
+        typeof raw.notify_change_details === 'string' ? raw.notify_change_details.trim() : '';
+      if (changeDetails && evaluateeId) {
+        const { rows: titleRows } = await client.query('SELECT title FROM tasks WHERE id = $1', [task.id]);
+        const taskTitle = titleRows[0]?.title ?? '과업';
+        await insertNotificationRow(client, {
+          notificationType: 'task_updated',
+          title: `평가 업데이트: ${taskTitle}`,
+          message: `"${taskTitle}" 과업이 업데이트되었습니다.\n\n변경사항: ${changeDetails}`,
+          priority: 'medium',
+          senderId: req.session.employeeId,
+          senderName: evaluatorName,
+          recipientId: evaluateeId,
+          // FK 정합: related_evaluation_id=evaluations.id(uuid), related_task_id=tasks.task_id(텍스트).
+          // (구 클라이언트 발송은 사번·과업 uuid 를 넣어 FK 불일치 시 조용히 유실되던 값 — 정정.)
+          relatedEvaluationId: evaluationId,
+          relatedTaskId: task.task_id,
+        });
+      }
+    }
+
+    await rebuildTaskEvaluationSnapshot(client, touchedTaskUuids);
+    if (nextStatus) {
+      await client.query(
+        'UPDATE evaluations SET evaluation_status = $2, last_modified = NOW(), updated_at = NOW() WHERE id = $1',
+        [evaluationId, nextStatus]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({
+      entries: savedEntries.map((r) => ({ id: r.id, task_uuid: r.task_uuid })),
+      evaluation_status: nextStatus ?? null,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error bulk-saving task evaluation entries:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Phase 3: 평가 저장 시 그 항목의 AI 검수 결과(플래그·요약·해시)를 기록. 매 저장 덮어쓰기 →
 // 경고 없이 통과하면 flagged=false 로 '이상없음' 갱신.
 app.patch('/api/task-evaluation-entry/:id/ai-review', async (req, res) => {

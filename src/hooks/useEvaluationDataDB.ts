@@ -1,11 +1,9 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { draftService } from '@/lib/services/draftService';
 import { useToast } from '@/hooks/use-toast';
-import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import { useNotifications } from '@/contexts/NotificationContextDB';
 import { EvaluationData, Task, FeedbackHistoryItem, TaskEvaluationEntry } from '@/types/evaluation';
 
 // In‑memory cache to remember which evaluatee already has an evaluation during this session
@@ -225,8 +223,6 @@ export const useEvaluationDataDB = (
   const selectedPeriodStatus = selectedPeriod?.status;
   const selectedPeriodYear = selectedPeriod?.evaluation_year;
   const { toast } = useToast();
-  const confirm = useConfirm();
-  const { addNotification } = useNotifications();
   const currentEvaluatorId = getEvaluatorIdentity(user);
   const draftStorageKey = getDraftStorageKey(
     overrideEvaluationId ? `${employeeId}#${overrideEvaluationId}` : employeeId,
@@ -1140,8 +1136,8 @@ export const useEvaluationDataDB = (
         return false;
       }
 
-      // 2-2. AI 검수(구체성·성의·복붙·점수논조).
-      const duplicateWarnings: string[] = [];
+      // 2-2. AI 검수 대상 수집(구체성·성의·복붙·점수논조) — 검수 자체는 저장을 막지 않도록
+      // 저장 '후' 백그라운드로 수행한다(S3). 여기서는 대상 항목만 계산해 둔다.
       const growthLevel = evaluationData.growthLevel;
       const changedFeedbackItems = tasksToSave
         .map((task) => {
@@ -1174,55 +1170,12 @@ export const useEvaluationDataDB = (
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-      // 복붙 비교 대상: (a) 같은 평가자가 그 기간 다른 피평가자에게 쓴 피드백 +
-      // (b) 이 피평가자의 다른 과업 피드백(변경 항목 제외). 둘 다와 비교해 복붙을 잡는다.
-      const otherEvaluateeFeedbacks = await taskEvaluationEntryService
-        .getEvaluatorFeedbacks(evaluatorId, selectedPeriodId, evaluation.id)
-        .catch(() => [] as string[]);
-      const changedTaskIds = new Set(changedFeedbackItems.map((item) => item.taskId));
-      const sameEvaluateeOtherFeedbacks = tasksToSave
-        .filter((task) => !changedTaskIds.has(task.id) && (task.feedback || '').trim())
-        .map((task) => (task.feedback || '').trim());
-      const existingFeedbacks = Array.from(
-        new Set([...otherEvaluateeFeedbacks, ...sameEvaluateeOtherFeedbacks]),
-      );
-
-      // AI 검수 결과를 항목별로 기록하기 위해 보관(통과 시 flagged=false 로 갱신).
-      const aiWarningByTaskId = new Map<string, { type?: string; summary: string }>();
-      let aiReviewRan = false;
-      if (changedFeedbackItems.length > 0) {
-        const reviewResult = await reviewEvaluationFeedbacks(
-          changedFeedbackItems,
-          existingFeedbacks,
-          user.name,
-        );
-        aiReviewRan = !reviewResult.skipped;
-        reviewResult.warnings.forEach((warning) => {
-          const taskTitle =
-            warning.taskTitle ||
-            tasksToSave.find((task) => task.id === warning.taskId)?.title ||
-            warning.taskId;
-          duplicateWarnings.push(`· ${taskTitle}${warning.type ? ` — ${warning.type}` : ''}: ${warning.summary}`);
-          aiWarningByTaskId.set(warning.taskId, { type: warning.type, summary: warning.summary });
-        });
-      }
-
-      if (duplicateWarnings.length > 0) {
-        const shouldContinue = await confirm({
-          title: 'AI 검수에서 확인이 필요한 피드백이 있습니다',
-          description: `아래 항목을 확인해 주세요. 이대로 저장할 수 있지만, 가능하면 수정 후 저장을 권장합니다.\n\n${duplicateWarnings.join('\n')}`,
-          confirmText: '이대로 저장',
-        });
-
-        if (!shouldContinue) {
-          return false;
-        }
-      }
-
       const changedTasks: Array<{id: string, title: string, hasNewFeedback?: boolean, changeDetails?: string}> = [];
-      const entryIdByTask = new Map<string, string>(); // task.id → 저장된 entry id (AI 검수 기록용)
+      // S3: 과업당 순차 요청(entry upsert N + 피드백 히스토리 M + 알림 L) 대신
+      // 일괄 저장 페이로드를 만들어 한 요청으로 보낸다(서버가 한 트랜잭션으로 처리).
+      const bulkEntries: Parameters<typeof taskEvaluationEntryService.bulkSave>[0]['entries'] = [];
 
-      // 5. 각 과업별 피드백 처리 및 업데이트
+      // 5. 각 과업별 변경 감지 및 일괄 저장 항목 구성
       for (const task of tasksToSave) {
         const dbTask = dbTasks.find(t => t.id === task.id);
         if (!dbTask) continue;
@@ -1233,10 +1186,8 @@ export const useEvaluationDataDB = (
           currentEntry?.feedback ??
           (dbTask.evaluator_name === evaluatorName ? dbTask.feedback : '') ??
           '';
-        
 
         let hasChanges = false;
-        let hasNewFeedback = false;
         let shouldCreateFeedbackHistory = false;
         const changeDetails: string[] = [];
 
@@ -1258,70 +1209,29 @@ export const useEvaluationDataDB = (
           shouldCreateFeedbackHistory = true;
           hasChanges = true;
           changeDetails.push('피드백');
-        } else if (currentFeedback.trim() && currentFeedback.trim() === previousFeedback.trim()) {
-          console.log('⚪ 피드백 변경 없음 - 히스토리 저장 건너뜀:', {
-            taskTitle: task.title,
-            feedback: currentFeedback.substring(0, 50) + '...',
-            reason: 'same_content'
-          });
-        } else if (!currentFeedback.trim()) {
-          console.log('⚪ 피드백 비어있음 - 히스토리 저장 건너뜀:', {
-            taskTitle: task.title,
-            reason: 'empty_feedback'
-          });
         }
 
-        let savedEntry;
-        try {
-          savedEntry = await taskEvaluationEntryService.upsertEntry({
-            task_uuid: dbTask.id,
-            task_id: dbTask.task_id,
-            evaluation_id: evaluation.id,
-            evaluator_id: evaluatorId,
-            evaluator_name: evaluatorName,
-            contribution_method: task.contributionMethod ?? null,
-            contribution_scope: task.contributionScope ?? null,
-            score: task.score ?? null,
-            feedback: currentFeedback.trim() ? currentFeedback : task.feedback ?? null,
-            feedback_date: task.feedbackDate ? task.feedbackDate : new Date().toISOString(),
-          });
-        } catch (err) {
-          console.error('❌ taskEvaluationEntryService.upsertEntry 호출 실패', {
-            taskId: dbTask.id,
-            error: err,
-          });
-          throw err;
-        }
-        if (savedEntry?.id) entryIdByTask.set(task.id, savedEntry.id);
-
-        if (shouldCreateFeedbackHistory) {
-          try {
-            await feedbackService.createFeedbackHistory({
-              task_id: dbTask.task_id,
-              task_uuid: dbTask.id,
-              evaluation_id: evaluation.id,
-              evaluator_id: evaluatorId,
-              evaluator_name: evaluatorName,
-              task_evaluation_entry_id: savedEntry?.id ?? null,
-              content: currentFeedback,
-            });
-
-            hasNewFeedback = true;
-          } catch (error) {
-            console.error('❌ 피드백 히스토리 저장 실패:', error);
-          }
-        }
+        bulkEntries.push({
+          task_uuid: dbTask.id,
+          task_id: dbTask.task_id,
+          contribution_method: task.contributionMethod ?? null,
+          contribution_scope: task.contributionScope ?? null,
+          score: task.score ?? null,
+          feedback: currentFeedback.trim() ? currentFeedback : task.feedback ?? null,
+          feedback_date: task.feedbackDate ? task.feedbackDate : new Date().toISOString(),
+          create_feedback_history: shouldCreateFeedbackHistory,
+          // 변경 요약이 있으면 서버가 피평가자 알림을 발송(기존 클라이언트 발송 이관).
+          notify_change_details:
+            user.role === 'evaluator' && hasChanges ? changeDetails.join(', ') : undefined,
+        });
 
         if (hasChanges) {
-          const taskChange = {
+          changedTasks.push({
             id: task.id,
             title: task.title,
-            hasNewFeedback,
-            changeDetails: changeDetails.join(', ')
-          };
-          changedTasks.push(taskChange);
-        } else {
-          console.log('📝 변경사항 없음:', task.title);
+            hasNewFeedback: shouldCreateFeedbackHistory,
+            changeDetails: changeDetails.join(', '),
+          });
         }
       }
 
@@ -1351,11 +1261,15 @@ export const useEvaluationDataDB = (
           description: `${parts.join(' · ')}. 저장 후 갱신된 목록을 확인하고 새 과업을 채점해 주세요.`,
         });
       }
-      await evaluationService.updateEvaluation(evaluation.id, {
-        // Log evaluation status update payload
+      // S3: 일괄 저장 — entry(N)+피드백 히스토리+평가상태+알림을 한 요청·한 트랜잭션으로.
+      // 실패 시 전체 롤백(기존 순차 흐름의 '일부 과업만 저장' 비원자성도 함께 제거).
+      const bulkResult = await taskEvaluationEntryService.bulkSave({
+        evaluation_id: evaluation.id,
         evaluation_status: isComplete ? 'completed' : 'evaluating',
-        last_modified: new Date().toISOString(),
+        entries: bulkEntries,
       });
+      const entryIdByTask = new Map<string, string>(); // task.id(=task_uuid) → entry id (AI 검수 기록용)
+      bulkResult.entries.forEach((entry) => entryIdByTask.set(entry.task_uuid, entry.id));
 
       setEvaluationData(prev => {
         if (!prev) return prev;
@@ -1367,59 +1281,74 @@ export const useEvaluationDataDB = (
         };
       });
 
-      // AI 1차 검수 결과 기록 — 변경된 피드백 항목만. 경고 없으면 flagged=false 로 '이상없음' 갱신.
-      if (aiReviewRan) {
-        await Promise.all(
-          changedFeedbackItems.map(async (item) => {
-            const entryId = entryIdByTask.get(item.taskId);
-            if (!entryId) return;
-            const w = aiWarningByTaskId.get(item.taskId);
-            try {
-              await taskEvaluationEntryService.setAiReview(entryId, {
-                flagged: !!w,
-                type: w?.type ?? null,
-                summary: w?.summary ?? null,
-                feedbackHash: hashText(item.feedback),
-              });
-            } catch (e) {
-              console.warn('AI 검수 결과 저장 실패:', e);
-            }
-          }),
-        );
-      }
+      // S3: AI 검수(구체성·성의·복붙·점수논조)는 저장을 막지 않는다 — 저장 완료 후 백그라운드로
+      // 수행해 항목별 ai_* 컬럼에 기록(경고 없으면 flagged=false '이상없음')하고, 경고가 있으면
+      // 토스트로 알린다. 수정 후 다시 저장하면 재검수된다. (기존: 저장 전 동기 대기 + confirm —
+      // AI 응답이 늦으면 저장 버튼이 수십 초 잠기던 문제 해소.)
+      // ※ 알림 발송은 일괄 저장 서버 트랜잭션으로 이관됨(notify_change_details).
+      if (changedFeedbackItems.length > 0) {
+        const reviewEvaluatorName = user.name;
+        void (async () => {
+          try {
+            // 복붙 비교 대상: (a) 같은 평가자가 그 기간 다른 피평가자에게 쓴 피드백 +
+            // (b) 이 피평가자의 다른 과업 피드백(변경 항목 제외). 둘 다와 비교해 복붙을 잡는다.
+            const otherEvaluateeFeedbacks = await taskEvaluationEntryService
+              .getEvaluatorFeedbacks(evaluatorId, selectedPeriodId, evaluation.id)
+              .catch(() => [] as string[]);
+            const changedTaskIds = new Set(changedFeedbackItems.map((item) => item.taskId));
+            const sameEvaluateeOtherFeedbacks = tasksToSave
+              .filter((task) => !changedTaskIds.has(task.id) && (task.feedback || '').trim())
+              .map((task) => (task.feedback || '').trim());
+            const existingFeedbacks = Array.from(
+              new Set([...otherEvaluateeFeedbacks, ...sameEvaluateeOtherFeedbacks]),
+            );
 
-      // 알림 생성
-      if (user.role === 'evaluator' && changedTasks.length > 0) {
-        for (const task of changedTasks) {
-          if (task.changeDetails) {
-            const message = `"${task.title}" 과업이 업데이트되었습니다.\n\n변경사항: ${task.changeDetails}`;
+            const reviewResult = await reviewEvaluationFeedbacks(
+              changedFeedbackItems,
+              existingFeedbacks,
+              reviewEvaluatorName,
+            );
+            if (reviewResult.skipped) return;
 
-            // Find the internal DB task ID (uuid) that corresponds to the external task identifier
-            const dbTaskForNotification = dbTasks.find(t => t.id === task.id);
-            try {
-              await addNotification({
-                recipientId: employeeId,
-                title: `평가 업데이트: ${task.title}`,
-                message,
-                type: 'task_updated',
-                priority: 'medium',
-                senderId: user.id,
-                senderName: user.name,
-                relatedEvaluationId: employeeId,
-                // Use the internal task UUID for the foreign‑key reference
-                relatedTaskId: dbTaskForNotification?.id
+            const aiWarningByTaskId = new Map<string, { type?: string; summary: string }>();
+            reviewResult.warnings.forEach((warning) => {
+              aiWarningByTaskId.set(warning.taskId, { type: warning.type, summary: warning.summary });
+            });
+            await Promise.all(
+              changedFeedbackItems.map(async (item) => {
+                const entryId = entryIdByTask.get(item.taskId);
+                if (!entryId) return;
+                const w = aiWarningByTaskId.get(item.taskId);
+                try {
+                  await taskEvaluationEntryService.setAiReview(entryId, {
+                    flagged: !!w,
+                    type: w?.type ?? null,
+                    summary: w?.summary ?? null,
+                    feedbackHash: hashText(item.feedback),
+                  });
+                } catch (e) {
+                  console.warn('AI 검수 결과 저장 실패:', e);
+                }
+              }),
+            );
+
+            if (reviewResult.warnings.length > 0) {
+              const lines = reviewResult.warnings.map((warning) => {
+                const taskTitle =
+                  warning.taskTitle ||
+                  tasksToSave.find((task) => task.id === warning.taskId)?.title ||
+                  warning.taskId;
+                return `· ${taskTitle}${warning.type ? ` — ${warning.type}` : ''}: ${warning.summary}`;
               });
-            } catch (error) {
-              console.error('❌ 과업별 알림 생성 실패:', error);
+              toast({
+                title: `AI 검수: 확인이 필요한 피드백 ${reviewResult.warnings.length}건`,
+                description: `저장은 완료되었습니다. 아래 항목을 확인하고 수정 후 다시 저장하면 재검수됩니다.\n\n${lines.join('\n')}`,
+              });
             }
+          } catch (e) {
+            console.warn('AI 검수 백그라운드 실행 실패:', e);
           }
-        }
-      } else {
-        console.log('⚠️ 알림 생성 조건 불만족:', {
-          userRole: user.role,
-          isEvaluator: user.role === 'evaluator',
-          hasChanges: changedTasks.length > 0
-        });
+        })();
       }
 
       setTaskDrafts({});
