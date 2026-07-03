@@ -4914,6 +4914,79 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
       }
     }
 
+    // 소속(org_*) 수정은 '현재 조직 기간'(is_default) 의 평가행에도 동기화한다.
+    // 사용자관리 화면·KPI 조직장 산정이 기간 조직(evaluatee_org_*)을 우선하므로, 마스터만
+    // 바꾸면 저장해도 화면·산정에 반영되지 않는다. 발령자의 이전 평가행(다른 평가자 배정)은
+    // 이력이라 건드리지 않고 '현재 평가자 행'(배정=마스터 평가자, K19 와 동일 규칙)만 갱신
+    // — 일치 행이 없으면 최신 행 1개로 폴백.
+    const orgTouched = updateEntries.some(([k]) =>
+      ['org_corporation', 'org_division', 'org_department', 'org_team'].includes(k)
+    );
+    if (orgTouched) {
+      const { rows: defPeriodRows } = await client.query(
+        'SELECT id FROM evaluation_periods WHERE is_default = true LIMIT 1'
+      );
+      const defaultPeriodId = defPeriodRows[0]?.id ?? null;
+      if (defaultPeriodId) {
+        const orgValues = [
+          updatedEmployee.org_corporation ?? null,
+          updatedEmployee.org_division ?? null,
+          updatedEmployee.org_department ?? null,
+          updatedEmployee.org_team ?? null,
+        ];
+        const masterEvaluatorId =
+          updatedEmployee.evaluator_id == null ? null : String(updatedEmployee.evaluator_id);
+        const { rowCount: syncedRows } = await client.query(
+          `UPDATE evaluations SET evaluatee_org_corporation = $3, evaluatee_org_division = $4,
+                  evaluatee_org_department = $5, evaluatee_org_team = $6, updated_at = NOW()
+            WHERE evaluatee_id = $1 AND evaluation_period_id = $2 AND record_status = 'active'
+              AND id IN (
+                SELECT ev2.id FROM evaluations ev2
+                LEFT JOIN evaluator_assignment_history h ON h.id = ev2.assignment_history_id
+                WHERE ev2.evaluatee_id = $1 AND ev2.evaluation_period_id = $2
+                  AND ev2.record_status = 'active'
+                  AND COALESCE(h.new_evaluator_id::text, $7::text) IS NOT DISTINCT FROM $7::text
+              )`,
+          [req.params.id, defaultPeriodId, ...orgValues, masterEvaluatorId]
+        );
+        if (syncedRows === 0) {
+          await client.query(
+            `UPDATE evaluations SET evaluatee_org_corporation = $3, evaluatee_org_division = $4,
+                    evaluatee_org_department = $5, evaluatee_org_team = $6, updated_at = NOW()
+              WHERE id = (SELECT id FROM evaluations
+                           WHERE evaluatee_id = $1 AND evaluation_period_id = $2
+                             AND record_status = 'active'
+                           ORDER BY created_at DESC LIMIT 1)`,
+            [req.params.id, defaultPeriodId, ...orgValues]
+          );
+        }
+        // 부서ID도 새 소속과 정합화 — 기본 기간 조직 스냅샷에서 4단계 조합이 일치하는 부서코드를
+        // 역조회한다. 기존값이 후보면 유지, 아니면 첫 후보로 교체, 스냅샷에 없는 조합이면 NULL
+        // (옛 코드를 남기면 업로드 소속 파생·마스터 폴백 번역이 옛 조직으로 되돌린다).
+        const { rows: deptRows } = await client.query(
+          `SELECT dept_code FROM org_structure
+            WHERE evaluation_period_id = $1
+              AND org_corporation IS NOT DISTINCT FROM $2 AND org_division IS NOT DISTINCT FROM $3
+              AND org_department IS NOT DISTINCT FROM $4 AND org_team IS NOT DISTINCT FROM $5
+            ORDER BY dept_code`,
+          [defaultPeriodId, ...orgValues]
+        );
+        const deptCandidates = deptRows.map((r) => r.dept_code);
+        const nextDeptId = deptCandidates.includes(updatedEmployee.department_id)
+          ? updatedEmployee.department_id
+          : deptCandidates[0] ?? null;
+        if (nextDeptId !== (updatedEmployee.department_id ?? null)) {
+          await client.query(
+            `UPDATE employees SET department_id = $2, department_id_source = 'profile', updated_at = NOW()
+              WHERE employee_id = $1`,
+            [req.params.id, nextDeptId]
+          );
+          updatedEmployee.department_id = nextDeptId;
+          updatedEmployee.department_id_source = 'profile';
+        }
+      }
+    }
+
     // 감사로그: 바뀐 화이트리스트 필드만 old→new. 평가자 변경이면 별도 action_type.
     const employeeAuditKeys = updateEntries
       .map(([k]) => k)
@@ -7685,12 +7758,15 @@ const computeKpiLeadership = async (periodId) => {
       }
     }
   }
-  return { perLevel, leaders, leaderIdByKey };
+  return { perLevel, leaders, leaderIdByKey, upPath };
 };
 
 // KPI 요청 스코프 — 조직 선택지·가시성·수정권의 단일 기준. 화면 탭(활성 역할)로만 갈린다.
 //  - 'all'  : HR 관리자 탭(활성 역할 hr) → 전사 KPI 전체(admin 과 동일). 조직장 없는 조직도 등록 가능.
-//  - 'chain': 평가자 탭 → '내가 조직장인 조직 + 그 하위 조직 전체'(상위 조직장은 하위도 등록·관리 가능).
+//  - 'chain': 평가자 탭 → '내가 조직장인 조직 + 그 하위 조직 전체'(상위 조직장은 하위도 등록·관리 가능)
+//             + '조직장이 내 하향 평가체인에 속한 조직'. 겸직·매트릭스 조직에서는 평가선이 법인·본부
+//             경계를 넘으므로(예: OKH 인사부장이 OK 인사팀장을 직접 평가) 조직 경로 접두만으로는
+//             하위를 못 잡는다 — 조직장의 상향 평가체인에 내가 있으면 내 관할로 본다.
 // choiceTuples: 레벨별 Map(pathKey → 튜플) — 등록 선택지이자 가시성/수정권 판정 기준.
 const getKpiScope = async (req, periodId) => {
   const leadership = await computeKpiLeadership(periodId);
@@ -7702,7 +7778,10 @@ const getKpiScope = async (req, periodId) => {
   const me = String(req.session.employeeId);
   const myKeys = [];
   for (const lvl of KPI_LEVELS) {
-    for (const [key, leaderId] of leadership.leaderIdByKey[lvl]) if (leaderId === me) myKeys.push(key);
+    for (const [key, leaderId] of leadership.leaderIdByKey[lvl]) {
+      // 내가 조직장이거나(upPath 첫 원소=본인), 조직장의 상향 평가체인에 내가 있으면 내 관할.
+      if (leadership.upPath(leaderId).includes(me)) myKeys.push(key);
+    }
   }
   // 내 조직(들)과 그 하위 — pathKey 접두 일치(상위 레벨 키는 하위 키의 접두).
   const underMine = (key) => myKeys.some((mk) => key === mk || key.startsWith(mk + '|'));
@@ -7857,7 +7936,8 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
     const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
     // 등록 폼 드롭다운용 — 정형화 조직 선택지(경로 튜플, 레벨별)와 조직장 라벨.
     // 조직장 산정·선택지 범위는 computeKpiLeadership/getKpiScope 가 단일 원천:
-    //   평가자 탭 = 내가 조직장인 조직 + 그 하위 전체, HR 관리자 탭 = 전체.
+    //   평가자 탭 = 내가 조직장인 조직 + 그 하위 전체 + 조직장이 내 하향 평가체인인 조직(겸직),
+    //   HR 관리자 탭 = 전체.
     const scope = await getKpiScope(req, periodId);
     const leaders = scope.leadership.leaders;
     const labelOfTuple = (t) => [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
