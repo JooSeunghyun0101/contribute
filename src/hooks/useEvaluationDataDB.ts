@@ -234,6 +234,9 @@ export const useEvaluationDataDB = (
   const [evaluationData, setEvaluationData] = useState<EvaluationData | null>(null);
   const [taskDrafts, setTaskDrafts] = useState<Record<string, TaskDraft>>({});
   const [isLoading, setIsLoading] = useState(true);
+  // S3: 저장 후 백그라운드 AI 검수가 도는 동안 true — 저장 버튼이 'AI 검토 중…' 상태를
+  // 검수가 실제로 끝날 때까지 유지하는 데 쓴다(저장이 즉시 끝나 검수 사실을 모르는 문제).
+  const [isAiReviewing, setIsAiReviewing] = useState(false);
 
   // F-2: 미저장 편집(taskDrafts) 유실 방지 — 편집 컨텍스트(!readOnly)에서만 동작.
   // 서버/AI검수와 무관하게 localStorage 로만 영속(setState 미사용 → 렌더 루프 없음).
@@ -1290,6 +1293,7 @@ export const useEvaluationDataDB = (
       // ※ 알림 발송은 일괄 저장 서버 트랜잭션으로 이관됨(notify_change_details).
       if (changedFeedbackItems.length > 0) {
         const reviewEvaluatorName = user.name;
+        setIsAiReviewing(true);
         void (async () => {
           try {
             // 복붙 비교 대상: (a) 같은 평가자가 그 기간 다른 피평가자에게 쓴 피드백 +
@@ -1371,9 +1375,18 @@ export const useEvaluationDataDB = (
               } catch (e) {
                 console.warn('AI 검수 알림 발송 실패:', e);
               }
+            } else {
+              // 통과도 완료 신호를 준다 — 버튼이 'AI 검토 중…'을 보여주다 끝났는데 아무 표시가
+              // 없으면 검수가 됐는지 알 수 없다. 경고와 달리 벨 알림 없이 토스트만(소음 방지).
+              toast({
+                title: 'AI 검수 통과',
+                description: `피드백 ${changedFeedbackItems.length}건 모두 이상 없음으로 기록했습니다.`,
+              });
             }
           } catch (e) {
             console.warn('AI 검수 백그라운드 실행 실패:', e);
+          } finally {
+            setIsAiReviewing(false);
           }
         })();
       }
@@ -1521,6 +1534,7 @@ export const useEvaluationDataDB = (
   return {
     evaluationData,
     isLoading,
+    isAiReviewing,
     handleMethodClick,
     handleScopeClick,
     handleFeedbackChange,

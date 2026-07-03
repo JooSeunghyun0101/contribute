@@ -92,6 +92,7 @@ const Evaluation = () => {
   const {
     evaluationData,
     isLoading,
+    isAiReviewing,
     handleMethodClick,
     handleScopeClick,
     handleFeedbackChange,
@@ -638,8 +639,9 @@ const Evaluation = () => {
               >
                 {isDraftSaving ? '처리 중…' : '임시저장'}
               </button>
-              {isSaving ? (
-                // 저장 클릭 후 AI 검토 중 — AI 의견 버튼과 동일한 파랑+shine+이모지 로딩 효과.
+              {isSaving || isAiReviewing ? (
+                // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시
+                // 끝나 검수가 도는 걸 알 수 없던 문제 — 검수 완료 시 통과/경고 토스트로 마무리).
                 <AiOpinionButton loading label="AI 검토 중…" />
               ) : (
                 <button
