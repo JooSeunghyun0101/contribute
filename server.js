@@ -7557,7 +7557,17 @@ const serializeKpiTree = (r) => ({ ...serializeKpiBase(r), children: (r.children
 
 // parent_kpi_id 검증: 같은 기간·상위 레벨·같은 단위·조직 경로 정합·순환 금지.
 // childPath: 이 KPI 의 조상 조직 { corporation, division, department } (모르면 null — 레거시 관용).
-const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, unit, childPath }) => {
+// 겸직·매트릭스 체인 하위 판정 — 자식 조직장의 상향 평가체인에 부모 조직의 조직장이 있으면
+// 조직 경로(법인·본부)가 달라도 부모의 하위 조직으로 본다(예: OKH 인사부장이 직접 평가하는
+// OK 인사팀). 어느 한쪽이라도 조직장 미산정이면 false(경로 규칙만 적용).
+const kpiChainUnder = (leadership, childLevel, childKey, parentLevel, parentKey) => {
+  if (!leadership) return false;
+  const childLeader = leadership.leaderIdByKey[childLevel]?.get(childKey) ?? null;
+  const parentLeader = leadership.leaderIdByKey[parentLevel]?.get(parentKey) ?? null;
+  return Boolean(childLeader && parentLeader && leadership.upPath(childLeader).includes(parentLeader));
+};
+
+const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, orgKey, unit, childPath, leadership }) => {
   if (!parentKpiId) return;
   const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [parentKpiId]);
   const parent = rows[0];
@@ -7574,14 +7584,35 @@ const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, 
   // 조직 경로 정합 — 상위 KPI 는 이 KPI 조직의 '실제 상위 조직'이어야 한다(엉뚱한 본부·부 연결 금지).
   // 경로를 모르는(NULL) 쪽은 관용해 레거시 KPI 를 깨지 않는다.
   if (childPath) {
+    let pathOk = true;
     const ancestorAtParentLevel = childPath[parent.org_level] ?? null;
-    if (ancestorAtParentLevel && parent.org_key !== ancestorAtParentLevel) {
-      fail(`상위 KPI 조직(${parent.org_key})이 이 KPI의 상위 조직(${ancestorAtParentLevel})과 다릅니다.`);
+    if (ancestorAtParentLevel && parent.org_key !== ancestorAtParentLevel) pathOk = false;
+    if (pathOk) {
+      for (const l of kpiAncestorLevels(parent.org_level)) {
+        const pv = parent[KPI_PATH_COLS[l]];
+        const cv = childPath[l];
+        if (pv && cv && pv !== cv) {
+          pathOk = false;
+          break;
+        }
+      }
     }
-    for (const l of kpiAncestorLevels(parent.org_level)) {
-      const pv = parent[KPI_PATH_COLS[l]];
-      const cv = childPath[l];
-      if (pv && cv && pv !== cv) fail('상위 KPI의 조직 경로가 이 KPI의 조직 경로와 다릅니다.');
+    // 경로 불일치라도 겸직 평가라인 하위(자식 조직장의 상향 체인에 부모 조직장)면 허용 —
+    // 매트릭스 조직에서 법인·본부가 다른 직속 팀을 상위 KPI 에 연결하는 케이스.
+    if (!pathOk) {
+      const childKey = kpiTupleKey({ ...childPath, [orgLevel]: orgKey }, orgLevel);
+      const parentKey = kpiTupleKey(
+        {
+          corporation: parent.org_path_corporation,
+          division: parent.org_path_division,
+          department: parent.org_path_department,
+          [parent.org_level]: parent.org_key,
+        },
+        parent.org_level,
+      );
+      if (!kpiChainUnder(leadership, orgLevel, childKey, parent.org_level, parentKey)) {
+        fail(`상위 KPI 조직(${parent.org_key})이 이 KPI 조직의 상위 경로도, 겸직 평가라인 상위도 아닙니다.`);
+      }
     }
   }
   // 순환 방지: parent 에서 위로 올라가며 자기 자신(id)에 도달하면 거부.
@@ -7945,7 +7976,16 @@ app.get('/api/org-kpis/org-options', async (req, res) => {
     const manageableOut = {};
     for (const lvl of KPI_LEVELS) {
       orgChoices[lvl] = [...scope.choiceTuples[lvl].entries()]
-        .map(([key, t]) => ({ ...t, leader: leaders[lvl][key]?.[0] ?? null }))
+        .map(([key, t]) => {
+          // leader_id·chain_up(조직장 상향 평가체인): 클라이언트 겸직 하위 판정용.
+          const leaderId = scope.leadership.leaderIdByKey[lvl].get(key) ?? null;
+          return {
+            ...t,
+            leader: leaders[lvl][key]?.[0] ?? null,
+            leader_id: leaderId,
+            chain_up: leaderId ? scope.leadership.upPath(leaderId) : [],
+          };
+        })
         .sort((a, b) => labelOfTuple(a).localeCompare(labelOfTuple(b), 'ko-KR'));
       manageableOut[lvl] = [...new Set(orgChoices[lvl].map((t) => t[lvl]).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b, 'ko-KR'),
@@ -7982,6 +8022,8 @@ app.get('/api/org-kpis/parent-candidates', requireHrOrEvaluator, async (req, res
   const periodId = req.query.periodId;
   const orgLevel = String(req.query.orgLevel ?? '');
   const unit = String(req.query.unit ?? '').trim();
+  // 이 KPI 조직 자체의 이름(선택) — 겸직 평가라인 상위 후보 산정에 필요(없으면 경로 후보만).
+  const orgKey = String(req.query.orgKey ?? '').trim() || null;
   if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !unit) {
     return res.status(400).json({ error: 'periodId·orgLevel·unit 이 필요합니다.' });
   }
@@ -8012,6 +8054,35 @@ app.get('/api/org-kpis/parent-candidates', requireHrOrEvaluator, async (req, res
         parts.push(`(${KPI_PATH_COLS[u]} IS NULL OR ${KPI_PATH_COLS[u]} = $${params.length})`);
       }
       conds.push(`(${parts.join(' AND ')})`);
+    }
+    // 겸직 평가라인 상위 후보 — 이 조직 조직장의 상향 평가체인에 조직장이 있는 '더 상위 레벨'
+    // 조직의 KPI 도 후보에 포함(예: OK 인사팀 → OKH 인사부, 법인이 달라도 연결 가능).
+    // 임의 값으로 타 계열을 열거하지 못하게, 요청 조직이 요청자 스코프의 실존 선택지일 때만.
+    if (orgKey) {
+      const childKey = kpiTupleKey({ ...anc, [orgLevel]: orgKey }, orgLevel);
+      if (scope.choiceTuples[orgLevel].has(childKey)) {
+        const childLeader = scope.leadership.leaderIdByKey[orgLevel].get(childKey) ?? null;
+        if (childLeader) {
+          const up = new Set(scope.leadership.upPath(childLeader));
+          for (const l of KPI_LEVELS) {
+            if (KPI_LEVEL_DEPTH[l] >= KPI_LEVEL_DEPTH[orgLevel]) break;
+            for (const [key, leaderId] of scope.leadership.leaderIdByKey[l]) {
+              if (!up.has(leaderId)) continue;
+              const tuple = scope.leadership.perLevel[l].get(key)?.tuple;
+              if (!tuple) continue;
+              const parts = [`org_level = '${l}'`];
+              params.push(tuple[l]);
+              parts.push(`org_key = $${params.length}`);
+              for (const u of kpiAncestorLevels(l)) {
+                if (!tuple[u]) continue;
+                params.push(tuple[u]);
+                parts.push(`(${KPI_PATH_COLS[u]} IS NULL OR ${KPI_PATH_COLS[u]} = $${params.length})`);
+              }
+              conds.push(`(${parts.join(' AND ')})`);
+            }
+          }
+        }
+      }
     }
     if (conds.length === 0) return res.json([]);
     const { rows } = await pool.query(
@@ -8115,12 +8186,14 @@ app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
       parentKpiId: b.parent_kpi_id ?? null,
       periodId,
       orgLevel,
+      orgKey,
       unit,
       childPath: {
         corporation: orgPath.org_path_corporation,
         division: orgPath.org_path_division,
         department: orgPath.org_path_department,
       },
+      leadership: scope.leadership,
     });
     const { rows } = await client.query(
       `INSERT INTO org_kpis
@@ -8252,12 +8325,14 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       parentKpiId: next.parent_kpi_id,
       periodId: existing.evaluation_period_id,
       orgLevel: next.org_level,
+      orgKey: next.org_key,
       unit: next.unit,
       childPath: {
         corporation: next.org_path_corporation,
         division: next.org_path_division,
         department: next.org_path_department,
       },
+      leadership: scope.leadership,
     });
     // 자식 일관성: 단위/레벨/조직 경로 변경 시 자식이 깨지지 않는지.
     const { rows: kids } = await client.query(
@@ -8270,16 +8345,41 @@ app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
       if (KPI_LEVEL_DEPTH[kid.org_level] <= KPI_LEVEL_DEPTH[next.org_level]) fail('하위 KPI 레벨과 충돌합니다.');
       if (orgChanged) {
         // 이 KPI 조직을 바꾸면 자식들의 '상위 조직' 불변식이 깨질 수 있다 — validateKpiParent 와
-        // 동일한 대조를 자식 방향으로 수행(자식 경로 NULL 은 레거시 관용).
+        // 동일한 대조를 자식 방향으로 수행(자식 경로 NULL 은 레거시 관용, 겸직 평가라인 하위는 허용).
+        let kidPathOk = true;
         const kidAncestorAtMyLevel = kid[KPI_PATH_COLS[next.org_level]] ?? null;
-        if (kidAncestorAtMyLevel && kidAncestorAtMyLevel !== next.org_key) {
-          fail('하위 KPI의 조직 경로와 어긋나는 조직으로 변경할 수 없습니다. 먼저 하위 연결을 해제하세요.');
+        if (kidAncestorAtMyLevel && kidAncestorAtMyLevel !== next.org_key) kidPathOk = false;
+        if (kidPathOk) {
+          for (const l of kpiAncestorLevels(next.org_level)) {
+            const pv = next[KPI_PATH_COLS[l]];
+            const cv = kid[KPI_PATH_COLS[l]];
+            if (pv && cv && pv !== cv) {
+              kidPathOk = false;
+              break;
+            }
+          }
         }
-        for (const l of kpiAncestorLevels(next.org_level)) {
-          const pv = next[KPI_PATH_COLS[l]];
-          const cv = kid[KPI_PATH_COLS[l]];
-          if (pv && cv && pv !== cv) {
-            fail('하위 KPI의 상위 조직 경로와 충돌하는 조직으로 변경할 수 없습니다. 먼저 하위 연결을 해제하세요.');
+        if (!kidPathOk) {
+          const kidKey = kpiTupleKey(
+            {
+              corporation: kid.org_path_corporation,
+              division: kid.org_path_division,
+              department: kid.org_path_department,
+              [kid.org_level]: kid.org_key,
+            },
+            kid.org_level,
+          );
+          const myKey = kpiTupleKey(
+            {
+              corporation: next.org_path_corporation,
+              division: next.org_path_division,
+              department: next.org_path_department,
+              [next.org_level]: next.org_key,
+            },
+            next.org_level,
+          );
+          if (!kpiChainUnder(scope.leadership, kid.org_level, kidKey, next.org_level, myKey)) {
+            fail('하위 KPI의 조직 경로(또는 평가라인)와 어긋나는 조직으로 변경할 수 없습니다. 먼저 하위 연결을 해제하세요.');
           }
         }
       }

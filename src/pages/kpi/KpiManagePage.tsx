@@ -75,20 +75,55 @@ const choicePathKey = (t: KpiOrgChoice, level: KpiOrgLevel): string => {
 const choiceLabel = (t: KpiOrgChoice): string =>
   [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
 
-// 조직 튜플이 어떤 KPI(부모)의 하위 조직인가 — 부모 레벨 값 일치 + 부모의 상위 경로와 충돌 없음.
-const choiceUnderParent = (c: KpiOrgChoice, parent: OrgKpi): boolean => {
-  if (c[parent.org_level] !== parent.org_key) return false;
+// 조직 튜플이 어떤 KPI(부모)의 하위 조직인가 — ① 경로: 부모 레벨 값 일치 + 부모의 상위 경로와
+// 충돌 없음. ② 겸직 평가라인: 이 조직 조직장의 상향 체인(chain_up)에 부모 조직의 조직장이 있으면
+// 법인·본부가 달라도 하위로 본다(매트릭스 조직 — 서버 kpiChainUnder 와 동일 규칙).
+const choiceUnderParent = (c: KpiOrgChoice, parent: OrgKpi, parentLeaderId?: string | null): boolean => {
+  const pathOk = (() => {
+    if (c[parent.org_level] !== parent.org_key) return false;
+    for (const l of LEVEL_ORDER) {
+      if (LEVEL_DEPTH[l] >= LEVEL_DEPTH[parent.org_level]) break;
+      const pv =
+        l === 'corporation'
+          ? parent.org_path_corporation
+          : l === 'division'
+            ? parent.org_path_division
+            : parent.org_path_department;
+      if (pv && c[l] !== pv) return false;
+    }
+    return true;
+  })();
+  if (pathOk) return true;
+  return Boolean(parentLeaderId && (c.chain_up ?? []).includes(parentLeaderId));
+};
+
+// KPI 행의 조직 키(저장된 경로+org_key) — 선택지 키(choicePathKey)와 동일 규칙.
+const kpiRowPathKey = (k: OrgKpi): string | null => {
+  if (!k.org_key) return null;
+  const parts: string[] = [];
   for (const l of LEVEL_ORDER) {
-    if (LEVEL_DEPTH[l] >= LEVEL_DEPTH[parent.org_level]) break;
-    const pv =
-      l === 'corporation'
-        ? parent.org_path_corporation
+    if (l === k.org_level) {
+      parts.push(k.org_key);
+      break;
+    }
+    parts.push(
+      (l === 'corporation'
+        ? k.org_path_corporation
         : l === 'division'
-          ? parent.org_path_division
-          : parent.org_path_department;
-    if (pv && c[l] !== pv) return false;
+          ? k.org_path_division
+          : k.org_path_department) ?? '',
+    );
   }
-  return true;
+  return parts.join('|');
+};
+// 부모 KPI 조직의 조직장 id — 선택지에서 역조회. 레거시(경로 NULL)·선택지 밖이면 null → 경로 규칙만.
+const leaderIdOfKpiOrg = (
+  choices: Record<KpiOrgLevel, KpiOrgChoice[]> | undefined,
+  k: OrgKpi,
+): string | null => {
+  const key = kpiRowPathKey(k);
+  if (!key || !choices) return null;
+  return (choices[k.org_level] ?? []).find((c) => choicePathKey(c, k.org_level) === key)?.leader_id ?? null;
 };
 // 선택지 튜플 → 폼 필드 반영(조상 경로까지 함께).
 const applyChoiceToForm = (base: KpiForm, level: KpiOrgLevel, choice: KpiOrgChoice): KpiForm => ({
@@ -534,11 +569,12 @@ const KpiManagePage = () => {
                       {(() => {
                         // 하위 조직 조합이 하나도 없으면(팀 데이터 없는 부 등) 죽은 모달 대신 버튼을 비활성.
                         const choices = orgOptions?.orgChoices;
+                        const nodeLeaderId = leaderIdOfKpiOrg(choices, node);
                         const hasChildOrg =
                           node.org_level !== 'team' &&
                           (!choices ||
                             LEVEL_ORDER.slice(LEVEL_DEPTH[node.org_level] + 1).some((lvl) =>
-                              (choices[lvl] ?? []).some((c) => choiceUnderParent(c, node)),
+                              (choices[lvl] ?? []).some((c) => choiceUnderParent(c, node, nodeLeaderId)),
                             ));
                         return (
                           <button
@@ -645,7 +681,8 @@ const KpiFormModal = ({
   const orgChoiceList = useMemo(() => {
     const all = orgOptions?.orgChoices?.[form.org_level] ?? [];
     if (!seedParent) return all;
-    return all.filter((c) => choiceUnderParent(c, seedParent));
+    const seedLeaderId = leaderIdOfKpiOrg(orgOptions?.orgChoices, seedParent);
+    return all.filter((c) => choiceUnderParent(c, seedParent, seedLeaderId));
   }, [orgOptions, form.org_level, seedParent]);
 
   const selectedOrgKey = formPathKey(form);
@@ -678,6 +715,7 @@ const KpiFormModal = ({
         corporation: form.org_path_corporation.trim() || undefined,
         division: form.org_path_division.trim() || undefined,
         department: form.org_path_department.trim() || undefined,
+        orgKey: form.org_key || undefined,
       })
       .then((rows) => {
         if (!cancelled) setParentOptions(rows.filter((r) => r.id !== form.id));

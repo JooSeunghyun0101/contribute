@@ -98,7 +98,7 @@ export const kpiService = {
     }
   },
 
-  /** 상위 KPI 연결 후보 — 조직 상위 경로의 같은 단위 KPI(가시성 무관, 연결 대상 조회 전용). */
+  /** 상위 KPI 연결 후보 — 조직 상위 경로 + 겸직 평가라인 상위의 같은 단위 KPI(가시성 무관). */
   async parentCandidates(params: {
     periodId: string;
     orgLevel: KpiOrgLevel;
@@ -106,6 +106,8 @@ export const kpiService = {
     corporation?: string | null;
     division?: string | null;
     department?: string | null;
+    /** 이 KPI 조직 자체의 이름 — 겸직 평가라인 상위 후보 산정용(없으면 경로 후보만). */
+    orgKey?: string | null;
   }): Promise<OrgKpi[]> {
     try {
       return await apiFetch<OrgKpi[]>(
@@ -116,6 +118,7 @@ export const kpiService = {
           corporation: params.corporation,
           division: params.division,
           department: params.department,
+          orgKey: params.orgKey,
         })}`,
       );
     } catch (error) {

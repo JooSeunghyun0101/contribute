@@ -72,6 +72,10 @@ export interface KpiOrgChoice {
   team: string | null;
   /** 그 조직의 조직장(체인 최상위 평가자) — 없으면 null. */
   leader?: string | null;
+  /** 조직장 사번 — 겸직 평가라인(하위 판정)용. */
+  leader_id?: string | null;
+  /** 조직장의 상향 평가체인(본인 포함, 사번 배열) — 겸직 하위 판정용. */
+  chain_up?: string[];
 }
 
 export type OrgKpiUpdate = Partial<Omit<OrgKpiInput, 'evaluation_period_id'>> & {
