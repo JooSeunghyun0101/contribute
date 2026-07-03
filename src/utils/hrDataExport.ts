@@ -23,9 +23,12 @@ import type {
 
 // 공통 평가대상자 양식(업로드/다운로드 동일). 부서명·평가그룹은 제거:
 // 부서명(표시명)은 매칭 업로드의 부서명에서 채운다.
+// 부서ID: 매칭 파일은 피평가자 행만 있어 평가자 전용 인원(임원 등)의 부서ID를 넣을 수 없다 —
+// 대상자 양식에도 열을 두되, 충돌 시 매칭 업로드가 1순위(서버 department_id_source 로 보장).
 const PROFILE_SUMMARY_HEADERS = [
   '사번',
   '성명',
+  '부서ID',
   '성장레벨(직급)',
   '직책',
   '권한1',
@@ -378,6 +381,7 @@ const buildProfileSummaryRows = (
     return [
       employee.employee_id,
       employee.name,
+      employee.department_id ?? '',
       getGrowthLevelCell(employee),
       employee.position ?? '',
       roles[0] ?? '',

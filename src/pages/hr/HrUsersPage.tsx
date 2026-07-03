@@ -243,6 +243,9 @@ const buildEmployeeProfileRows = (
         evaluation_group: get('평가그룹'),
         employee_id: get('사번') ?? '',
         employee_name: get('성명') ?? '',
+        // 부서ID — 매칭 파일에 행이 없는 평가자 전용 인원(임원 등)의 부서 지정 경로.
+        // 서버가 출처 우선순위(매칭 1순위 > 대상자 2순위)를 적용하므로 충돌 시 매칭 값이 유지된다.
+        department_id: get('부서ID'),
         ...orgFieldsFromRow(row, idx),
         department_name: get('부서명'),
         growth_level_label: get('성장레벨(직급)'),

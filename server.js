@@ -3670,6 +3670,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             position,
             department,
             department_id,
+            department_id_source,
             growth_level,
             available_roles,
             org_sequence,
@@ -3687,12 +3688,23 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             created_at,
             updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
+          VALUES ($1,$2,$3,$4,$5,CASE WHEN $5::text IS NULL THEN NULL ELSE 'profile' END,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
             position = COALESCE(NULLIF(EXCLUDED.position, ''), employees.position),
             department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
-            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            -- 부서ID 우선순위: 매칭 업로드(1순위)가 넣은 값은 대상자 업로드(2순위)가 덮지 못한다.
+            -- 대상자 업로드끼리는 새 값이 갱신(profile 출처 값은 재업로드로 정정 가능).
+            department_id = CASE
+              WHEN EXCLUDED.department_id IS NULL THEN employees.department_id
+              WHEN employees.department_id IS NOT NULL AND employees.department_id_source = 'matching' THEN employees.department_id
+              ELSE EXCLUDED.department_id
+            END,
+            department_id_source = CASE
+              WHEN EXCLUDED.department_id IS NULL THEN employees.department_id_source
+              WHEN employees.department_id IS NOT NULL AND employees.department_id_source = 'matching' THEN employees.department_id_source
+              ELSE 'profile'
+            END,
             growth_level = EXCLUDED.growth_level,
             available_roles = CASE
               WHEN $16::boolean THEN (
@@ -3753,6 +3765,24 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           row.org_team ?? null,
         ]
       );
+    }
+
+    // 부서ID가 정해진 직원의 소속 4단계(org_*)를 기본 기간 조직 스냅샷에서 자동 파생 —
+    // 매칭 파일에 행이 없는 평가자 전용 인원(임원 등)도 부서ID만 넣으면 소속이 채워진다
+    // (조직정보 업로드를 다시 하지 않아도 됨. 조직정보 업로드의 매칭 규칙과 동일).
+    {
+      const affectedIds = mergedRows.map((r) => r.employee_id).filter(Boolean);
+      if (affectedIds.length > 0) {
+        await client.query(
+          `UPDATE employees e
+              SET org_corporation = s.org_corporation, org_division = s.org_division,
+                  org_department = s.org_department, org_team = s.org_team
+             FROM org_structure s
+             JOIN evaluation_periods p ON p.id = s.evaluation_period_id AND p.is_default
+            WHERE e.department_id = s.dept_code AND e.employee_id::text = ANY($1::text[]) AND e.employee_id <> 'admin'`,
+          [affectedIds],
+        );
+      }
     }
 
     // 대상자 업로드 평가기간 귀속:
@@ -4425,6 +4455,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             position,
             department,
             department_id,
+            department_id_source,
             growth_level,
             evaluator_id,
             available_roles,
@@ -4443,10 +4474,15 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             created_at,
             updated_at
           )
-          VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
+          VALUES ($1,$2,'구성원',$3,$4,CASE WHEN $4::text IS NULL THEN NULL ELSE 'matching' END,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
+            -- 부서ID 1순위 출처: 매칭 값이 있으면 항상 갱신(대상자 업로드 값보다 우선).
             department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            department_id_source = CASE
+              WHEN EXCLUDED.department_id IS NOT NULL THEN 'matching'
+              ELSE employees.department_id_source
+            END,
             department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             available_roles = (
               SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
@@ -4491,6 +4527,22 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
           row.org_team ?? null,
         ]
       );
+    }
+
+    // 부서ID가 정해진 직원의 소속 4단계(org_*)를 기본 기간 조직 스냅샷에서 자동 파생(대상자 업로드와 동일).
+    {
+      const affectedIds = primaryRows.map((r) => r.employee_id).filter(Boolean);
+      if (affectedIds.length > 0) {
+        await client.query(
+          `UPDATE employees e
+              SET org_corporation = s.org_corporation, org_division = s.org_division,
+                  org_department = s.org_department, org_team = s.org_team
+             FROM org_structure s
+             JOIN evaluation_periods p ON p.id = s.evaluation_period_id AND p.is_default
+            WHERE e.department_id = s.dept_code AND e.employee_id::text = ANY($1::text[]) AND e.employee_id <> 'admin'`,
+          [affectedIds],
+        );
+      }
     }
 
     // ── 파일=정답 기준 reconcile: 직원별 평가자 단계 동기화 ──────────
