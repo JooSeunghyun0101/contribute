@@ -7559,24 +7559,49 @@ const computeKpiLeadership = async (periodId) => {
        LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
        LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
        LEFT JOIN employees pe ON pe.employee_id::text = COALESCE(h.new_evaluator_id::text, e.evaluator_id::text)
-      WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'`,
+      WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'
+      ORDER BY ev.evaluatee_id, ev.created_at`,
     [periodId],
   );
   const { rows: empRows } = await pool.query(
-    `SELECT employee_id::text AS id, name, evaluator_id::text AS ev,
+    `SELECT employee_id::text AS id, name, evaluator_id::text AS ev, department_id,
             org_corporation AS corporation, org_division AS division,
             org_department AS department, org_team AS team
        FROM employees`,
   );
-  const empById = new Map(empRows.map((r) => [r.id, r]));
+  // 마스터 org_* 는 '기본 기간' 명칭으로 파생돼 있어 다른 기간(연도별 조직명 상이)과 어긋난다.
+  // 평가행 없는 인원(임원)의 소속 폴백은 부서ID를 '이 기간'의 조직 스냅샷으로 번역해 쓴다.
+  const { rows: snapRows } = await pool.query(
+    `SELECT dept_code, org_corporation AS corporation, org_division AS division,
+            org_department AS department, org_team AS team
+       FROM org_structure WHERE evaluation_period_id = $1`,
+    [periodId],
+  );
+  const snapByDept = new Map(snapRows.map((s) => [s.dept_code, s]));
+  const empById = new Map(
+    empRows.map((r) => {
+      const s = r.department_id ? snapByDept.get(r.department_id) : null;
+      return [r.id, s ? { ...r, corporation: s.corporation, division: s.division, department: s.department, team: s.team } : r];
+    }),
+  );
   const valid = rows.filter(
     (r) => !r.evaluator_id || !(Array.isArray(r.evaluator_roles) && !r.evaluator_roles.includes('evaluator')),
   );
-  const periodRow = new Map(valid.map((r) => [r.id, r]));
-  // 소속: 기간 평가행 우선 → 마스터 폴백(둘 다 corporation..team 필드 보유).
-  const orgOf = (id) => periodRow.get(id) ?? empById.get(id) ?? null;
+  // 발령자는 같은 기간에 평가행이 여러 개(이전 평가 보존)이고 행마다 소속·평가자가 다르다.
+  // 사람 단위 Map 으로 뭉개면 이전 조직 구성원 판정이 '현재' 평가자 체인으로 오염돼
+  // 이전 조직의 전원 수렴이 깨진다(예: 인사기획팀→타사 인사팀 발령자 때문에 인사기획팀 조직장 소실).
+  // → 소속·수렴은 행 단위로 판정하고, 사람 단위 상향 홉은 마스터 평가자와 일치하는 행을 우선한다.
+  const rowsById = new Map();
+  for (const r of valid) {
+    let list = rowsById.get(r.id);
+    if (!list) rowsById.set(r.id, (list = []));
+    list.push(r);
+  }
   const periodParent = new Map();
-  for (const r of valid) if (r.evaluator_id) periodParent.set(r.id, r.evaluator_id);
+  for (const [id, list] of rowsById) {
+    const cur = list.find((r) => r.evaluator_id && r.evaluator_id === empById.get(id)?.ev) ?? list[list.length - 1];
+    if (cur.evaluator_id) periodParent.set(id, cur.evaluator_id);
+  }
   // 상향 한 칸: 기간 배정 우선, 평가행 없는 임원 구간은 마스터 evaluator_id 폴백.
   const parentOf = (id) => periodParent.get(id) ?? empById.get(id)?.ev ?? null;
   const pathCache = new Map();
@@ -7596,7 +7621,8 @@ const computeKpiLeadership = async (periodId) => {
     pathCache.set(id, path);
     return path;
   };
-  // 레벨별 조직 인덱스(pathKey → { tuple, members }).
+  // 레벨별 조직 인덱스(pathKey → { tuple, members }) — members 는 행 단위 { id, ev }
+  // (ev = 그 행의 평가자: 발령자의 이전 행은 이전 평가자로 수렴해야 이전 조직이 안 깨진다).
   const perLevel = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   for (const r of valid) {
     for (const lvl of KPI_LEVELS) {
@@ -7612,27 +7638,36 @@ const computeKpiLeadership = async (periodId) => {
         o = { tuple, members: [] };
         perLevel[lvl].set(key, o);
       }
-      o.members.push(r.id);
+      o.members.push({ id: r.id, ev: r.evaluator_id ?? null });
     }
   }
-  const memberKeyOf = (id, lvl) => {
-    const t = orgOf(id);
-    return t && t[lvl] ? kpiTupleKey(t, lvl) : null;
+  // 구성원 판정: 그 사람의 기간 행 '어느 하나'라도 O 에 속하면 구성원(행 없으면 마스터 폴백).
+  const isMemberOf = (id, lvl, key) => {
+    const srcs = rowsById.get(id) ?? (empById.has(id) ? [empById.get(id)] : []);
+    return srcs.some((t) => t[lvl] && kpiTupleKey(t, lvl) === key);
   };
+  // 구성원 행의 상향 경로: 첫 홉은 그 행의 평가자, 그 위는 parentOf.
+  const chainOf = (m) => [m.id, ...upPath(m.ev).filter((x) => x !== m.id)];
   const leaders = { corporation: {}, division: {}, department: {}, team: {} }; // key → [이름]
   const leaderIdByKey = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
   for (const lvl of KPI_LEVELS) {
     for (const [key, o] of perLevel[lvl]) {
-      const anchored = [...new Set(o.members)].filter((m) => parentOf(m));
+      const seen = new Set();
+      const anchored = o.members.filter((m) => {
+        const k = `${m.id}|${m.ev}`;
+        if (!m.ev || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
       if (anchored.length === 0) continue;
-      const base = upPath(anchored[0]);
+      const base = chainOf(anchored[0]);
       const common = new Set(base);
       for (let i = 1; i < anchored.length && common.size > 0; i++) {
-        const s = new Set(upPath(anchored[i]));
+        const s = new Set(chainOf(anchored[i]));
         for (const el of [...common]) if (!s.has(el)) common.delete(el);
       }
-      const isMember = (p) => memberKeyOf(p, lvl) === key;
-      const directAll = (p) => anchored.every((m) => m === p || parentOf(m) === p);
+      const isMember = (p) => isMemberOf(p, lvl, key);
+      const directAll = (p) => anchored.every((m) => m.id === p || m.ev === p);
       let leader = null;
       for (const p of base) {
         if (!common.has(p)) continue;
