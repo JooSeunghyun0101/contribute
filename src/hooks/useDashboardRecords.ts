@@ -56,6 +56,12 @@ const useRecordsLoader = (
     },
     // 기간 전환 등 키 변경 시 이전 데이터를 유지해 빈 화면 깜빡임을 막는다(기존 "재조회 중 기존 목록 유지" 동작과 일치).
     placeholderData: keepPreviousData,
+    // 화면 복귀 시 항상 백그라운드 재조회 — 평가 저장·되돌리기 후 보드/목록으로 돌아오면
+    // 캐시(이전 상태)가 그대로 보여 F5를 눌러야 반영되던 문제. 캐시를 먼저 그리고 뒤에서
+    // 갱신하므로 스피너 없이 최신화된다(staleTime 30s 안에 돌아온 경우 포함). 창 포커스
+    // 복귀 시에도 동일하게 갱신한다.
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const reload = useCallback(async () => {

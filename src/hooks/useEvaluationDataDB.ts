@@ -1396,7 +1396,11 @@ export const useEvaluationDataDB = (
 
       toast({
         title: "평가 저장 완료",
-        description: `평가 내용이 성공적으로 저장되었습니다. ${isComplete ? '평가가 완료되었습니다.' : ''}`,
+        description: `평가 내용이 성공적으로 저장되었습니다. ${isComplete ? '평가가 완료되었습니다.' : ''}${
+          changedFeedbackItems.length > 0
+            ? ' AI 검수가 백그라운드에서 진행 중입니다 — 다른 화면으로 이동해도 되며, 결과는 알림으로 알려드립니다.'
+            : ''
+        }`,
       });
 
       await loadEvaluationData();
