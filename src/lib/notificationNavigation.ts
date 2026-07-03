@@ -28,6 +28,8 @@ const DESTINATIONS: Partial<Record<NotificationType, Partial<Record<UserRole, st
   reminder: { evaluator: '/team' },
   // 평가자 변경은 새로 배정된 "평가자"에게도 발송된다(server.js) — 평가자면 보드로, 피평가자에게는 정보성이라 미매핑
   evaluator_changed: { evaluator: '/team' },
+  // AI 검수 경고 — 보드에서 해당 피평가자를 다시 열어 피드백 수정 후 재저장.
+  ai_review_flagged: { evaluator: '/team' },
 
   // 평가자 변경요청 — 접수는 HR 처리 화면, 결과는 요청자 역할의 변경요청 화면
   change_request: { hr: '/hr/change-requests' },

@@ -18,7 +18,10 @@ export type NotificationType =
   | 'evaluation_reopened'
   | 'change_request'
   | 'change_request_result'
-  | 'reminder';
+  | 'reminder'
+  // AI 검수(백그라운드)에서 확인 필요 피드백이 발견됐을 때 "평가자 본인"에게 — 토스트는
+  // 잠깐 떴다 사라지므로, 놓쳐도 남는 영속 채널(벨)로도 보낸다.
+  | 'ai_review_flagged';
 
 export type NotificationPriority = 'low' | 'medium' | 'high';
 

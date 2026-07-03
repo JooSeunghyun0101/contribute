@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { draftService } from '@/lib/services/draftService';
+import { useNotifications } from '@/contexts/NotificationContextDB';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
@@ -223,6 +224,7 @@ export const useEvaluationDataDB = (
   const selectedPeriodStatus = selectedPeriod?.status;
   const selectedPeriodYear = selectedPeriod?.evaluation_year;
   const { toast } = useToast();
+  const { addNotification } = useNotifications();
   const currentEvaluatorId = getEvaluatorIdentity(user);
   const draftStorageKey = getDraftStorageKey(
     overrideEvaluationId ? `${employeeId}#${overrideEvaluationId}` : employeeId,
@@ -1344,6 +1346,31 @@ export const useEvaluationDataDB = (
                 title: `AI 검수: 확인이 필요한 피드백 ${reviewResult.warnings.length}건`,
                 description: `저장은 완료되었습니다. 아래 항목을 확인하고 수정 후 다시 저장하면 재검수됩니다.\n\n${lines.join('\n')}`,
               });
+              // 토스트는 잠깐 떴다 사라져 자리를 비웠으면 놓친다 — 벨 알림(영속)으로도 남긴다.
+              // 수신자=평가자 본인. 알림 메시지는 서버에서 개행이 공백으로 치환되므로 한 줄로 요약.
+              const summaryLine = reviewResult.warnings
+                .map((warning) => {
+                  const taskTitle =
+                    warning.taskTitle ||
+                    tasksToSave.find((task) => task.id === warning.taskId)?.title ||
+                    warning.taskId;
+                  return `${taskTitle}${warning.type ? `(${warning.type})` : ''}`;
+                })
+                .join(', ');
+              try {
+                await addNotification({
+                  recipientId: evaluatorId,
+                  type: 'ai_review_flagged',
+                  title: `AI 검수: ${evaluation.evaluatee_name ?? '피평가자'} 피드백 ${reviewResult.warnings.length}건 확인 필요`,
+                  message: `${evaluation.evaluatee_name ?? '피평가자'}님 평가에서 확인이 필요한 피드백: ${summaryLine}. 수정 후 다시 저장하면 재검수됩니다.`,
+                  priority: 'medium',
+                  senderId: evaluatorId,
+                  senderName: 'AI 검수',
+                  relatedEvaluationId: evaluation.id,
+                });
+              } catch (e) {
+                console.warn('AI 검수 알림 발송 실패:', e);
+              }
             }
           } catch (e) {
             console.warn('AI 검수 백그라운드 실행 실패:', e);

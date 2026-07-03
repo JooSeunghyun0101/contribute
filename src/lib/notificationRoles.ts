@@ -33,6 +33,8 @@ export const NOTIFICATION_ROLES: Record<NotificationType, UserRole[]> = {
   evaluation_submitted: ['evaluator'],
   evaluation_return_requested: ['evaluator'],
   evaluator_unassigned: ['evaluator'],
+  // AI 검수 경고 — 발송처: useEvaluationDataDB handleSave 백그라운드 검수(수신자=평가자 본인)
+  ai_review_flagged: ['evaluator'],
   // HR
   profile_imported: ['hr'],
   change_request: ['hr'],
