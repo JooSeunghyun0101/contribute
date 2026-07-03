@@ -454,7 +454,13 @@ export const useEvaluationDataDB = (
       let historicalTaskEvaluationEntries: TaskEvaluationEntry[] = [];
       // 특정 evaluationId를 지정해서 열었으면 다른 evaluation의 이력은 불러오지 않음.
       // (예: 평가자가 자기 과거 평가를 열면 그 평가에 속한 task/entry만 노출)
-      if (user?.role === 'evaluator' && !overrideEvaluationId) {
+      // S1: 피평가자 본인 조회 화면(/my 대시보드·/my/feedback, readOnly)도 병합 — 발령자는
+      // 같은 기간 평가가 여러 개(정상 보존)라 이전 평가자의 과업·피드백이 통째로 안 보였다.
+      // 편집 화면(내 과업 카드)은 evaluationId 지정 경로라 영향 없음.
+      if (
+        (user?.role === 'evaluator' || (user?.role === 'evaluatee' && readOnly)) &&
+        !overrideEvaluationId
+      ) {
         try {
           const evaluations = await evaluationService.getEvaluationsByEmployeeId(employeeId, {
             periodId: selectedPeriodId,
@@ -493,6 +499,9 @@ export const useEvaluationDataDB = (
                   ...task,
                   isHistoricalEvaluation: true,
                   sourceEvaluationId: previousEvaluation.id,
+                  // 이전 평가의 평가자명 — 피평가자 화면 '이전 평가' 배지 표기용.
+                  sourceEvaluatorName:
+                    (previousEvaluation as { evaluator_name?: string | null }).evaluator_name ?? null,
                 })),
             );
 
@@ -692,6 +701,8 @@ export const useEvaluationDataDB = (
             evaluation_id: task.evaluation_id || evaluation.id,
             sourceEvaluationId: (task as { sourceEvaluationId?: string }).sourceEvaluationId || task.evaluation_id || evaluation.id,
             isHistoricalEvaluation: Boolean((task as { isHistoricalEvaluation?: boolean }).isHistoricalEvaluation),
+            sourceEvaluatorName:
+              (task as { sourceEvaluatorName?: string | null }).sourceEvaluatorName ?? null,
             title: task.title,
             description: task.description || '',
             weight: task.weight,

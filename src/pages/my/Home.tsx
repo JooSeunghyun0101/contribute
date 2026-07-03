@@ -55,7 +55,10 @@ const MyHome = () => {
   const { evaluationData, isLoading, calculateTotalScore, isAchieved } =
     useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
 
-  const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
+  // 발령자는 이전 평가 과업(isHistoricalEvaluation)이 병합되어 온다(S1) — 점수·가중치·과업
+  // 목록 등 '현재 평가' 통계는 현재 과업만 쓰고, 최근 피드백만 이전 평가까지 포함한다.
+  const allTasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
+  const tasks = useMemo(() => allTasks.filter((t) => !t.isHistoricalEvaluation), [allTasks]);
   const { exactScore } = calculateTotalScore();
   const achieved = isAchieved();
   const [fireworkTrigger, setFireworkTrigger] = useState<CelebrationTrigger | null>(null);
@@ -167,10 +170,10 @@ const MyHome = () => {
     };
   }, [growthScopeId]);
 
-  /* 최근 피드백 */
+  /* 최근 피드백 — 이전 평가(발령 전) 피드백도 포함해 최신순. */
   const recentFeedbacks = useMemo(
     () =>
-      tasks
+      allTasks
         .flatMap((task, i) =>
           (task.feedbackHistory ?? []).map((fb) => ({
             ...fb,
@@ -184,7 +187,7 @@ const MyHome = () => {
         )
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 2),
-    [matrix, tasks],
+    [matrix, allTasks],
   );
 
   // 최상단 한 줄 알림 — 성과보고(=최종제출) 주기. 매월 최소 1회 제출을 안내한다.

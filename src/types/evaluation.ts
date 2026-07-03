@@ -64,6 +64,8 @@ export interface Task {
   previousEvaluatorEntries?: TaskEvaluationEntry[];
   isHistoricalEvaluation?: boolean;
   sourceEvaluationId?: string;
+  /** 이전 평가(isHistoricalEvaluation)의 평가자명 — 피평가자 화면 배지 표기용. */
+  sourceEvaluatorName?: string | null;
   feedbackDate?: string;
   lastModified?: string;
   evaluatorName?: string;
