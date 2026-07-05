@@ -399,14 +399,12 @@ const EvaluationAccordionCard = ({
     if (!evaluationData) return;
     const evalId = evaluationData.id ?? (evaluationData as any).evaluation_id;
     if (!evalId) return;
-    try {
-      await evaluationService.updateEvaluation(evalId, {
-        evaluation_status: 'submitted',
-        last_modified: new Date().toISOString(),
-      } as any);
-    } catch (err) {
-      console.error('평가 상태 업데이트 실패:', err);
-    }
+    // S9: 서버가 최종제출을 검증한다(살아있는 과업 가중치 합 100 등). 여기서 실패를 삼키면
+    // '최종제출 완료' 토스트가 거짓이 되므로 그대로 던져 호출부가 서버 메시지를 보여주게 한다.
+    await evaluationService.updateEvaluation(evalId, {
+      evaluation_status: 'submitted',
+      last_modified: new Date().toISOString(),
+    } as any);
   };
 
   const isPastEvalEditing = !isCurrent;
@@ -553,11 +551,15 @@ const EvaluationAccordionCard = ({
       }
     } catch (err) {
       console.error(err);
+      // 서버 검증 메시지(가중치 합 등)를 그대로 노출 — 과업 저장은 이미 반영됐을 수 있으므로
+      // 화면을 새로고침해 실제 상태와 맞춘다.
       toast({
         title: '저장 실패',
-        description: '서버와 통신 중 오류가 발생했습니다.',
+        description:
+          err instanceof Error && err.message ? err.message : '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
+      await reloadData().catch(() => {});
     } finally {
       setIsSaving(false);
     }

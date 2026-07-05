@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { draftService } from '@/lib/services/draftService';
 import { useNotifications } from '@/contexts/NotificationContextDB';
+import { AppError } from '@/utils/errorHandler';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
@@ -1271,6 +1272,9 @@ export const useEvaluationDataDB = (
       const bulkResult = await taskEvaluationEntryService.bulkSave({
         evaluation_id: evaluation.id,
         evaluation_status: isComplete ? 'completed' : 'evaluating',
+        // S7 낙관적 잠금: 이 화면이 '로드했던 시점'의 last_modified 를 보낸다(방금 재조회한
+        // evaluation 이 아니라 화면 상태 기준 — stale 탭이면 서버가 409 로 거부).
+        expected_last_modified: evaluationData.lastModified ?? null,
         entries: bulkEntries,
       });
       const entryIdByTask = new Map<string, string>(); // task.id(=task_uuid) → entry id (AI 검수 기록용)
@@ -1282,7 +1286,8 @@ export const useEvaluationDataDB = (
           ...prev,
           tasks: tasksToSave,
           evaluationStatus: isComplete ? 'completed' : 'evaluating',
-          lastModified: new Date().toISOString()
+          // S7: 다음 저장의 낙관적 잠금 기준은 서버가 방금 기록한 값(클라 시계 아님).
+          lastModified: bulkResult.last_modified ?? new Date().toISOString()
         };
       });
 
@@ -1526,11 +1531,20 @@ export const useEvaluationDataDB = (
       return true;
     } catch (error) {
       console.error('❌ 평가 저장 실패:', error);
+      // S7: 충돌(409 — 다른 탭 선저장·삭제 과업 등)은 서버 메시지를 그대로 보여주고
+      // 최신 상태로 자동 새로고침해 stale 화면에서 재시도하지 않게 한다.
+      const isConflict = error instanceof AppError && error.code === '409';
       toast({
-        title: "저장 실패",
-        description: "평가 저장 중 오류가 발생했습니다.",
-        variant: "destructive",
+        title: isConflict ? '저장 충돌 — 최신 내용으로 새로고침합니다' : '저장 실패',
+        description:
+          isConflict && error instanceof Error && error.message
+            ? error.message
+            : '평가 저장 중 오류가 발생했습니다.',
+        variant: 'destructive',
       });
+      if (isConflict) {
+        await loadEvaluationData();
+      }
       return false;
     }
   };

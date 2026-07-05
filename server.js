@@ -8809,6 +8809,28 @@ app.put('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
       return res.status(403).json({ error: '피평가자는 평가를 제출 상태로만 변경할 수 있습니다.' });
     }
 
+    // S9: 최종제출 서버 검증 — 살아있는 과업 기준 가중치 합 100 + 과업 1건 이상.
+    // 클라이언트 검증만으로는 stale 화면·직접 API 호출로 합이 어긋난 채 제출될 수 있다.
+    if (nextStatus === 'submitted' && prior?.evaluation_status !== 'submitted') {
+      const { rows: weightRows } = await client.query(
+        `SELECT COUNT(*)::int AS task_count, COALESCE(SUM(weight), 0)::numeric AS total_weight
+           FROM tasks WHERE evaluation_id = $1 AND deleted_at IS NULL`,
+        [req.params.id]
+      );
+      const taskCount = weightRows[0]?.task_count ?? 0;
+      const totalWeight = Number(weightRows[0]?.total_weight ?? 0);
+      if (taskCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(422).json({ error: '과업이 없어 최종제출할 수 없습니다. 과업을 먼저 등록해 주세요.' });
+      }
+      if (totalWeight !== 100) {
+        await client.query('ROLLBACK');
+        return res.status(422).json({
+          error: `가중치 합계가 100%가 아니어서 최종제출할 수 없습니다. (현재 ${totalWeight}%) 과업 가중치를 조정한 뒤 다시 제출해 주세요.`,
+        });
+      }
+    }
+
     // 보안(P0): 수정 가능 컬럼 화이트리스트(임의 컬럼/식별자 인젝션·mass-assignment 차단).
     const updateEntries = Object.entries(req.body).filter(([k]) => EVALUATION_UPDATE_FIELDS.has(k));
     if (updateEntries.length === 0) {
@@ -9583,6 +9605,26 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
     const evaluatorName = selfRows[0]?.name ?? b.evaluator_name ?? evaluatorId;
 
     await client.query('BEGIN');
+    // S7: 낙관적 잠금 — 화면이 로드했던 시점의 last_modified(expected_last_modified)와 현재
+    // DB 값이 다르면 그 사이 다른 탭/사용자가 저장한 것 → 409 로 거부해 조용한 덮어쓰기를
+    // 막는다(미제공=구 클라이언트 관용). FOR UPDATE 로 검사~저장 사이 경합도 차단.
+    const expectedLastModified = b.expected_last_modified ?? null;
+    const { rows: lockRows } = await client.query(
+      'SELECT last_modified FROM evaluations WHERE id = $1 FOR UPDATE',
+      [evaluationId]
+    );
+    if (expectedLastModified && lockRows[0]?.last_modified) {
+      const expected = new Date(expectedLastModified).getTime();
+      const actual = new Date(lockRows[0].last_modified).getTime();
+      if (Number.isFinite(expected) && Number.isFinite(actual) && expected !== actual) {
+        throw Object.assign(
+          new Error(
+            '이 평가가 다른 화면(탭)에서 먼저 저장되었습니다. 화면을 새로고침해 최신 내용을 확인한 뒤 다시 저장해 주세요.',
+          ),
+          { statusCode: 409 },
+        );
+      }
+    }
     const savedEntries = [];
     const touchedTaskUuids = [];
     // 편집 가능/배정이력은 평가·평가자 단위 판정이라 1회면 충분(단건 라우트에선 매 호출 반복).
@@ -9715,16 +9757,20 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
     }
 
     await rebuildTaskEvaluationSnapshot(client, touchedTaskUuids);
+    let updatedLastModified = null;
     if (nextStatus) {
-      await client.query(
-        'UPDATE evaluations SET evaluation_status = $2, last_modified = NOW(), updated_at = NOW() WHERE id = $1',
+      const { rows: statusRows } = await client.query(
+        'UPDATE evaluations SET evaluation_status = $2, last_modified = NOW(), updated_at = NOW() WHERE id = $1 RETURNING last_modified',
         [evaluationId, nextStatus]
       );
+      updatedLastModified = statusRows[0]?.last_modified ?? null;
     }
     await client.query('COMMIT');
     res.json({
       entries: savedEntries.map((r) => ({ id: r.id, task_uuid: r.task_uuid })),
       evaluation_status: nextStatus ?? null,
+      // S7: 클라이언트가 다음 저장의 낙관적 잠금 기준으로 쓸 새 last_modified.
+      last_modified: updatedLastModified,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

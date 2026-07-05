@@ -43,6 +43,8 @@ export const taskEvaluationEntryService = {
   async bulkSave(payload: {
     evaluation_id: string;
     evaluation_status?: 'completed' | 'evaluating';
+    /** S7 낙관적 잠금 — 화면이 로드했던 시점의 last_modified. 서버 값과 다르면 409. */
+    expected_last_modified?: string | null;
     entries: Array<{
       task_uuid: string;
       task_id?: string;
@@ -56,7 +58,12 @@ export const taskEvaluationEntryService = {
       /** 변경 요약(예: '점수, 피드백') — 있으면 서버가 피평가자 알림을 발송. */
       notify_change_details?: string;
     }>;
-  }): Promise<{ entries: Array<{ id: string; task_uuid: string }>; evaluation_status: string | null }> {
+  }): Promise<{
+    entries: Array<{ id: string; task_uuid: string }>;
+    evaluation_status: string | null;
+    /** 다음 저장의 낙관적 잠금 기준(S7). */
+    last_modified: string | null;
+  }> {
     try {
       return await apiFetch('/api/task-evaluation-entries/bulk', {
         method: 'PUT',
