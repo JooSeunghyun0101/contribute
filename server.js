@@ -8949,7 +8949,8 @@ app.delete('/api/evaluation/:id', requireHr, async (req, res) => {
 app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
-  const requestedBy = normalizeOptionalText(req.body?.requestedBy ?? req.body?.requested_by);
+  // S8: 발신자 신원은 세션으로 강제(본문 requestedBy 신뢰 금지 — 요청 사칭 차단).
+  const requestedBy = req.session.employeeId;
   const reason = normalizeOptionalText(req.body?.reason);
   // origin: 발신 출처. 미지정(피평가자) 시 기존 문구 유지, 'hr' 시 HR 재검토 요청 문구로만 분기.
   // 수신자 해석·status 무변경·notification_type·priority는 출처와 무관하게 동일.
@@ -8964,10 +8965,14 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
     const { rows } = await client.query(
       `
         SELECT e.id, e.evaluatee_id, e.evaluatee_name, e.evaluation_status,
-               ah.new_evaluator_id, ev_emp.name AS evaluator_name
+               COALESCE(ah.new_evaluator_id, emp.evaluator_id) AS new_evaluator_id,
+               ev_emp.name AS evaluator_name,
+               p.status AS period_status
         FROM evaluations e
         LEFT JOIN evaluator_assignment_history ah ON ah.id = e.assignment_history_id
-        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
+        LEFT JOIN employees emp ON emp.employee_id = e.evaluatee_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = COALESCE(ah.new_evaluator_id, emp.evaluator_id)
+        LEFT JOIN evaluation_periods p ON p.id = e.evaluation_period_id
         WHERE e.id = $1 AND COALESCE(e.record_status, 'active') = 'active'
         LIMIT 1
       `,
@@ -8982,14 +8987,26 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Evaluation has no assigned evaluator' });
     }
+    // S8: 마감·잠금(작성 전 포함) 기간에는 수정요청 발송 차단 — 받아도 평가자가 고칠 수 없어
+    // '매달 수정요청 루프'만 만든다. 기간을 다시 열어야 처리 가능함을 안내.
+    if (evaluation.period_status && NON_WRITABLE_PERIOD_STATUSES.has(evaluation.period_status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: '마감(잠금)된 평가기간에는 수정요청을 보낼 수 없습니다. 평가기간을 다시 연 뒤 요청해 주세요.',
+      });
+    }
     const requesterName = await resolveEmployeeName(
       client,
       requestedBy,
       isHrOrigin ? 'HR' : '피평가자',
     );
-    const title = isHrOrigin ? 'HR 재검토 요청' : '피평가자가 수정을 요청했습니다';
+    // S8: 알림에 피평가자명 명시 — 평가자는 여러 명을 담당하므로 누구 건인지 제목에서 바로 보이게.
+    const evaluateeName = evaluation.evaluatee_name ?? '피평가자';
+    const title = isHrOrigin
+      ? `HR 재검토 요청 · ${evaluateeName}`
+      : `피평가자 수정 요청 · ${evaluateeName}`;
     const baseMessage = isHrOrigin
-      ? `${requesterName}님이 평가의견 재검토를 요청했습니다.`
+      ? `${requesterName}님이 ${evaluateeName}님 평가의견 재검토를 요청했습니다.`
       : `${requesterName}님이 과업 수정을 요청했습니다.`;
     await insertNotificationRow(client, {
       notificationType: 'evaluation_return_requested',
@@ -9000,6 +9017,19 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
       senderName: requesterName,
       recipientId: evaluation.new_evaluator_id,
       relatedEvaluationId: evaluationId,
+    });
+    // S8: 감사로그 — 누가 언제 어떤 사유로 수정요청을 보냈는지(HR 루프 추적).
+    await insertAdminAuditLog(client, {
+      actionType: 'evaluation_return_request',
+      actorId: req.session.employeeId,
+      targetEmployeeId: evaluation.evaluatee_id ?? null,
+      previousValue: null,
+      newValue: {
+        origin: isHrOrigin ? 'hr' : 'evaluatee',
+        reason: reason ?? null,
+        recipient_evaluator_id: evaluation.new_evaluator_id,
+      },
+      reason: `평가 수정요청(${isHrOrigin ? 'HR' : '피평가자'}) · 피평가자 ${evaluateeName} · 수신 ${evaluation.evaluator_name ?? evaluation.new_evaluator_id}`,
     });
     await client.query('COMMIT');
     res.json({ ok: true, recipient_id: evaluation.new_evaluator_id });
@@ -9580,7 +9610,7 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
   try {
     // 권한: 과업들이 전부 같은 평가 소속이므로 평가 단위 1회 검사(guardTaskParam 과 동일 기준).
     const { rows: accessRows } = await pool.query(
-      `SELECT ev.evaluatee_id,
+      `SELECT ev.evaluatee_id, ev.evaluatee_name,
               h.new_evaluator_id AS assigned_evaluator_id,
               e.evaluator_id AS current_evaluator_id
          FROM evaluations ev
@@ -9754,6 +9784,40 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
           relatedTaskId: task.task_id,
         });
       }
+    }
+
+    // S8: 수정요청 회신 — 이 평가에 온 수정요청(evaluation_return_requested) 중 아직 회신하지
+    // 않은 요청자에게 '평가자가 저장했음'을 알린다. 회신 이후 새 요청이 오기 전까지는 같은
+    // 요청자에게 재발송하지 않는다(회신 알림 created_at 대조).
+    const { rows: openReturnRequests } = await client.query(
+      `SELECT DISTINCT n1.sender_id
+         FROM notifications n1
+        WHERE n1.notification_type = 'evaluation_return_requested'
+          AND n1.related_evaluation_id = $1
+          AND n1.sender_id IS NOT NULL
+          AND n1.sender_id <> $2
+          AND NOT EXISTS (
+            SELECT 1 FROM notifications n2
+             WHERE n2.notification_type = 'hr_message'
+               AND n2.related_evaluation_id = $1
+               AND n2.recipient_id = n1.sender_id
+               AND n2.title = '수정요청 처리됨'
+               AND n2.created_at > n1.created_at
+          )`,
+      [evaluationId, evaluatorId]
+    );
+    const evaluateeNameForReply = accessRows[0]?.evaluatee_name ?? '피평가자';
+    for (const openReq of openReturnRequests) {
+      await insertNotificationRow(client, {
+        notificationType: 'hr_message',
+        title: '수정요청 처리됨',
+        message: `${evaluatorName} 평가자가 ${evaluateeNameForReply}님 평가를 저장했습니다. 요청하신 수정이 반영됐는지 확인해 주세요.`,
+        priority: 'medium',
+        senderId: evaluatorId,
+        senderName: evaluatorName,
+        recipientId: openReq.sender_id,
+        relatedEvaluationId: evaluationId,
+      });
     }
 
     await rebuildTaskEvaluationSnapshot(client, touchedTaskUuids);

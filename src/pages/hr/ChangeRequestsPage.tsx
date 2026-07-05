@@ -44,6 +44,11 @@ const ChangeRequestsPage = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>('pending');
   const [actionId, setActionId] = useState<string | null>(null);
+  // S6: 기간·이름 필터 + 일괄 승인 선택.
+  const [periodFilter, setPeriodFilter] = useState<string>('all');
+  const [query, setQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,13 +66,101 @@ const ChangeRequestsPage = () => {
     void load();
   }, [load]);
 
+  // S6: 목록에 존재하는 평가기간 선택지(요청 데이터 기준).
+  const periodOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of requests) {
+      const key = r.evaluation_period_id ?? r.evaluation_period_name ?? '';
+      if (!key) continue;
+      const label = `${r.evaluation_period_name ?? '기간 미상'}${r.evaluation_year ? ` (${r.evaluation_year})` : ''}`;
+      if (!map.has(key)) map.set(key, label);
+    }
+    return [...map.entries()].sort((a, b) => b[1].localeCompare(a[1], 'ko-KR'));
+  }, [requests]);
+
   const visible = useMemo(() => {
-    if (filter === 'pending') return requests.filter((r) => r.status === 'pending');
-    if (filter === 'processed') return requests.filter((r) => r.status !== 'pending');
-    return requests;
-  }, [requests, filter]);
+    let list = requests;
+    if (filter === 'pending') list = list.filter((r) => r.status === 'pending');
+    else if (filter === 'processed') list = list.filter((r) => r.status !== 'pending');
+    if (periodFilter !== 'all') {
+      list = list.filter((r) => (r.evaluation_period_id ?? r.evaluation_period_name ?? '') === periodFilter);
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r) =>
+        [
+          r.evaluatee_name,
+          r.evaluatee_id,
+          r.current_evaluator_name,
+          r.requested_evaluator_name,
+          r.requested_by_name,
+          r.requested_by,
+        ]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [requests, filter, periodFilter, query]);
 
   const pendingCount = useMemo(() => requests.filter((r) => r.status === 'pending').length, [requests]);
+  // 선택은 '화면에 보이는 대기 건'만 유효 — 필터를 바꿔도 안 보이는 건을 실수로 승인하지 않게.
+  const visiblePending = useMemo(() => visible.filter((r) => r.status === 'pending'), [visible]);
+  const selectedVisible = useMemo(
+    () => visiblePending.filter((r) => selectedIds.has(r.id)),
+    [visiblePending, selectedIds],
+  );
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      visiblePending.every((r) => prev.has(r.id))
+        ? new Set([...prev].filter((id) => !visiblePending.some((r) => r.id === id)))
+        : new Set([...prev, ...visiblePending.map((r) => r.id)]),
+    );
+  };
+
+  // S6: 일괄 승인 — 선택된 대기 건을 순차 승인(각 건은 기존 단건 승인과 동일 경로·검증).
+  const bulkApprove = async () => {
+    if (!user?.employeeId || selectedVisible.length === 0) return;
+    const names = selectedVisible.map((r) => r.evaluatee_name ?? r.evaluatee_id);
+    const nameList = names.slice(0, 10).join(', ') + (names.length > 10 ? ` 외 ${names.length - 10}명` : '');
+    const ok = await confirm({
+      title: `변경요청 ${selectedVisible.length}건 일괄 승인`,
+      description: `다음 피평가자의 평가자 변경을 모두 승인합니다:\n${nameList}\n\n각 건은 개별 승인과 동일하게 즉시 평가자가 변경됩니다.`,
+      confirmText: '일괄 승인',
+    });
+    if (!ok) return;
+    setBulkRunning(true);
+    let done = 0;
+    const failed: string[] = [];
+    try {
+      for (const r of selectedVisible) {
+        try {
+          await changeRequestService.approve(r.id, { reviewed_by: user.employeeId });
+          done += 1;
+        } catch {
+          failed.push(r.evaluatee_name ?? r.evaluatee_id);
+        }
+      }
+      toast({
+        title: `일괄 승인 완료 — 성공 ${done}건${failed.length ? ` · 실패 ${failed.length}건` : ''}`,
+        description: failed.length ? `실패: ${failed.join(', ')} — 목록에서 개별로 다시 시도해 주세요.` : undefined,
+        variant: failed.length ? 'destructive' : 'default',
+      });
+      setSelectedIds(new Set());
+      await load();
+    } finally {
+      setBulkRunning(false);
+    }
+  };
 
   const approve = async (r: EvaluatorChangeRequest) => {
     if (!user?.employeeId) return;
@@ -154,29 +247,78 @@ const ChangeRequestsPage = () => {
           </button>
         }
         filters={
-          <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-            {([
-              { id: 'pending', label: `대기 ${pendingCount}` },
-              { id: 'processed', label: '처리됨' },
-              { id: 'all', label: '전체' },
-            ] as Array<{ id: FilterKey; label: string }>).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setFilter(t.id)}
-                style={{
-                  padding: '6px 16px',
-                  fontSize: 'var(--fs-sm)',
-                  fontWeight: 700,
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: filter === t.id ? 'var(--ok-orange)' : 'transparent',
-                  color: filter === t.id ? '#fff' : 'var(--fg-muted)',
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+              {([
+                { id: 'pending', label: `대기 ${pendingCount}` },
+                { id: 'processed', label: '처리됨' },
+                { id: 'all', label: '전체' },
+              ] as Array<{ id: FilterKey; label: string }>).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setFilter(t.id)}
+                  style={{
+                    padding: '6px 16px',
+                    fontSize: 'var(--fs-sm)',
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: filter === t.id ? 'var(--ok-orange)' : 'transparent',
+                    color: filter === t.id ? '#fff' : 'var(--fg-muted)',
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {/* S6: 기간·이름 필터 */}
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                fontSize: 'var(--fs-sm)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                background: 'var(--bg-card)',
+                color: 'var(--fg)',
+              }}
+            >
+              <option value="all">전체 평가기간</option>
+              {periodOptions.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="이름·사번 검색 (피평가자/평가자/요청자)"
+              style={{
+                padding: '6px 10px',
+                fontSize: 'var(--fs-sm)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                background: 'var(--bg-card)',
+                color: 'var(--fg)',
+                minWidth: 240,
+              }}
+            />
+            {/* S6: 일괄 승인 — 화면에 보이는 대기 건 중 선택된 것만 */}
+            <button
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              onClick={() => void bulkApprove()}
+              disabled={bulkRunning || selectedVisible.length === 0}
+              title={
+                selectedVisible.length === 0
+                  ? '목록에서 승인할 대기 건을 선택하세요.'
+                  : `선택한 ${selectedVisible.length}건을 일괄 승인합니다.`
+              }
+            >
+              {bulkRunning ? '일괄 승인 중…' : `선택 ${selectedVisible.length}건 일괄 승인`}
+            </button>
           </div>
         }
       />
@@ -192,6 +334,16 @@ const ChangeRequestsPage = () => {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
+                    <th style={{ ...th, width: 34 }}>
+                      {/* S6: 화면에 보이는 대기 건 전체 선택 */}
+                      <input
+                        type="checkbox"
+                        aria-label="보이는 대기 건 전체 선택"
+                        checked={visiblePending.length > 0 && visiblePending.every((r) => selectedIds.has(r.id))}
+                        disabled={visiblePending.length === 0}
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
                     <th style={th}>요청일</th>
                     <th style={th}>피평가자</th>
                     <th style={th}>변경 (현재 → 희망)</th>
@@ -208,6 +360,16 @@ const ChangeRequestsPage = () => {
                     const busy = actionId === r.id;
                     return (
                       <tr key={r.id}>
+                        <td style={td}>
+                          {r.status === 'pending' && (
+                            <input
+                              type="checkbox"
+                              aria-label={`${r.evaluatee_name ?? r.evaluatee_id} 선택`}
+                              checked={selectedIds.has(r.id)}
+                              onChange={() => toggleSelect(r.id)}
+                            />
+                          )}
+                        </td>
                         <td style={td}>{fmtDateTime(r.created_at)}</td>
                         <td style={td}>
                           <strong>{r.evaluatee_name ?? r.evaluatee_id}</strong>
