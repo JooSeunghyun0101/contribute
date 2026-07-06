@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { ErrorState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { changeRequestService } from '@/lib/services';
 import type { ChangeRequestStatus, EvaluatorChangeRequest } from '@/types';
@@ -42,6 +43,8 @@ const ChangeRequestsPage = () => {
   const askReason = useReason();
   const [requests, setRequests] = useState<EvaluatorChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  // P3-9: 로드 실패를 '요청 없음'(빈 상태)으로 위장하지 않는다.
+  const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('pending');
   const [actionId, setActionId] = useState<string | null>(null);
   // S6: 기간·이름 필터 + 일괄 승인 선택.
@@ -52,11 +55,13 @@ const ChangeRequestsPage = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const list = await changeRequestService.list();
       setRequests(list);
     } catch {
       setRequests([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -327,6 +332,11 @@ const ChangeRequestsPage = () => {
         <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
           {loading ? (
             <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
+          ) : loadError ? (
+            <ErrorState
+              message="변경요청 목록을 불러오지 못했습니다."
+              onRetry={() => void load()}
+            />
           ) : visible.length === 0 ? (
             <div style={{ color: 'var(--fg-muted)', padding: 24 }}>해당하는 변경요청이 없습니다.</div>
           ) : (

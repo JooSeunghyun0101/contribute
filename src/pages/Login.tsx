@@ -270,8 +270,10 @@ const Login = () => {
             style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
           >
             <div className="sd-field">
-              <label style={{ color: textSoft }}>사번</label>
+              {/* P3-12: label-input 연결(htmlFor/id) — 스크린리더가 필드명을 읽도록 */}
+              <label htmlFor="login-employee-id" style={{ color: textSoft }}>사번</label>
               <input
+                id="login-employee-id"
                 className="sd-input"
                 style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={employeeId}
@@ -282,8 +284,9 @@ const Login = () => {
               />
             </div>
             <div className="sd-field">
-              <label style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
+              <label htmlFor="login-password" style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
               <input
+                id="login-password"
                 className="sd-input"
                 type="password"
                 style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}

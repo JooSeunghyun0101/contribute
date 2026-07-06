@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
+import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3, HelpCircle } from 'lucide-react';
+import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
@@ -321,6 +322,9 @@ const TeamHome = () => {
     }
   };
 
+  // P3-11: 평가 가이드 모달(기구현 EvaluationGuide 재배선).
+  const [showGuide, setShowGuide] = useState(false);
+
   // P3-8: 미제출 팀원 전원에게 성과보고 제출 리마인드 알림 발송(현재 담당 카드만 — 과거 담당 제외).
   const confirmDialog = useConfirm();
   const [remindSending, setRemindSending] = useState(false);
@@ -377,15 +381,26 @@ const TeamHome = () => {
           stats.departmentName ? ` - ${stats.departmentName} ${stats.totalMembers}명` : ''
         }`}
         actions={
-          <button
-            className="sd-btn sd-btn-primary sd-btn-sm"
-            onClick={startNextReview}
-            disabled={stats.reviewableCount === 0}
-            title={stats.reviewableCount === 0 ? '검토 가능한 제출 건이 없습니다.' : '다음 검토 대상 열기'}
-          >
-            <ClipboardCheck size={14} aria-hidden="true" />
-            검토 시작
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* P3-11: 평가 가이드(기구현 모달) 재배선 — 평가 기준·매트릭스 안내 */}
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => setShowGuide(true)}
+              title="평가 기준·매트릭스 가이드를 봅니다."
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+              평가 가이드
+            </button>
+            <button
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              onClick={startNextReview}
+              disabled={stats.reviewableCount === 0}
+              title={stats.reviewableCount === 0 ? '검토 가능한 제출 건이 없습니다.' : '다음 검토 대상 열기'}
+            >
+              <ClipboardCheck size={14} aria-hidden="true" />
+              검토 시작
+            </button>
+          </div>
         }
       />
 
@@ -624,6 +639,7 @@ const TeamHome = () => {
           </>
         )}
       </div>
+      {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}
     </>
   );
 };

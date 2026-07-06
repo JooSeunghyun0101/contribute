@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { ErrorState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
@@ -131,6 +132,7 @@ const HrNoticesFaqPage = () => {
   /* ── FAQ 상태 ───────────────────────────────────────────────────── */
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
   const [faqLoading, setFaqLoading] = useState(true);
+  const [faqError, setFaqError] = useState(false);
   const [faqSaving, setFaqSaving] = useState(false);
 
   /**
@@ -165,6 +167,7 @@ const HrNoticesFaqPage = () => {
 
   const loadFaqs = useCallback(async () => {
     setFaqLoading(true);
+    setFaqError(false);
     try {
       const setting = await settingService.getUserSetting(FAQ_SETTING_USER, FAQ_SETTING_TYPE);
       const data = setting?.setting_data as Partial<FaqCatalog> | null | undefined;
@@ -177,7 +180,10 @@ const HrNoticesFaqPage = () => {
         })),
       );
     } catch {
+      // P3-9: 로드 실패를 '등록된 FAQ 없음'으로 위장하지 않는다 — 빈 목록인 줄 알고
+      // 편집·저장하면 기존 FAQ 를 덮어쓸 수 있다.
       setFaqs([]);
+      setFaqError(true);
     } finally {
       setFaqLoading(false);
     }
@@ -781,6 +787,8 @@ const HrNoticesFaqPage = () => {
           <div className="sd-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {faqLoading ? (
               <div style={{ color: 'var(--fg-muted)' }}>불러오는 중…</div>
+            ) : faqError ? (
+              <ErrorState message="FAQ를 불러오지 못했습니다. 저장 전에 반드시 다시 불러와 주세요(빈 목록으로 저장하면 기존 FAQ를 덮어씁니다)." onRetry={() => void loadFaqs()} />
             ) : faqs.length === 0 ? (
               <div style={{ color: 'var(--fg-muted)' }}>
                 등록된 FAQ가 없습니다. 아래 “항목 추가”로 시작하세요.
