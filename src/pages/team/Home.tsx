@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
+import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3 } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
-import { evaluationService } from '@/lib/services';
+import { evaluationService, notificationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
@@ -320,6 +321,54 @@ const TeamHome = () => {
     }
   };
 
+  // P3-8: 미제출 팀원 전원에게 성과보고 제출 리마인드 알림 발송(현재 담당 카드만 — 과거 담당 제외).
+  const confirmDialog = useConfirm();
+  const [remindSending, setRemindSending] = useState(false);
+  const remindUnsubmitted = async () => {
+    if (!user) return;
+    const targets = grouped.unsubmitted.map((c) => c.record.employee);
+    if (targets.length === 0) return;
+    const names = targets.map((t) => t.name);
+    const nameList =
+      names.slice(0, 10).join(', ') + (names.length > 10 ? ` 외 ${names.length - 10}명` : '');
+    const ok = await confirmDialog({
+      title: `미제출 ${targets.length}명에게 제출 리마인드를 보낼까요?`,
+      description: `${nameList}\n\n각자에게 '성과보고 제출 리마인드' 알림이 발송됩니다.`,
+      confirmText: '리마인드 발송',
+    });
+    if (!ok) return;
+    setRemindSending(true);
+    let sent = 0;
+    try {
+      for (const target of targets) {
+        try {
+          await notificationService.createNotification({
+            notification_type: 'submit_reminder',
+            title: '성과보고 제출 리마인드',
+            message: `${user.name} 평가자가 성과보고 제출을 요청했습니다. 과업을 작성하고 최종제출해 주세요.`,
+            priority: 'high',
+            sender_id: user.employeeId,
+            sender_name: user.name,
+            recipient_id: target.employee_id,
+            related_evaluation_id: null,
+            related_task_id: null,
+            is_read: false,
+          });
+          sent += 1;
+        } catch {
+          /* 개별 실패는 합계로만 알림 */
+        }
+      }
+      toast({
+        title: `리마인드 발송 완료 — ${sent}/${targets.length}명`,
+        description: sent < targets.length ? '일부 발송에 실패했습니다. 잠시 후 다시 시도해 주세요.' : undefined,
+        variant: sent < targets.length ? 'destructive' : 'default',
+      });
+    } finally {
+      setRemindSending(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -407,6 +456,21 @@ const TeamHome = () => {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {column === 'unsubmitted' && (
+                          <button
+                            className="sd-btn sd-btn-outline sd-btn-xs"
+                            onClick={() => void remindUnsubmitted()}
+                            disabled={remindSending || items.length === 0}
+                            title={
+                              items.length === 0
+                                ? '미제출 팀원이 없습니다.'
+                                : '미제출 팀원 전원에게 제출 리마인드 알림을 보냅니다.'
+                            }
+                          >
+                            <BellRing size={13} aria-hidden="true" />
+                            {remindSending ? '발송 중…' : '리마인드'}
+                          </button>
+                        )}
                         <Icon size={15} color={def.dot} aria-hidden="true" />
                         <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                           {items.length}건

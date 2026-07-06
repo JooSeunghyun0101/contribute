@@ -46,6 +46,7 @@ const ICON_MAP: Record<NotificationType, LucideIcon> = {
   change_request_result: CheckCircle2,
   reminder: Bell,
   ai_review_flagged: AlertCircle,
+  submit_reminder: Bell,
 };
 
 const formatRelativeTime = (iso: string): string => {

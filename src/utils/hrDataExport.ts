@@ -11,6 +11,7 @@ import type {
   EmployeeProfileImportStoredRow,
   MatchingImportStoredRow,
 } from '@/lib/services/employeeService';
+import { hrExportService } from '@/lib/services/hrExportService';
 import type {
   Employee,
   Evaluation,
@@ -951,6 +952,100 @@ const getFeedbacksForEvaluation = async (evaluation: Evaluation, tasks: Task[]) 
 
 const getVisibleTasks = (tasks: Task[]) => tasks.filter((task) => !task.deleted_at);
 
+// P3-7: 전체 export 원천을 서버 벌크 1회로 로드 — 기존 per-employee 순차 조회(수천 요청)의
+// 조합·필터 로직은 그대로 두고 데이터 공급만 바꾼다. 반환 형태는 legacy 경로와 동일 + 배정이력 맵.
+const loadEvaluationBundlesBulk = async (includePastEvaluations: boolean) => {
+  const data = await hrExportService.getEvaluationExportData();
+  const employees = data.employees;
+  const targets = getTargets(employees);
+
+  const evalsByEmployee = new Map<string, Evaluation[]>();
+  for (const evaluation of data.evaluations) {
+    const arr = evalsByEmployee.get(evaluation.evaluatee_id) ?? [];
+    arr.push(evaluation);
+    evalsByEmployee.set(evaluation.evaluatee_id, arr);
+  }
+  const tasksByEval = new Map<string, Task[]>();
+  for (const task of data.tasks) {
+    const arr = tasksByEval.get(task.evaluation_id) ?? [];
+    arr.push(task);
+    tasksByEval.set(task.evaluation_id, arr);
+  }
+  const entriesByEval = new Map<string, TaskEvaluationEntry[]>();
+  for (const entry of data.task_evaluation_entries) {
+    const arr = entriesByEval.get(entry.evaluation_id) ?? [];
+    arr.push(entry);
+    entriesByEval.set(entry.evaluation_id, arr);
+  }
+  const feedbacksByTaskId = new Map<string, FeedbackHistory[]>();
+  for (const feedback of data.feedback_history) {
+    const arr = feedbacksByTaskId.get(feedback.task_id) ?? [];
+    arr.push(feedback);
+    feedbacksByTaskId.set(feedback.task_id, arr);
+  }
+  const historiesByEmployee = new Map<string, EvaluatorAssignmentHistory[]>();
+  for (const history of data.assignment_histories) {
+    const arr = historiesByEmployee.get(history.employee_id) ?? [];
+    arr.push(history);
+    historiesByEmployee.set(history.employee_id, arr);
+  }
+
+  const bundles: LoadedEvaluationBundle[] = [];
+  for (const employee of targets) {
+    const evaluations = evalsByEmployee.get(employee.employee_id) ?? [];
+    const currentEvaluationId = getCurrentEvaluationId(employee, evaluations);
+    const selectedEvaluations = includePastEvaluations
+      ? evaluations
+      : evaluations.filter((evaluation) => evaluation.id === currentEvaluationId);
+
+    for (const evaluation of selectedEvaluations) {
+      const visibleTasks = getVisibleTasks(tasksByEval.get(evaluation.id) ?? []);
+      // 피드백 매칭은 legacy getFeedbacksForEvaluation 과 동일 술어(과업 기준 조회 + 평가/과업 정합).
+      const feedbackMap = new Map<string, FeedbackHistory>();
+      for (const task of visibleTasks) {
+        for (const feedback of feedbacksByTaskId.get(task.task_id) ?? []) {
+          const matchesEvaluation =
+            !feedback.evaluation_id || feedback.evaluation_id === evaluation.id;
+          const matchesTask =
+            !feedback.task_uuid ||
+            feedback.task_uuid === task.id ||
+            feedback.task_id === task.task_id;
+          if (matchesEvaluation && matchesTask) feedbackMap.set(feedback.id, feedback);
+        }
+      }
+      const feedbacks = [...feedbackMap.values()].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+      bundles.push({
+        employee,
+        evaluation,
+        kind: evaluation.id === currentEvaluationId ? '현재' : '이전',
+        tasks: visibleTasks,
+        entries: entriesByEval.get(evaluation.id) ?? [],
+        feedbacks,
+      });
+    }
+  }
+
+  return { employees, targets, bundles, historiesByEmployee };
+};
+
+// 벌크 우선, 실패 시 legacy per-employee 경로 폴백(구서버 호환).
+const loadExportSources = async (includePastEvaluations: boolean) => {
+  try {
+    return await loadEvaluationBundlesBulk(includePastEvaluations);
+  } catch {
+    const legacy = await loadEvaluationBundles(includePastEvaluations);
+    const historyPairs = await Promise.all(
+      legacy.targets.map(
+        async (employee) =>
+          [employee.employee_id, await safeAssignmentHistory(employee.employee_id)] as const,
+      ),
+    );
+    return { ...legacy, historiesByEmployee: new Map(historyPairs) };
+  }
+};
+
 const loadEvaluationBundles = async (includePastEvaluations: boolean) => {
   const employees = await employeeService.getAllEmployees();
   const targets = getTargets(employees);
@@ -1222,14 +1317,8 @@ export const createFullEvaluationDataWorkbook = async (
   options: { includePastEvaluations?: boolean } = {},
 ) => {
   const includePastEvaluations = options.includePastEvaluations ?? true;
-  const { targets, bundles } = await loadEvaluationBundles(includePastEvaluations);
-  const historyPairs = await Promise.all(
-    targets.map(async (employee) => [
-      employee.employee_id,
-      await safeAssignmentHistory(employee.employee_id),
-    ] as const),
-  );
-  const historiesByEmployee = new Map(historyPairs);
+  // P3-7: 서버 벌크 1회 로드(실패 시 legacy per-employee 폴백).
+  const { targets, bundles, historiesByEmployee } = await loadExportSources(includePastEvaluations);
 
   const evaluationRows = buildEvaluationSummaryRows(bundles);
   const taskRows = buildTaskRows(bundles);
@@ -1581,7 +1670,7 @@ const buildIndividualSummaryRows = (data: IndividualReportData) => [
   ['직책', data.position],
   ['부서', data.department],
   ['조직 경로', data.orgPath],
-  ['성장레벨', data.growthLevel == null ? '' : `Lv.${data.growthLevel} · ${data.growthLevelTitle}`],
+  ['성장레벨', data.growthLevel == null ? '' : `Lv.${data.growthLevel}${data.growthLevelTitle ? ` · ${data.growthLevelTitle}` : ''}`],
   ['현재 평가자', data.currentEvaluatorName ?? ''],
   ['평가 상태', data.evaluationStatusLabel],
   ['표시 점수(가중)', data.displayScore],

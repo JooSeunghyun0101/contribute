@@ -5132,6 +5132,81 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
   }
 });
 
+// ── HR 전체 평가 데이터 벌크 export (P3-7) ──────────────────────────────────
+// 전체 엑셀 내보내기가 클라이언트에서 직원·평가별 순차 조회(수천 요청)로 돌던 것을 한 요청으로
+// 대체한다. 각 배열은 기존 개별 라우트가 주던 것과 같은 원자료(superset)이고, 조합·필터는
+// 클라이언트(hrDataExport)가 기존 로직 그대로 수행한다(거동 동일). 평가 행의 평가자 해석·정렬은
+// /api/evaluations/employee/:id 와 동일 규칙.
+app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    const [employeesQ, evaluationsQ, tasksQ, entriesQ, feedbacksQ, historiesQ] = await Promise.all([
+      pool.query('SELECT * FROM employees'),
+      pool.query(
+        `
+          SELECT
+            ev.*,
+            COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id) AS evaluator_id,
+            latest_ah.changed_at AS evaluator_assigned_at,
+            ev_emp.name AS evaluator_name,
+            ev_emp.position AS evaluator_position,
+            ev_emp.department AS evaluator_department
+          FROM evaluations ev
+          LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
+          LEFT JOIN LATERAL (
+            SELECT h.*
+            FROM evaluator_assignment_history h
+            WHERE h.evaluation_id = ev.id
+              AND h.employee_id = ev.evaluatee_id
+              AND h.status = 'applied'
+              AND h.change_type <> 'cancel'
+            ORDER BY h.changed_at DESC, h.id DESC
+            LIMIT 1
+          ) latest_ah ON TRUE
+          LEFT JOIN employees ev_emp ON ev_emp.employee_id = COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id)
+          WHERE COALESCE(ev.record_status, 'active') = 'active'
+          ORDER BY ev.evaluatee_id,
+            CASE WHEN ev.evaluation_status = 'draft' THEN 0 ELSE 1 END,
+            latest_ah.changed_at DESC NULLS LAST,
+            ev.created_at DESC
+        `
+      ),
+      pool.query('SELECT * FROM tasks'),
+      pool.query('SELECT * FROM task_evaluation_entries'),
+      pool.query('SELECT * FROM feedback_history'),
+      pool.query(
+        `
+          SELECT h.*, prev.name AS previous_evaluator_name, next.name AS new_evaluator_name,
+                 actor.name AS changed_by_name, cancel_actor.name AS cancelled_by_name,
+                 p.name AS evaluation_period_name, p.evaluation_year
+          FROM evaluator_assignment_history h
+          LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
+          LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
+          LEFT JOIN employees actor ON actor.employee_id = h.changed_by
+          LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
+          LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
+          ORDER BY h.changed_at DESC, h.id DESC
+        `
+      ),
+    ]);
+    // 보안: 인증 컬럼은 응답에서 제거(SELECT * 라우트 공통 규칙).
+    const employees = employeesQ.rows.map(
+      ({ password_hash: _ph, must_change_password: _mc, ...safe }) => safe
+    );
+    res.json({
+      employees,
+      evaluations: evaluationsQ.rows,
+      tasks: tasksQ.rows,
+      task_evaluation_entries: entriesQ.rows,
+      feedback_history: feedbacksQ.rows,
+      assignment_histories: historiesQ.rows,
+    });
+  } catch (err) {
+    console.error('Error building HR export payload:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // ── 배정이력 벌크 조회 (S5) ─────────────────────────────────────────────────
 // 평가보드가 피평가자마다 이력을 개별 조회(N+1)하던 것을 한 요청으로 묶는다.
 // 응답 행·노출 범위는 위 단건 라우트와 동일(세션 사용자, h.* + 조인 이름), 키=사번.
