@@ -12,7 +12,8 @@ import { ROLE_ORDER, ROLE_LABEL, rolesOf } from '@/lib/notificationRoles';
 type FilterId = 'all' | 'unread';
 
 const NotificationsPage = () => {
-  const { notifications, markAsRead, markAllAsRead, deleteAllNotifications } = useNotifications();
+  const { notifications, markAsRead, markAllAsRead, deleteAllNotifications, deleteNotification } =
+    useNotifications();
   const { user, switchRole } = useAuth();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -86,6 +87,19 @@ const NotificationsPage = () => {
 
   const handleClearAll = async () => {
     if (!recipientId) return;
+    // P3-3: 겸직자는 현재 역할 탭의 알림만 삭제 — '전체 삭제'가 다른 역할 탭의 알림까지
+    // 지워버리는 사고 방지("모두 읽음"의 역할 분리와 동일 기준).
+    if (showRoleTabs && roleFilter) {
+      const ok = await confirm({
+        title: `${ROLE_LABEL[roleFilter]} 알림 ${roleScoped.length}건을 삭제하시겠습니까?`,
+        description: '다른 역할 탭의 알림은 남습니다.',
+        variant: 'danger',
+        confirmText: '삭제',
+      });
+      if (!ok) return;
+      for (const n of roleScoped) void deleteNotification(n.id);
+      return;
+    }
     const ok = await confirm({
       title: '모든 알림을 삭제하시겠습니까?',
       variant: 'danger',
