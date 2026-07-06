@@ -54,8 +54,10 @@ const DRAFT_FIELDS: Array<keyof TaskDraft> = [
   'evaluatorName',
 ];
 
-const getDraftStorageKey = (employeeId: string, evaluatorId?: string) =>
-  `evaluationDraft:${evaluatorId || 'anonymous'}:${employeeId}`;
+// 리뷰 확정 수정: 키에 평가기간 포함 — 기간 전환 시 다른 기간의 빈 복원 결과가 같은 키로
+// 기록되며 이전 기간의 draft(로컬+서버)를 지워버리던 문제 차단.
+const getDraftStorageKey = (employeeId: string, evaluatorId?: string, periodId?: string | null) =>
+  `evaluationDraft:${evaluatorId || 'anonymous'}:${employeeId}:${periodId || 'no-period'}`;
 
 const sanitizeTaskDraft = (draft?: TaskDraft | null): TaskDraft | null => {
   if (!draft) return null;
@@ -230,7 +232,12 @@ export const useEvaluationDataDB = (
   const draftStorageKey = getDraftStorageKey(
     overrideEvaluationId ? `${employeeId}#${overrideEvaluationId}` : employeeId,
     currentEvaluatorId,
+    selectedPeriodId,
   );
+  // 리뷰 확정 수정(S2 레이스): '이 키의 draft 복원이 완료된 뒤'에만 자동저장·플러시를 무장한다.
+  // 없으면 로드(순차 API 다수)가 디바운스 800ms 보다 늦을 때 빈 맵이 기록되어
+  // 로컬+서버 draft 가 복원 전에 삭제된다(기기 간 이어쓰기 파괴).
+  const draftsRestoredKeyRef = useRef<string | null>(null);
 
   const [evaluationData, setEvaluationData] = useState<EvaluationData | null>(null);
   const [taskDrafts, setTaskDrafts] = useState<Record<string, TaskDraft>>({});
@@ -238,6 +245,15 @@ export const useEvaluationDataDB = (
   // S3: 저장 후 백그라운드 AI 검수가 도는 동안 true — 저장 버튼이 'AI 검토 중…' 상태를
   // 검수가 실제로 끝날 때까지 유지하는 데 쓴다(저장이 즉시 끝나 검수 사실을 모르는 문제).
   const [isAiReviewing, setIsAiReviewing] = useState(false);
+  // 리뷰 확정 수정: S4 이전/다음 이동은 같은 라우트에서 id 만 바뀌어 훅 state 가 유지된다 —
+  // 이전 피평가자의 검수가 끝날 때까지 다음 피평가자의 저장 버튼이 잠기지 않게 전환 시 리셋.
+  // (백그라운드 검수 자체는 계속 돌고, 완료 시 토스트·벨 알림으로 결과가 전달된다.)
+  // 토큰: 구 검수의 finally 가 새 검수/새 화면의 표시 상태를 풀어버리지 않게 최신 검수만 해제.
+  const aiReviewTokenRef = useRef(0);
+  useEffect(() => {
+    aiReviewTokenRef.current += 1;
+    setIsAiReviewing(false);
+  }, [employeeId, overrideEvaluationId]);
 
   // F-2: 미저장 편집(taskDrafts) 유실 방지 — 편집 컨텍스트(!readOnly)에서만 동작.
   // 서버/AI검수와 무관하게 localStorage 로만 영속(setState 미사용 → 렌더 루프 없음).
@@ -250,7 +266,8 @@ export const useEvaluationDataDB = (
   //    새 key 로 잘못 기록'하는 레이스 차단(직전 타이머는 직전 key·snapshot 으로만 기록). 전환 후
   //    load 가 taskDrafts 를 갱신하면 그때 새 key·snapshot 으로 재무장된다.
   useEffect(() => {
-    if (readOnly || !draftStorageKey) return;
+    // 복원 완료 전에는 기록하지 않는다(리뷰 확정 수정 — 빈 맵이 저장본을 지우는 레이스 차단).
+    if (readOnly || !draftStorageKey || draftsRestoredKeyRef.current !== draftStorageKey) return;
     const key = draftStorageKey;
     const snapshot = taskDrafts;
     const timer = setTimeout(() => writeStoredDrafts(key, snapshot), 800);
@@ -264,6 +281,7 @@ export const useEvaluationDataDB = (
     if (readOnly || !draftStorageKey) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (Object.keys(taskDraftsRef.current).length === 0) return;
+      if (draftsRestoredKeyRef.current !== draftStorageKey) return; // 복원 전 기록 금지
       writeStoredDrafts(draftStorageKey, taskDraftsRef.current);
       // S2: 언로드 중 일반 fetch(PUT) 는 중단될 수 있어 keepalive 로 서버 플러시를 보장.
       draftService.flush(draftStorageKey, normalizeDrafts(taskDraftsRef.current));
@@ -273,7 +291,10 @@ export const useEvaluationDataDB = (
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      if (Object.keys(taskDraftsRef.current).length > 0) {
+      if (
+        Object.keys(taskDraftsRef.current).length > 0 &&
+        draftsRestoredKeyRef.current === draftStorageKey
+      ) {
         writeStoredDrafts(draftStorageKey, taskDraftsRef.current);
       }
     };
@@ -817,6 +838,8 @@ export const useEvaluationDataDB = (
         }
         if (isStale()) return;
       }
+      // 복원 완료 표시 — 이 시점부터 이 키의 자동저장·플러시가 무장된다(리뷰 확정 수정).
+      draftsRestoredKeyRef.current = draftStorageKey;
       setTaskDrafts(restoredDrafts);
 
       
@@ -1298,6 +1321,7 @@ export const useEvaluationDataDB = (
       // ※ 알림 발송은 일괄 저장 서버 트랜잭션으로 이관됨(notify_change_details).
       if (changedFeedbackItems.length > 0) {
         const reviewEvaluatorName = user.name;
+        const reviewToken = ++aiReviewTokenRef.current;
         setIsAiReviewing(true);
         void (async () => {
           try {
@@ -1391,7 +1415,7 @@ export const useEvaluationDataDB = (
           } catch (e) {
             console.warn('AI 검수 백그라운드 실행 실패:', e);
           } finally {
-            setIsAiReviewing(false);
+            if (aiReviewTokenRef.current === reviewToken) setIsAiReviewing(false);
           }
         })();
       }

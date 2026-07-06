@@ -43,6 +43,9 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
   const validKeyRef = useRef(params.validKey);
   validKeyRef.current = params.validKey;
   const restoredKeyRef = useRef<string | null>(null);
+  // 리뷰 확정 수정(S2 레이스): 서버 draft 복원(GET)이 끝나기 전에는 서버 동기화를 하지 않는다 —
+  // 디바운스 쓰기가 GET 보다 먼저 나가면 빈/구 맵으로 서버 draft 를 지워버릴 수 있다.
+  const remoteRestoredKeyRef = useRef<string | null>(null);
 
   // 복원: storageKey 별 1회, 기반 데이터 준비 후, 현재 비어있을 때만(활성 편집 보호).
   // S2: 로컬 복원 후 서버 draft 를 조회해 '더 최신'이면 교체한다(다른 기기에서 쓰던 임시저장).
@@ -52,7 +55,11 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
     if (restoredKeyRef.current === storageKey) return;
     // 작성 중인 내용 보호: 비어있을 때만 복원. 가드는 empty-check 통과 후에만 소모해,
     // 로드 중 입력으로 일시적으로 non-empty 였다고 해서 이후(재로드 등) 복원이 영구히 막히지 않게 한다.
-    if (Object.keys(draftsRef.current).length > 0) return;
+    if (Object.keys(draftsRef.current).length > 0) {
+      // 이미 작성 중 = 현재 맵이 보존 대상 — 서버 동기화를 바로 허용(비어있지 않아 삭제 위험 없음).
+      remoteRestoredKeyRef.current = storageKey;
+      return;
+    }
     restoredKeyRef.current = storageKey;
     const filterValid = (map: DraftMap): DraftMap | null => {
       const vk = validKeyRef.current;
@@ -84,22 +91,28 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
     } catch {
       /* 파싱 실패 무시 */
     }
-    void draftService.get(storageKey).then((remote) => {
-      if (!remote?.payload || typeof remote.payload !== 'object') return;
-      if (
-        localSavedAt &&
-        new Date(remote.updated_at).getTime() <= new Date(localSavedAt).getTime()
-      ) {
-        return; // 로컬이 더 최신
-      }
-      const filtered = filterValid(remote.payload as DraftMap);
-      if (!filtered) return;
-      const current = draftsRef.current;
-      const untouched =
-        Object.keys(current).length === 0 ||
-        JSON.stringify(current) === JSON.stringify(appliedLocal);
-      if (untouched) setDraftsRef.current(filtered as T);
-    });
+    void draftService
+      .get(storageKey)
+      .then((remote) => {
+        if (!remote?.payload || typeof remote.payload !== 'object') return;
+        if (
+          localSavedAt &&
+          new Date(remote.updated_at).getTime() <= new Date(localSavedAt).getTime()
+        ) {
+          return; // 로컬이 더 최신
+        }
+        const filtered = filterValid(remote.payload as DraftMap);
+        if (!filtered) return;
+        const current = draftsRef.current;
+        const untouched =
+          Object.keys(current).length === 0 ||
+          JSON.stringify(current) === JSON.stringify(appliedLocal);
+        if (untouched) setDraftsRef.current(filtered as T);
+      })
+      .finally(() => {
+        // 복원 시도 완료(성공/실패 무관) — 이 시점부터 서버 동기화 허용.
+        remoteRestoredKeyRef.current = storageKey;
+      });
   }, [storageKey, ready]);
 
   // 디바운스 자동저장(레이스-세이프: key·snapshot 캡처). ready 전에는 쓰지 않음.
@@ -110,7 +123,8 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
     const snapshot = drafts;
     const timer = setTimeout(() => {
       writeMap(key, snapshot);
-      draftService.save(key, snapshot);
+      // 서버 복원 완료 전에는 서버 쓰기 금지(리뷰 확정 수정 — 빈 맵이 서버 draft 를 지우는 레이스).
+      if (remoteRestoredKeyRef.current === key) draftService.save(key, snapshot);
     }, debounceMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,7 +137,7 @@ export function useLocalDraftPersistence<T extends DraftMap>(params: {
     const key = storageKey;
     const flush = () => {
       writeMap(key, draftsRef.current);
-      draftService.flush(key, draftsRef.current);
+      if (remoteRestoredKeyRef.current === key) draftService.flush(key, draftsRef.current);
     };
     window.addEventListener('beforeunload', flush);
     return () => {

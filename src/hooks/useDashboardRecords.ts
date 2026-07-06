@@ -78,10 +78,12 @@ const useRecordsLoader = (
   return {
     employees: query.data?.employees ?? [],
     records: query.data?.records ?? [],
-    // 초기 로딩·재조회(기간 전환·reload) 동안 true — 기존 동작 유지(소비처 호환).
-    isLoading: query.isFetching,
-    // 데이터가 아직 없을 때만 true. 기간 전환 등 재조회 땐 keepPreviousData 로 이전 목록을 유지하므로 false.
-    isInitialLoading: query.isLoading,
+    // 리뷰 확정 수정: '보여줄 데이터가 아직 없음'일 때만 true. 기존 isFetching 기준은
+    // refetchOnMount 'always'와 결합해 복귀·창 포커스마다 화면 전체가 스피너로 교체되어
+    // '캐시 먼저 그리고 백그라운드 갱신' 의도(및 keepPreviousData)를 무산시켰다.
+    // 기간 전환도 이전 목록을 유지한 채 조용히 갱신된다(placeholderData 의도와 일치).
+    isLoading: query.isPending,
+    isInitialLoading: query.isPending,
     error: query.error
       ? query.error instanceof Error
         ? query.error.message

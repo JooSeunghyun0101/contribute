@@ -198,7 +198,7 @@ const TeamHome = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   // 현재/이전 담당 분류는 선택한 평가기간 기준 — 발령 인원을 그 기간 담당 여부로 정확히 가른다.
-  const { selectedPeriod } = useEvaluationPeriod();
+  const { selectedPeriod, isSelectedPeriodEditable, selectedPeriodEditMessage } = useEvaluationPeriod();
   const {
     current: records,
     former: formerRecords,
@@ -331,6 +331,16 @@ const TeamHome = () => {
   const [remindSending, setRemindSending] = useState(false);
   const remindUnsubmitted = async () => {
     if (!user) return;
+    // 리뷰 확정 수정: 마감·잠금·작성 전 기간에는 제출 자체가 불가능하므로 발송 차단
+    // (이행 불가능한 high 우선순위 알림 방지).
+    if (!isSelectedPeriodEditable) {
+      toast({
+        title: '마감된 평가기간에는 리마인드를 보낼 수 없습니다.',
+        description: selectedPeriodEditMessage ?? '활성 평가기간에서만 제출 리마인드가 가능합니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const targets = grouped.unsubmitted.map((c) => c.record.employee);
     if (targets.length === 0) return;
     const names = targets.map((t) => t.name);
@@ -476,11 +486,13 @@ const TeamHome = () => {
                           <button
                             className="sd-btn sd-btn-outline sd-btn-xs"
                             onClick={() => void remindUnsubmitted()}
-                            disabled={remindSending || items.length === 0}
+                            disabled={remindSending || items.length === 0 || !isSelectedPeriodEditable}
                             title={
-                              items.length === 0
-                                ? '미제출 팀원이 없습니다.'
-                                : '미제출 팀원 전원에게 제출 리마인드 알림을 보냅니다.'
+                              !isSelectedPeriodEditable
+                                ? selectedPeriodEditMessage ?? '마감된 평가기간에는 리마인드를 보낼 수 없습니다.'
+                                : items.length === 0
+                                  ? '미제출 팀원이 없습니다.'
+                                  : '미제출 팀원 전원에게 제출 리마인드 알림을 보냅니다.'
                             }
                           >
                             <BellRing size={13} aria-hidden="true" />

@@ -90,9 +90,12 @@ const NotificationsPage = () => {
     // P3-3: 겸직자는 현재 역할 탭의 알림만 삭제 — '전체 삭제'가 다른 역할 탭의 알림까지
     // 지워버리는 사고 방지("모두 읽음"의 역할 분리와 동일 기준).
     if (showRoleTabs && roleFilter) {
+      // 리뷰 확정 수정: hr_message 등 여러 역할 공용 타입은 단일 알림이라 삭제 시 다른 탭에서도
+      // 함께 사라진다 — '다른 탭 알림은 남는다'는 단정 문구가 거짓이 되지 않게 실제 동작을 안내.
       const ok = await confirm({
-        title: `${ROLE_LABEL[roleFilter]} 알림 ${roleScoped.length}건을 삭제하시겠습니까?`,
-        description: '다른 역할 탭의 알림은 남습니다.',
+        title: `${ROLE_LABEL[roleFilter]} 탭의 알림 ${roleScoped.length}건을 삭제하시겠습니까?`,
+        description:
+          '이 탭에 표시된 알림만 삭제합니다. 단, 여러 역할에 공통으로 표시되는 알림(공지 등)은 다른 역할 탭에서도 함께 삭제됩니다.',
         variant: 'danger',
         confirmText: '삭제',
       });

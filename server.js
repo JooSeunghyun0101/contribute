@@ -5140,6 +5140,13 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
 app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   try {
+    // 리뷰 확정 수정: legacy 경로(/api/evaluations/employee/:id, 기간 미지정=활성 기간)와
+    // 동일한 기간 스코프를 적용 — 없으면 전 기간(2025+2026)이 혼입되어 행 수·'현재/이전'
+    // 판정이 기존 산출물과 달라진다. periodId 쿼리로 특정 기간 지정도 가능.
+    const periodFilter = await resolveEvaluationPeriodFilter(req.query, 1);
+    const periodClause = periodFilter.clause
+      .replaceAll('evaluation_period_id', 'ev.evaluation_period_id')
+      .replaceAll('evaluation_year', 'ev.evaluation_year');
     const [employeesQ, evaluationsQ, tasksQ, entriesQ, feedbacksQ, historiesQ] = await Promise.all([
       pool.query('SELECT * FROM employees'),
       pool.query(
@@ -5165,15 +5172,20 @@ app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
           ) latest_ah ON TRUE
           LEFT JOIN employees ev_emp ON ev_emp.employee_id = COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id)
           WHERE COALESCE(ev.record_status, 'active') = 'active'
+            AND ${periodClause}
           ORDER BY ev.evaluatee_id,
             CASE WHEN ev.evaluation_status = 'draft' THEN 0 ELSE 1 END,
             latest_ah.changed_at DESC NULLS LAST,
             ev.created_at DESC
-        `
+        `,
+        periodFilter.values
       ),
       pool.query('SELECT * FROM tasks'),
-      pool.query('SELECT * FROM task_evaluation_entries'),
-      pool.query('SELECT * FROM feedback_history'),
+      // 리뷰 확정 수정: 취소(cancelled)된 채점·피드백 제외 — 단건 라우트와 동일 필터.
+      // 없으면 발령 원복 등으로 취소된 entry(취소 시 updated_at 갱신)가 최신-우선 대표
+      // 선택에서 이겨 취소된 점수가 엑셀 대표값으로 기재될 수 있다.
+      pool.query(`SELECT * FROM task_evaluation_entries WHERE COALESCE(status, 'active') = 'active'`),
+      pool.query(`SELECT * FROM feedback_history WHERE COALESCE(status, 'active') = 'active'`),
       pool.query(
         `
           SELECT h.*, prev.name AS previous_evaluator_name, next.name AS new_evaluator_name,
@@ -9030,7 +9042,9 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
   // origin: 발신 출처. 미지정(피평가자) 시 기존 문구 유지, 'hr' 시 HR 재검토 요청 문구로만 분기.
   // 수신자 해석·status 무변경·notification_type·priority는 출처와 무관하게 동일.
   const origin = normalizeOptionalText(req.body?.origin);
-  const isHrOrigin = origin === 'hr';
+  // 리뷰 하드닝: 'hr' 라벨은 실제 HR 역할일 때만 인정 — 비HR이 body 로 'HR 재검토 요청'
+  // 알림·감사로그 라벨을 위조하지 못하게 한다(위조 시 피평가자 문구로 강등).
+  const isHrOrigin = origin === 'hr' && (await requesterIsHr(req).catch(() => false));
   if (!requestedBy) {
     return res.status(400).json({ error: 'requestedBy is required' });
   }
@@ -9715,7 +9729,7 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
     // 막는다(미제공=구 클라이언트 관용). FOR UPDATE 로 검사~저장 사이 경합도 차단.
     const expectedLastModified = b.expected_last_modified ?? null;
     const { rows: lockRows } = await client.query(
-      'SELECT last_modified FROM evaluations WHERE id = $1 FOR UPDATE',
+      'SELECT last_modified, evaluation_status FROM evaluations WHERE id = $1 FOR UPDATE',
       [evaluationId]
     );
     if (expectedLastModified && lockRows[0]?.last_modified) {
@@ -9898,11 +9912,43 @@ app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
     await rebuildTaskEvaluationSnapshot(client, touchedTaskUuids);
     let updatedLastModified = null;
     if (nextStatus) {
+      const priorStatus = lockRows[0]?.evaluation_status ?? null;
       const { rows: statusRows } = await client.query(
         'UPDATE evaluations SET evaluation_status = $2, last_modified = NOW(), updated_at = NOW() WHERE id = $1 RETURNING last_modified',
         [evaluationId, nextStatus]
       );
       updatedLastModified = statusRows[0]?.last_modified ?? null;
+      // 리뷰 확정 수정: 상태 전이 부수효과를 PUT /api/evaluation/:id 와 동일하게 수행 —
+      // 벌크 저장 도입으로 완료 알림·completed_at/reverted_at 스탬프·상태변경 감사로그가
+      // 통째로 빠지던 회귀(칸반 완료시점 오표기·피평가자 완료 알림 미발송·추적 불가).
+      if (priorStatus !== nextStatus) {
+        const stamps = [];
+        if (nextStatus === 'completed' && priorStatus !== 'completed') stamps.push('completed_at = NOW()');
+        if (nextStatus === 'evaluating' && priorStatus === 'completed') stamps.push('reverted_at = NOW()');
+        if (stamps.length) {
+          await client.query(`UPDATE evaluations SET ${stamps.join(', ')} WHERE id = $1`, [evaluationId]);
+        }
+        if (nextStatus === 'completed' && priorStatus !== 'completed' && evaluateeId) {
+          await insertNotificationRow(client, {
+            notificationType: 'evaluation_completed',
+            title: '평가자가 평가를 완료했습니다',
+            message: `${evaluatorName}님이 평가를 완료했습니다.`,
+            priority: 'medium',
+            senderId: evaluatorId,
+            senderName: evaluatorName,
+            recipientId: evaluateeId,
+            relatedEvaluationId: evaluationId,
+          });
+        }
+        await insertAdminAuditLog(client, {
+          actionType: 'evaluation_update',
+          actorId: req.session.employeeId,
+          targetEmployeeId: evaluateeId ?? null,
+          previousValue: { evaluation_status: priorStatus },
+          newValue: { evaluation_status: nextStatus },
+          reason: `평가 필드 변경(evaluation_status) · 피평가자 ${accessRows[0]?.evaluatee_name ?? evaluateeId ?? ''} · 일괄 저장 경유`,
+        });
+      }
     }
     await client.query('COMMIT');
     res.json({
