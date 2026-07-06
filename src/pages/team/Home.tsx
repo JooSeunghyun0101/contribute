@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { evaluationService, notificationService } from '@/lib/services';
+import { formatDate } from '@/lib/dateFormat';
 import { useToast } from '@/hooks/use-toast';
 import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
@@ -48,11 +49,11 @@ const COLUMN_DEFS: Record<
   },
 };
 
+// P3-10: 날짜 표기 공용 컨벤션(dateFormat.ts) 사용 — 값 없음은 null 로 유지(호출부 분기용).
 const formatWorkDate = (value?: string | null) => {
   if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+  const text = formatDate(value);
+  return text === '-' ? null : text;
 };
 
 const formatWorkPeriod = (start?: string | null, end?: string | null) => {

@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -72,6 +72,17 @@ const menus: Record<UserRole, MenuItem[]> = {
 
 const COLLAPSED_STORAGE_KEY = 'sidebar-collapsed-groups';
 
+// P3-14: 사이드바 전체 접기(아이콘만) — 1366px 노트북에서 본문(--content-min-w 1280px)이
+// 잘리지 않게 240px→68px 로 줄인다. 선택은 브라우저에 영속.
+const NAV_COLLAPSED_STORAGE_KEY = 'sidebar-collapsed';
+const readNavCollapsed = (): boolean => {
+  try {
+    return localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
 const readCollapsed = (): Set<string> => {
   try {
     const raw = localStorage.getItem(COLLAPSED_STORAGE_KEY);
@@ -89,6 +100,18 @@ export const Sidebar = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+  const [isNavCollapsed, setIsNavCollapsed] = useState<boolean>(readNavCollapsed);
+  const toggleNavCollapsed = () => {
+    setIsNavCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        /* 저장 실패는 무시 */
+      }
+      return next;
+    });
+  };
 
   // 좌하단 평가기간 카드 — 하드코딩이 아니라 '현재 선택한 평가기간'을 그대로 반영한다.
   const { selectedPeriod } = useEvaluationPeriod();
@@ -241,6 +264,85 @@ export const Sidebar = () => {
     );
   };
 
+  // P3-14: 접힘 모드 — 아이콘만(라벨은 title/aria-label), 배지는 점으로. 그룹·기간 카드는 생략.
+  if (isNavCollapsed) {
+    return (
+      <aside
+        style={{
+          width: 'var(--sidebar-w-collapsed)',
+          flexShrink: 0,
+          background: 'var(--bg-card)',
+          borderRight: '1px solid var(--border)',
+          padding: '16px 8px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 4,
+          overflowY: 'auto',
+        }}
+      >
+        <button
+          type="button"
+          className="sd-btn sd-btn-ghost"
+          onClick={toggleNavCollapsed}
+          title="사이드바 펼치기"
+          aria-label="사이드바 펼치기"
+          style={{ padding: 8, marginBottom: 6 }}
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+        {list.map((item) => {
+          const Icon = item.icon;
+          const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className="sd-sidebar-link"
+              title={item.label}
+              aria-label={item.label}
+            >
+              {({ isActive }) => (
+                <span
+                  style={{
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 44,
+                    height: 40,
+                    borderRadius: 8,
+                    background: isActive ? 'var(--ok-orange-50)' : 'transparent',
+                  }}
+                >
+                  <Icon
+                    size={19}
+                    style={{ color: isActive ? 'var(--ok-orange)' : 'var(--fg-muted)' }}
+                  />
+                  {badgeCount > 0 && (
+                    <span
+                      aria-label={`대기 ${badgeCount}건`}
+                      style={{
+                        position: 'absolute',
+                        top: 5,
+                        right: 7,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--ok-orange)',
+                      }}
+                    />
+                  )}
+                </span>
+              )}
+            </NavLink>
+          );
+        })}
+      </aside>
+    );
+  }
+
   return (
     <aside
       style={{
@@ -254,6 +356,20 @@ export const Sidebar = () => {
         gap: 2,
       }}
     >
+      {/* P3-14: 전체 접기 토글 — 작은 화면(1366px)에서 본문 폭 확보 */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 2 }}>
+        <button
+          type="button"
+          className="sd-btn sd-btn-ghost"
+          onClick={toggleNavCollapsed}
+          title="사이드바 접기"
+          aria-label="사이드바 접기"
+          style={{ padding: 6 }}
+        >
+          <PanelLeftClose size={16} style={{ color: 'var(--fg-subtle)' }} />
+        </button>
+      </div>
+
       {!hasGroups && (
         <div
           style={{

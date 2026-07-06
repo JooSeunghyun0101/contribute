@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { ErrorState } from '@/components/ui/state-views';
+import { formatDateTime } from '@/lib/dateFormat';
 import { useAuth } from '@/contexts/AuthContext';
 import { changeRequestService } from '@/lib/services';
 import type { ChangeRequestStatus, EvaluatorChangeRequest } from '@/types';
@@ -21,18 +22,8 @@ const STATUS_STYLE: Record<ChangeRequestStatus, { bg: string; fg: string }> = {
   cancelled: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)' },
 };
 
-const fmtDateTime = (v: string | null) => {
-  if (!v) return '-';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('ko-KR', {
-    year: '2-digit',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(d);
-};
+// P3-10: 날짜 표기 공용 컨벤션(dateFormat.ts)으로 통일 — YY.MM.DD → YYYY.MM.DD HH:mm.
+const fmtDateTime = formatDateTime;
 
 type FilterKey = 'pending' | 'processed' | 'all';
 

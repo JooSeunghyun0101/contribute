@@ -602,3 +602,33 @@
 a[href*="unicorn.studio?utm_source=public-url"] {
   display: none !important;
 }
+
+/* ── 인쇄 (P3-13) ─────────────────────────────────────────────────────────
+   화면 크롬(사이드바·상단바·버튼)을 제거하고 본문을 전체 폭으로, 스크롤 클리핑 없이
+   여러 페이지로 흘려 인쇄한다. 색은 배경 위주 화면 스타일 대신 흰 배경을 쓴다. */
+@media print {
+  body {
+    background: #fff !important;
+  }
+  /* 앱 셸: h-screen + overflow-hidden 이면 첫 페이지에서 잘린다 — 전부 풀어준다. */
+  .h-screen {
+    height: auto !important;
+  }
+  .overflow-hidden,
+  .overflow-auto {
+    overflow: visible !important;
+  }
+  /* 화면 크롬 제거: 상단바(header)·사이드바(aside) */
+  header,
+  aside {
+    display: none !important;
+  }
+  /* 본문 최소폭 강제를 해제해 용지 폭에 맞춘다(가로 스크롤 클리핑 방지). */
+  main > div {
+    min-width: 0 !important;
+  }
+  /* 화면 전용 액션(버튼)은 인쇄에서 의미 없음 */
+  .sd-btn {
+    display: none !important;
+  }
+}
