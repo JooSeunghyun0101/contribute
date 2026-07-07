@@ -165,6 +165,8 @@ const flatten = (nodes: KpiNode[], depth = 0, acc: { node: KpiNode; depth: numbe
   return acc;
 };
 
+// 배지에 말단 조직명 대신 법인›본부›부›팀 전체 경로를 노출(2026-07-07 사용자 요구).
+// 경로가 없는 레거시 KPI 는 기존처럼 말단 이름만.
 const OrgBadge = ({ level, orgKey, path }: { level: KpiOrgLevel; orgKey: string; path?: string }) => (
   <span
     title={path || undefined}
@@ -184,7 +186,7 @@ const OrgBadge = ({ level, orgKey, path }: { level: KpiOrgLevel; orgKey: string;
   >
     <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_ACCENT[level], flexShrink: 0 }} />
     <span style={{ fontWeight: 800 }}>{LEVEL_LABEL[level]}</span>
-    <span style={{ color: 'var(--fg)' }}>{orgKey}</span>
+    <span style={{ color: 'var(--fg)' }}>{path || orgKey}</span>
   </span>
 );
 
@@ -423,37 +425,8 @@ const KpiManagePage = () => {
           </div>
         )}
 
-        {/* 범위 규칙 안내 — 스코프 모델은 화면만 봐서는 알 수 없어 반드시 명시한다. */}
-        {orgOptions?.scopeInfo && orgOptions.scopeInfo.mode !== 'all' && (
-          <div
-            className="sd-card"
-            style={{
-              background: 'var(--ok-orange-50)',
-              border: '1px solid var(--ok-orange-100)',
-              color: 'var(--fg-muted)',
-              fontSize: 'var(--fs-sm)',
-              lineHeight: 1.6,
-            }}
-          >
-            <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> —{' '}
-            {isViewer ? (
-              <>
-                <b>내 평가라인 최상단 조직장이 관할하는 조직 전체</b>(옆 팀 포함)와{' '}
-                <b>내 소속 조직 경로(팀·부·본부·법인)</b>의 KPI가 <b>읽기 전용</b>으로 표시됩니다.
-                등록·수정은 조직장(평가자)과 HR 관리자만 할 수 있습니다.
-              </>
-            ) : (
-              <>
-                <b>내가 조직장인 조직과 그 하위 조직, 그리고 조직장이 내 평가라인에 속한 조직</b>의 KPI를
-                등록·관리할 수 있고, 그 KPI가 연결된 상위 KPI와{' '}
-                <b>내 평가라인 최상단 조직장 관할·내 소속 경로의 KPI</b>는 <b>읽기 전용</b>으로 함께
-                표시됩니다. (조직장 = 조직 구성원을 직접·간접으로 모두 평가하는 내부 최상위 평가자 —
-                겸직으로 법인이 달라도 평가라인이 이어지면 포함)
-              </>
-            )}
-          </div>
-        )}
-
+        {/* '보이는 범위' 안내 배너는 제거(2026-07-07 사용자 결정) — 스코프 규칙은
+            docs/UX_AUDIT_20260702.md F-UX7·8 과 server.js getKpiScope 주석 참조. */}
         {isLoading ? (
           <div className="sd-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)' }}>
             <SpiralLoader size={32} />
