@@ -8,6 +8,7 @@ import { ApiRequestError } from "@/lib/api";
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ORG_KPI_ENABLED } from "@/lib/featureFlags";
 import { EvaluationMatrixProvider } from "@/contexts/EvaluationMatrixContext";
 import { ExpectationProvider } from "@/contexts/ExpectationContext";
 import { NotificationProviderDB } from "@/contexts/NotificationContextDB";
@@ -110,15 +111,17 @@ const App = () => (
 
               <Route element={<AppShell />}>
                 <Route path="/notifications" element={<NotificationsPage />} />
-                {/* 조직 KPI — HR·평가자 공용 */}
-                <Route
-                  path="/kpi"
-                  element={
-                    <ProtectedRoute allowedRoles={["hr", "evaluator"]}>
-                      <KpiManagePage />
-                    </ProtectedRoute>
-                  }
-                />
+                {/* 조직 KPI — HR·평가자 공용. 플래그 OFF(기본)면 라우트 자체가 없어 404. */}
+                {ORG_KPI_ENABLED && (
+                  <Route
+                    path="/kpi"
+                    element={
+                      <ProtectedRoute allowedRoles={["hr", "evaluator"]}>
+                        <KpiManagePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                )}
                 {/* 피평가자 */}
                 <Route
                   path="/my"

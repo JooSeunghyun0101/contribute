@@ -6,6 +6,7 @@ import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useSidebarBadges, type SidebarBadgeCounts } from '@/hooks/useSidebarBadges';
+import { ORG_KPI_ENABLED } from '@/lib/featureFlags';
 import type { UserRole } from '@/types';
 import {
   CountdownCard,
@@ -140,7 +141,10 @@ export const Sidebar = () => {
   // 역할별 '액션 필요 건수' 배지 — 대기 업무(미제출·검토 필요·승인 대기)를 메뉴에서 바로 보이게.
   const badges = useSidebarBadges(selectedPeriod?.id ?? null, Boolean(user));
 
-  const list = user ? menus[user.role] ?? menus.evaluatee : [];
+  // 조직 KPI 는 플래그 OFF(기본)면 메뉴에서 숨긴다 — 검증 완료 전 '대기'(featureFlags.ts 참조).
+  const list = (user ? menus[user.role] ?? menus.evaluatee : []).filter(
+    (item) => item.to !== '/kpi' || ORG_KPI_ENABLED,
+  );
   const hasGroups = list.some((item) => item.group);
 
   // 그룹 순서를 보존하며 묶는다.
