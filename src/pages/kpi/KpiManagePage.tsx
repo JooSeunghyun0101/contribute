@@ -204,6 +204,8 @@ const KpiManagePage = () => {
     useEvaluationPeriod();
 
   const isHr = user?.role === 'hr';
+  // 피평가자 탭 = 열람 전용(소속 조직 경로 KPI, 서버가 can_manage=false 로 내려줌).
+  const isViewer = user?.role === 'evaluatee';
 
   const [tree, setTree] = useState<KpiNode[]>([]);
   const [orgOptions, setOrgOptions] = useState<OrgOptions | null>(null);
@@ -385,22 +387,28 @@ const KpiManagePage = () => {
     <>
       <PageHeader
         title="조직 KPI"
-        subtitle={`${selectedPeriod?.name ?? ''} — 조직 목표를 등록하고 실적·달성률을 관리합니다.`}
+        subtitle={
+          isViewer
+            ? `${selectedPeriod?.name ?? ''} — 소속 조직의 목표와 달성 현황을 조회합니다.`
+            : `${selectedPeriod?.name ?? ''} — 조직 목표를 등록하고 실적·달성률을 관리합니다.`
+        }
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={load} disabled={isLoading}>
               <RefreshCw size={15} />
               새로고침
             </button>
-            <button
-              className="sd-btn sd-btn-primary sd-btn-sm"
-              onClick={() => startCreate()}
-              disabled={!isSelectedPeriodEditable}
-              title={!isSelectedPeriodEditable ? selectedPeriodEditMessage ?? undefined : undefined}
-            >
-              <Plus size={15} />
-              KPI 추가
-            </button>
+            {!isViewer && (
+              <button
+                className="sd-btn sd-btn-primary sd-btn-sm"
+                onClick={() => startCreate()}
+                disabled={!isSelectedPeriodEditable}
+                title={!isSelectedPeriodEditable ? selectedPeriodEditMessage ?? undefined : undefined}
+              >
+                <Plus size={15} />
+                KPI 추가
+              </button>
+            )}
           </div>
         }
       />
@@ -428,12 +436,19 @@ const KpiManagePage = () => {
             }}
           >
             <b style={{ color: 'var(--ok-orange-700)' }}>보이는 범위</b> —{' '}
-            <>
-              <b>내가 조직장인 조직과 그 하위 조직, 그리고 조직장이 내 평가라인에 속한 조직</b>의 KPI를
-              등록·관리할 수 있고, 그 KPI가 연결된 상위 KPI는 <b>읽기 전용</b>으로 함께 표시됩니다.
-              (조직장 = 조직 구성원을 직접·간접으로 모두 평가하는 내부 최상위 평가자 — 겸직으로 법인이
-              달라도 평가라인이 이어지면 포함)
-            </>
+            {isViewer ? (
+              <>
+                <b>내 소속 조직 경로(팀·부·본부·법인)</b>의 KPI가 <b>읽기 전용</b>으로 표시됩니다.
+                등록·수정은 조직장(평가자)과 HR 관리자만 할 수 있습니다.
+              </>
+            ) : (
+              <>
+                <b>내가 조직장인 조직과 그 하위 조직, 그리고 조직장이 내 평가라인에 속한 조직</b>의 KPI를
+                등록·관리할 수 있고, 그 KPI가 연결된 상위 KPI와 <b>내 소속 조직 경로의 KPI</b>는{' '}
+                <b>읽기 전용</b>으로 함께 표시됩니다. (조직장 = 조직 구성원을 직접·간접으로 모두 평가하는
+                내부 최상위 평가자 — 겸직으로 법인이 달라도 평가라인이 이어지면 포함)
+              </>
+            )}
           </div>
         )}
 
@@ -445,8 +460,14 @@ const KpiManagePage = () => {
         ) : rows.length === 0 ? (
           <div className="sd-card" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--fg-muted)' }}>
             <Target size={28} style={{ color: 'var(--fg-subtle)', margin: '0 auto 10px' }} />
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>등록된 KPI가 없습니다.</div>
-            <div style={{ fontSize: 'var(--fs-sm)' }}>상단 "KPI 추가"로 조직 목표를 등록하세요.</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              {isViewer ? '소속 조직에 등록된 KPI가 아직 없습니다.' : '등록된 KPI가 없습니다.'}
+            </div>
+            <div style={{ fontSize: 'var(--fs-sm)' }}>
+              {isViewer
+                ? '조직장 또는 HR 관리자가 등록하면 여기에 표시됩니다.'
+                : '상단 "KPI 추가"로 조직 목표를 등록하세요.'}
+            </div>
           </div>
         ) : (
           <>
@@ -494,7 +515,11 @@ const KpiManagePage = () => {
                               padding: '1px 8px',
                               background: 'var(--bg-muted)',
                             }}
-                            title="내 범위 밖의 상위 조직 KPI — 하위 KPI의 롤업 맥락을 보여주기 위해 표시됩니다."
+                            title={
+                              isViewer
+                                ? '소속 조직 KPI 열람 — 조회만 가능합니다.'
+                                : '내 관리 범위 밖의 KPI(상위 조직 또는 소속 경로) — 조회만 가능합니다.'
+                            }
                           >
                             읽기 전용
                           </span>
@@ -565,6 +590,8 @@ const KpiManagePage = () => {
                         compact
                       />
                     </div>
+                    {/* 뷰어(피평가자)에겐 비활성 관리 버튼도 소음이라 열 자체를 숨긴다. */}
+                    {!isViewer && (
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       {(() => {
                         // 하위 조직 조합이 하나도 없으면(팀 데이터 없는 부 등) 죽은 모달 대신 버튼을 비활성.
@@ -613,6 +640,7 @@ const KpiManagePage = () => {
                         <Trash2 size={14} />
                       </button>
                     </div>
+                    )}
                   </div>
                 </div>
               );

@@ -8029,7 +8029,38 @@ const getKpiScope = async (req, periodId) => {
   for (const lvl of KPI_LEVELS) {
     for (const [key, o] of leadership.perLevel[lvl]) if (underMine(key)) choiceTuples[lvl].set(key, o.tuple);
   }
-  return { mode: 'chain', leadership, choiceTuples };
+  // 구성원 열람(2026-07-07 사용자 요구): 피평가자를 포함한 모든 구성원은 자기 '소속' 조직
+  // 경로(팀·부·본부·법인)의 KPI 를 읽기 전용으로 본다. 소속 = 그 기간 평가행의
+  // evaluatee_org_*, 평가행이 없으면 employees 마스터 org_* 폴백(조직장 산정과 동일 원칙).
+  // 관리권(choiceTuples)과 분리 — memberTuples 는 어떤 쓰기 권한도 부여하지 않는다.
+  const memberTuples = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  const myOrgRows = (
+    await pool.query(
+      `SELECT evaluatee_org_corporation AS corporation, evaluatee_org_division AS division,
+              evaluatee_org_department AS department, evaluatee_org_team AS team
+         FROM evaluations
+        WHERE evaluation_period_id = $1 AND record_status = 'active' AND evaluatee_id::text = $2`,
+      [periodId, me],
+    )
+  ).rows;
+  if (myOrgRows.length === 0) {
+    const m = (
+      await pool.query(
+        `SELECT org_corporation AS corporation, org_division AS division,
+                org_department AS department, org_team AS team
+           FROM employees WHERE employee_id::text = $1`,
+        [me],
+      )
+    ).rows[0];
+    if (m) myOrgRows.push(m);
+  }
+  for (const r of myOrgRows) {
+    for (const lvl of KPI_LEVELS) {
+      if (!r[lvl]) continue;
+      memberTuples[lvl].set(kpiTupleKey(r, lvl), r);
+    }
+  }
+  return { mode: 'chain', leadership, choiceTuples, memberTuples };
 };
 
 // 조직 경로 튜플 키 — 최상위(법인)부터 해당 레벨까지 '|' 로 연결(동명 조직 구분의 기준 키).
@@ -8048,8 +8079,11 @@ const kpiTupleKey = (t, level) => {
 // 스코프 밖 상위 KPI 는 트리에서 조상 읽기전용으로만 노출(기존 로직 재사용).
 const buildKpiVisibility = async (req, periodId) => {
   const scope = await getKpiScope(req, periodId);
-  if (scope.mode === 'all') return { scope, visible: () => true };
-  return { scope, visible: (k) => canCreateOrgTuple(scope.choiceTuples, k.org_level, k.org_key, k) };
+  if (scope.mode === 'all') return { scope, visible: () => true, manageable: () => true };
+  // manageable=관리권(조직장 스코프), visible=열람(관리권 ∪ 구성원 소속 경로 읽기 전용).
+  const manageable = (k) => canCreateOrgTuple(scope.choiceTuples, k.org_level, k.org_key, k);
+  const memberVisible = (k) => canCreateOrgTuple(scope.memberTuples, k.org_level, k.org_key, k);
+  return { scope, visible: (k) => manageable(k) || memberVisible(k), manageable };
 };
 // 등록/변경 허용 검사 — (레벨·조직명·경로)가 실제 평가 데이터의 조직 조합과 일치해야 한다.
 // path 값이 비어 있으면(레거시) 이름 일치만 요구해 기존 KPI 수정을 깨지 않는다.
@@ -8078,10 +8112,11 @@ app.get('/api/org-kpis', async (req, res) => {
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
     buildKpiTree(rows); // rolled_*/progress 채움(전체 기준)
-    const { visible } = await buildKpiVisibility(req, periodId);
+    const { visible, manageable } = await buildKpiVisibility(req, periodId);
     let out = rows.filter(visible);
     if (req.query.level) out = out.filter((r) => r.org_level === req.query.level);
     if (req.query.orgKey) out = out.filter((r) => r.org_key === req.query.orgKey);
+    for (const r of out) r.can_manage = manageable(r); // 구성원 열람분은 읽기 전용 표시
     res.json(out.map(serializeKpiBase));
   } catch (err) {
     console.error('Error listing KPIs:', err.message);
@@ -8098,7 +8133,7 @@ app.get('/api/org-kpis/tree', async (req, res) => {
   try {
     const rows = await loadKpiRowsForPeriod(periodId);
     buildKpiTree(rows); // 롤업은 전체 기준으로 먼저 계산(rolled_*/progress)
-    const { scope, visible } = await buildKpiVisibility(req, periodId);
+    const { scope, visible, manageable } = await buildKpiVisibility(req, periodId);
     const byId = new Map(rows.map((r) => [r.id, r]));
     if (scope.mode === 'all') {
       for (const r of rows) r.can_manage = true;
@@ -8110,7 +8145,7 @@ app.get('/api/org-kpis/tree', async (req, res) => {
     const included = new Map(); // id → row
     for (const r of rows) {
       if (visible(r)) {
-        r.can_manage = true;
+        r.can_manage = manageable(r); // 구성원 소속 경로 열람분은 읽기 전용
         included.set(r.id, r);
       }
     }
@@ -8321,7 +8356,7 @@ app.get('/api/org-kpis/:id', async (req, res) => {
     buildKpiTree(rows);
     const node = rows.find((r) => r.id === req.params.id);
     if (!node) return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
-    const { scope, visible } = await buildKpiVisibility(req, node.evaluation_period_id);
+    const { scope, visible, manageable } = await buildKpiVisibility(req, node.evaluation_period_id);
     // 범위 밖이어도 '범위 내 KPI 의 조상'이면 읽기 전용 조회 허용(트리에 노출되는 행이므로).
     const nodeById = new Map(rows.map((x) => [x.id, x]));
     const isAncestorOfVisible = () =>
@@ -8336,12 +8371,13 @@ app.get('/api/org-kpis/:id', async (req, res) => {
         }
         return false;
       });
-    const canManageNode = scope.mode === 'all' || visible(node);
-    if (!canManageNode && !isAncestorOfVisible()) {
+    const canManageNode = scope.mode === 'all' || manageable(node);
+    // 열람 허용 = 관리권 ∪ 구성원 소속 경로(읽기 전용) ∪ 범위 내 KPI 의 조상(읽기 전용).
+    if (!canManageNode && !visible(node) && !isAncestorOfVisible()) {
       return res.status(403).json({ error: '이 KPI에 접근할 권한이 없습니다.' });
     }
     node.can_manage = canManageNode;
-    // 읽기 전용(범위 밖 조상) 조회는 롤업 숫자까지만 — 범위 밖 자식 목록은 내려주지 않는다.
+    // 읽기 전용(범위 밖 조상·구성원 열람) 조회는 롤업 숫자까지만 — 범위 밖 자식 목록은 내려주지 않는다.
     const childrenOut = canManageNode
       ? node.children || []
       : (node.children || []).filter((c) => visible(c));
