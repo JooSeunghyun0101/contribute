@@ -837,8 +837,8 @@ const MyHome = () => {
 
           {/* ── 과업 비율 + AI 성장제안 (2단) ── 화면상 '첫 번째' 줄로 올림(order) ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch', order: -2 }}>
-          {/* 과업 비율 도넛차트 */}
-          <div className="sd-card" style={{ padding: 18 }}>
+          {/* 과업 비율 도넛차트 — 도넛·목록이 카드 높이 전체를 쓰도록 flex 컬럼(2026-07-07 사용자) */}
+          <div className="sd-card" style={{ padding: 18, display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
                 display: 'flex',
@@ -853,9 +853,18 @@ const MyHome = () => {
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 24, alignItems: 'center' }}>
-              {/* Donut — 240→190px 로 축소(2026-07-07 사용자: 줄 높이 줄이기) */}
-              <div style={{ position: 'relative', height: 190 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+                gap: 24,
+                alignItems: 'stretch',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
+              {/* Donut — 카드의 남는 높이를 전부 사용(반지름은 %라 함께 커진다) */}
+              <div style={{ position: 'relative', minHeight: 190 }}>
                 {weightDonutData.length === 0 ? (
                   <div
                     style={{
@@ -881,8 +890,8 @@ const MyHome = () => {
                           nameKey="shortName"
                           cx="50%"
                           cy="50%"
-                          innerRadius={52}
-                          outerRadius={74}
+                          innerRadius="46%"
+                          outerRadius="66%"
                           paddingAngle={2}
                           startAngle={90}
                           endAngle={-270}
@@ -985,13 +994,13 @@ const MyHome = () => {
                 )}
               </div>
 
-              {/* Legend / breakdown — 높이 고정 + 스크롤 (도넛과 함께 190px 로 축소) */}
+              {/* Legend / breakdown — 카드 높이 전체 사용, 넘칠 때만 스크롤 */}
               <div
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 5,
-                  height: 190,
+                  minHeight: 0,
                   overflowY: 'auto',
                   paddingRight: 4,
                 }}
