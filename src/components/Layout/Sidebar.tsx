@@ -471,6 +471,11 @@ export const Sidebar = () => {
                 </button>
                 <AccordionMotion
                   isOpen={!isCollapsed}
+                  // flexShrink 0: 래퍼가 overflow:hidden 이라 min-height:auto 가 0으로 풀려,
+                  // 화면이 낮으면 aside 가 넘치는 대신 이 래퍼가 압축돼 항목이 잘리고
+                  // 스크롤이 영영 안 생겼다(aside 자신은 안 넘치므로). 압축을 금지해
+                  // 내용이 실제로 넘치게 만들어야 overflowY:auto 가 동작한다.
+                  style={{ flexShrink: 0 }}
                   contentStyle={{ display: 'flex', flexDirection: 'column', gap: 2 }}
                 >
                   {items.map(renderLink)}

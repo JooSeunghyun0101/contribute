@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
@@ -587,54 +587,75 @@ const HrDepartmentsPage = () => {
           </div>
         ) : (
           <>
-            {sections.map(([parent, depts]) => (
-              <section key={parent} className="flex flex-col" style={{ gap: 12 }}>
-                {groupBySection && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 10,
-                      paddingBottom: 8,
-                      borderBottom: '2px solid var(--ok-orange-100)',
-                    }}
-                  >
-                    <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: 'var(--ok-brown)' }}>
-                      {parent}
-                    </span>
-                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-                      {(() => {
-                        const counts = depts.reduce<Record<string, number>>((acc, d) => {
-                          const lbl = d.level ? ORG_LEVEL_LABELS[d.level] : '미지정';
-                          acc[lbl] = (acc[lbl] ?? 0) + 1;
-                          return acc;
-                        }, {});
-                        return Object.entries(counts)
-                          .map(([lbl, n]) => `${lbl} ${n}개`)
-                          .join(' · ');
-                      })()}
-                    </span>
-                  </div>
-                )}
-                {/* 사용자 요구(2026-07-07): 카드 그리드 → 비교형 테이블. 한 화면에서 조직 간
-                    수치를 열 단위로 훑을 수 있게 하고, 행 클릭으로 기존 부서원 상세를 유지한다. */}
-                <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>조직</TableHead>
-                          {/* 완료율 바 컬럼은 제거 — 달성 스택바의 회색(미평가)이 미완료를 이미
-                              표현해 중복이었다. 완료 인원 수치만 인원 컬럼에 흡수(마감 관리용). */}
-                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            완료/인원
-                          </TableHead>
-                          <TableHead style={{ minWidth: 260 }}>달성 현황 (달성·미달성·미평가)</TableHead>
-                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>평균 점수</TableHead>
-                          <TableHead>평가자</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+            {/* 사용자 요구(2026-07-07): 상위조직마다 별도 테이블이라 컬럼 폭이 제각각이고,
+                달성 바가 화면 절반을 차지하며, "부 1개"짜리 섹션도 헤더+테이블을 통째로 반복해
+                세로 낭비였다. → 전체를 '하나의' 테이블(고정 colgroup 폭)로 합치고 상위조직은
+                테이블 안의 그룹 행으로. 바는 고정폭으로 줄이고 나머지 폭은 조직·평가자에 양보. */}
+            {visibleDepartments.length > 0 && (
+              <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <Table style={{ tableLayout: 'fixed', minWidth: 760 }}>
+                  <colgroup>
+                    <col />
+                    <col style={{ width: 96 }} />
+                    <col style={{ width: 236 }} />
+                    <col style={{ width: 88 }} />
+                    <col style={{ width: 200 }} />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>조직</TableHead>
+                      {/* 완료율 바 컬럼은 제거 — 달성 스택바의 회색(미평가)이 미완료를 이미
+                          표현해 중복이었다. 완료 인원 수치만 인원 컬럼에 흡수(마감 관리용). */}
+                      <TableHead
+                        style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
+                        title="평가 완료(평가자 확정) 인원 / 전체 대상 인원"
+                      >
+                        완료/인원
+                      </TableHead>
+                      <TableHead
+                        style={{ whiteSpace: 'nowrap' }}
+                        title="완료자 기준 목표 달성 구성 — 주황=달성, 노랑=미달성, 회색=미평가"
+                      >
+                        달성 현황
+                        <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 500 }}>
+                          {[
+                            { label: '달성', color: 'var(--ok-orange)' },
+                            { label: '미달성', color: 'var(--warning)' },
+                            { label: '미평가', color: 'var(--border)' },
+                          ].map((leg) => (
+                            <span key={leg.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: 2, background: leg.color, display: 'inline-block' }} />
+                              {leg.label}
+                            </span>
+                          ))}
+                        </span>
+                      </TableHead>
+                      <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>평균 점수</TableHead>
+                      <TableHead>평가자</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sections.map(([parent, depts]) => (
+                      <Fragment key={parent}>
+                        {groupBySection && (
+                          <TableRow style={{ background: 'var(--bg-muted)' }}>
+                            <TableCell colSpan={5} style={{ padding: '8px 16px' }}>
+                              <span style={{ fontWeight: 900, color: 'var(--ok-brown)' }}>{parent}</span>
+                              <span style={{ marginLeft: 10, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                                {(() => {
+                                  const counts = depts.reduce<Record<string, number>>((acc, d) => {
+                                    const lbl = d.level ? ORG_LEVEL_LABELS[d.level] : '미지정';
+                                    acc[lbl] = (acc[lbl] ?? 0) + 1;
+                                    return acc;
+                                  }, {});
+                                  return Object.entries(counts)
+                                    .map(([lbl, n]) => `${lbl} ${n}개`)
+                                    .join(' · ');
+                                })()}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        )}
                         {depts.map((department) => {
                           const missedMembers = Math.max(
                             0,
@@ -659,7 +680,17 @@ const HrDepartmentsPage = () => {
                             >
                               <TableCell>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                  <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{department.name}</span>
+                                  <span
+                                    style={{
+                                      fontWeight: 800,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                    }}
+                                    title={department.name}
+                                  >
+                                    {department.name}
+                                  </span>
                                   {department.level && department.level !== groupLevel && (
                                     <span
                                       style={{
@@ -685,6 +716,8 @@ const HrDepartmentsPage = () => {
                                       fontWeight: 700,
                                       marginTop: 2,
                                       whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
                                     }}
                                     title={department.parentPath}
                                   >
@@ -694,7 +727,17 @@ const HrDepartmentsPage = () => {
                               </TableCell>
                               <TableCell
                                 className="tnum"
-                                style={{ textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                style={{
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap',
+                                  // 미완료가 남은 조직은 수치를 경고색으로 — 기본 정렬(완료율 낮은 순)과
+                                  // 함께 마감 관리에서 챙길 행이 한눈에 보이게.
+                                  color:
+                                    department.finalizedMembers < department.totalMembers
+                                      ? 'var(--warning)'
+                                      : undefined,
+                                }}
                                 title={`평가 완료 ${department.finalizedMembers}명 / 전체 ${department.totalMembers}명 (완료율 ${department.completionRate}%)`}
                               >
                                 {department.finalizedMembers}/{department.totalMembers}
@@ -703,13 +746,13 @@ const HrDepartmentsPage = () => {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                   <div
                                     style={{
-                                      flex: 1,
+                                      width: 128,
+                                      flexShrink: 0,
                                       display: 'flex',
-                                      height: 10,
-                                      borderRadius: 5,
+                                      height: 8,
+                                      borderRadius: 4,
                                       overflow: 'hidden',
                                       background: 'var(--bg-muted)',
-                                      minWidth: 90,
                                     }}
                                   >
                                     {segments.map((seg) =>
@@ -737,7 +780,7 @@ const HrDepartmentsPage = () => {
                               <TableCell className="tnum" style={{ textAlign: 'right', fontWeight: 800 }}>
                                 {department.averageScore}
                               </TableCell>
-                              <TableCell style={{ maxWidth: 240 }}>
+                              <TableCell>
                                 <span
                                   style={{
                                     display: 'block',
@@ -755,12 +798,12 @@ const HrDepartmentsPage = () => {
                             </TableRow>
                           );
                         })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              </section>
-            ))}
+                      </Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
 
             {!visibleDepartments.length && (
               <div className="sd-card">
