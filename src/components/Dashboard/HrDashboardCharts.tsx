@@ -33,22 +33,27 @@ const tooltipStyle = {
 
 export type DonutSegment = { key: string; name: string; value: number; color: string };
 
-/** 가운데 큰 수치를 보여주는 도넛. */
+/** 가운데 큰 수치를 보여주는 도넛. onSelect 지정 시 조각·범례 클릭 → onSelect(segment.key). */
 export const Donut = ({
   segments,
   centerValue,
   centerLabel,
   centerColor = HR_COLOR.orange,
   height = 170,
+  onSelect,
 }: {
   segments: DonutSegment[];
   centerValue: string;
   centerLabel: string;
   centerColor?: string;
   height?: number;
+  onSelect?: (key: string) => void;
 }) => {
   const total = segments.reduce((s, x) => s + x.value, 0);
   const data = total > 0 ? segments.filter((s) => s.value > 0) : [{ key: 'empty', name: '데이터 없음', value: 1, color: 'var(--bg-muted)' }];
+  const handleSelect = (key: string | undefined) => {
+    if (key && key !== 'empty') onSelect?.(key);
+  };
   return (
     <div>
       <div style={{ position: 'relative', width: '100%', height }}>
@@ -64,6 +69,10 @@ export const Donut = ({
               endAngle={-270}
               paddingAngle={total > 0 ? 2 : 0}
               isAnimationActive={false}
+              onClick={(d: { payload?: DonutSegment } & Partial<DonutSegment>) =>
+                handleSelect(d?.key ?? d?.payload?.key)
+              }
+              style={onSelect && total > 0 ? { cursor: 'pointer' } : undefined}
             >
               {data.map((d) => (
                 <Cell key={d.key} fill={d.color} stroke="var(--bg-card)" strokeWidth={2} />
@@ -97,12 +106,36 @@ export const Donut = ({
         </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 10 }}>
-        {segments.map((s) => (
-          <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
-            {s.name} <span className="tnum" style={{ color: 'var(--fg)' }}>{s.value}</span>
-          </span>
-        ))}
+        {segments.map((s) =>
+          onSelect ? (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => handleSelect(s.key)}
+              title={`${s.name} 명단 보기`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 'var(--fs-xs)',
+                color: 'var(--fg-muted)',
+                fontWeight: 700,
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
+              {s.name} <span className="tnum" style={{ color: 'var(--fg)' }}>{s.value}</span>
+            </button>
+          ) : (
+            <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
+              {s.name} <span className="tnum" style={{ color: 'var(--fg)' }}>{s.value}</span>
+            </span>
+          ),
+        )}
       </div>
     </div>
   );

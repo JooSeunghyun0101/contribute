@@ -243,6 +243,13 @@ const HrHome = () => {
       inProgress,
       notStarted: notStartedMembers,
     };
+    // 진행 중 병목 분해 — HR 이 챙길 대상이 서로 다르다(작성 중=피평가자 재촉,
+    // 검토 대기=평가자 재촉, 평가 중=진행 관찰). draft+submitted+evaluating = inProgress.
+    const inProgressBreakdown = {
+      draft: records.filter((r) => r.reviewStatus === 'draft').length,
+      submitted: records.filter((r) => r.reviewStatus === 'submitted').length,
+      evaluating: records.filter((r) => r.reviewStatus === 'evaluating').length,
+    };
     // 달성 분포(완료자 기준): 달성 / 미달성 / 미평가
     const achievedCompleted = records.filter((r) => isFinalizedRec(r) && r.achieved).length;
     const achievement = {
@@ -279,6 +286,7 @@ const HrHome = () => {
       completionRate,
       achievementRate,
       inProgress,
+      inProgressBreakdown,
       departments,
       statusCounts,
       achievement,
@@ -433,7 +441,27 @@ const HrHome = () => {
             }
           />
           <KpiDivider />
-          <KpiStat label="진행 중" value={`${summary.inProgress}명`} />
+          {/* 진행 중 병목 분해 — 작성 중=피평가자 재촉, 검토 대기=평가자 재촉 대상이라 따로 보여준다.
+              검토 대기가 있으면 강조(평가자 확정 지연이 마감 관리의 주 병목). */}
+          <KpiStat
+            label="진행 중"
+            value={`${summary.inProgress}명`}
+            sub={
+              <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+                <span>작성 중 {summary.inProgressBreakdown.draft}</span>
+                <span
+                  style={
+                    summary.inProgressBreakdown.submitted > 0
+                      ? { color: 'var(--ok-orange)', fontWeight: 700 }
+                      : undefined
+                  }
+                >
+                  검토 대기 {summary.inProgressBreakdown.submitted}
+                </span>
+                <span>평가 중 {summary.inProgressBreakdown.evaluating}</span>
+              </span>
+            }
+          />
           {summary.statusCounts.notStarted > 0 && (
             <>
               <KpiDivider />
@@ -456,7 +484,7 @@ const HrHome = () => {
                 '평가 진행' 완료율 도넛은 제거(2026-07-07 사용자 결정): 상단 스트립의
                 완료·진행중·미시작 수치와 완전 중복이라 완료율%·전월 증감만 스트립으로 흡수. */}
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
-              <ChartCard title="목표 달성" subtitle="완료자 기준 성장레벨 달성">
+              <ChartCard title="목표 달성" subtitle="완료자 기준 성장레벨 달성 · 조각 클릭 시 명단">
                 <Donut
                   centerValue={`${summary.achievement.rate}%`}
                   centerLabel="달성률"
@@ -466,6 +494,14 @@ const HrHome = () => {
                     { key: 'm', name: '미달성', value: summary.achievement.missed, color: HR_COLOR.missed },
                     { key: 'p', name: '미평가', value: summary.achievement.pending, color: HR_COLOR.pending },
                   ]}
+                  onSelect={(key) => {
+                    const spec = {
+                      a: { title: '달성', filter: (r: EmployeeEvaluationRecord) => isFinalizedRec(r) && r.achieved },
+                      m: { title: '미달성', filter: (r: EmployeeEvaluationRecord) => isFinalizedRec(r) && !r.achieved },
+                      p: { title: '미평가', filter: (r: EmployeeEvaluationRecord) => !isFinalizedRec(r) },
+                    }[key as 'a' | 'm' | 'p'];
+                    if (spec) setMemberModal({ title: spec.title, records: scopedRecords.filter(spec.filter) });
+                  }}
                 />
               </ChartCard>
               <ChartCard title="성장레벨별 인원 · 달성" subtitle="Lv.1~4 · 달성/미달성/미평가 · 막대 클릭 시 명단">
@@ -606,7 +642,7 @@ const KpiStat = ({
   value: string;
   accent?: boolean;
   emphasize?: boolean;
-  sub?: string;
+  sub?: React.ReactNode;
 }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
     <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>{label}</span>
