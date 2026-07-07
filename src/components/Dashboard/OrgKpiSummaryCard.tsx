@@ -25,7 +25,7 @@ const fullOrgPath = (n: KpiNode): string => {
   return parts.filter(Boolean).join(' › ');
 };
 
-// 하위 KPI 는 ↳ 접두 + 왼쪽 오렌지 마커로 상위와의 연결을 표시(세로 중첩은 카드가 길어져 금지).
+// 상위(최상위) KPI 에 왼쪽 오렌지 하이라이트, 하위는 ↳ 접두로 연결 표시(2026-07-07 사용자).
 const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
   const pct = Math.round(Math.min(1, Math.max(0, node.progress ?? 0)) * 100);
   const path = fullOrgPath(node);
@@ -35,7 +35,7 @@ const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
         flexShrink: 0,
         width: 300,
         border: '1px solid var(--border)',
-        borderLeft: depth > 0 ? '3px solid var(--ok-orange-100)' : '1px solid var(--border)',
+        borderLeft: depth === 0 ? '4px solid var(--ok-orange)' : '1px solid var(--border)',
         borderRadius: 10,
         background: 'var(--bg-subtle)',
         padding: '9px 12px',
@@ -148,7 +148,17 @@ export const OrgKpiSummaryCard = ({ periodId, style }: { periodId: string | null
         {rows.map(({ node, depth }, i) => (
           <Fragment key={node.id}>
             {depth === 0 && i > 0 && (
-              <div style={{ flexShrink: 0, width: 1, background: 'var(--border)', margin: '2px 5px' }} />
+              // 메인 KPI 그룹 경계 — 명확히 보이도록 진한 2px 세로선(2026-07-07 사용자)
+              <div
+                style={{
+                  flexShrink: 0,
+                  width: 2,
+                  background: 'var(--fg-subtle)',
+                  opacity: 0.45,
+                  borderRadius: 1,
+                  margin: '0 8px',
+                }}
+              />
             )}
             <KpiTile node={node} depth={depth} />
           </Fragment>
