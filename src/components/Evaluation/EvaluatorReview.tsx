@@ -693,6 +693,9 @@ const TaskDetail = ({
                         type="button"
                         onClick={() => onCellClick(task, methodIndex, scopeIndex)}
                         disabled={!group.canEdit}
+                        // P3-12: 키보드(Tab+Enter)로 채점 시 셀 의미를 읽을 수 있게.
+                        aria-label={`${method} × ${scope} — ${cellScore}점${isSelected ? ' (선택됨)' : ''}`}
+                        aria-pressed={isSelected}
                         style={{
                           width: '100%',
                           height: 44,

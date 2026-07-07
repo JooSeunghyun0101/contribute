@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, PencilLine } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, PencilLine } from 'lucide-react';
+import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
@@ -92,6 +93,7 @@ const Evaluation = () => {
   const {
     evaluationData,
     isLoading,
+    isAiReviewing,
     handleMethodClick,
     handleScopeClick,
     handleFeedbackChange,
@@ -110,6 +112,36 @@ const Evaluation = () => {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isDraftSaving, setIsDraftSaving] = useState(false);
+
+  // S4: 이전/다음 검토 대상 네비게이션 — 보드 '검토 필요' 컬럼과 동일 기준(제출됨·평가중)·
+  // 동일 정렬(성장레벨 내림차순 → 이름). 보드와 같은 React Query 캐시를 재사용하므로 추가
+  // 비용이 거의 없다. 과거 평가 열람(evaluationId 지정) 중에는 컨텍스트 혼동을 막기 위해 숨긴다.
+  const { records: teamRecords } = useTeamDashboardRecords(
+    !overrideEvaluationId ? user?.employeeId ?? '' : '',
+  );
+  const reviewQueue = useMemo(
+    () =>
+      teamRecords
+        .filter((r) => r.reviewStatus === 'submitted' || r.reviewStatus === 'evaluating')
+        .sort((a, b) => {
+          const levelA = a.employee.growth_level ?? 1;
+          const levelB = b.employee.growth_level ?? 1;
+          if (levelB !== levelA) return levelB - levelA;
+          return a.employee.name.localeCompare(b.employee.name, 'ko-KR');
+        })
+        .map((r) => r.employee.employee_id),
+    [teamRecords],
+  );
+  const queueIndex = id ? reviewQueue.indexOf(id) : -1;
+  // 현재 피평가자가 큐에 없으면(방금 완료 저장 등) '다음'은 큐의 첫 대상으로 이어간다.
+  const prevReviewId = queueIndex > 0 ? reviewQueue[queueIndex - 1] : null;
+  const nextReviewId =
+    queueIndex >= 0 ? reviewQueue[queueIndex + 1] ?? null : reviewQueue[0] ?? null;
+  // 같은 라우트에서 id 만 바뀌는 이동이라 컴포넌트가 리마운트되지 않는다 — 새 피평가자에서도
+  // '첫 그룹 자동 펼침' 초기화가 다시 동작하도록 가드를 리셋한다.
+  useEffect(() => {
+    hasInitializedExpansion.current = false;
+  }, [id]);
   const [isReopening, setIsReopening] = useState(false);
   const [assignmentHistory, setAssignmentHistory] = useState<EvaluatorAssignmentHistory[]>([]);
 
@@ -404,9 +436,39 @@ const Evaluation = () => {
       });
       return;
     }
+    // 검증을 확인 다이얼로그 '앞'으로 — 승인한 뒤에야 거부당하는 역순 흐름을 없애고,
+    // 다이얼로그에는 실제 저장 결과(채점/피드백 현황·전환될 상태)를 요약해 보여준다.
+    const views = currentEvaluatorGroup?.tasks ?? [];
+    const total = views.length;
+    const scored = views.filter((v) => v.score != null).length;
+    const missingFeedbackTitles = views
+      .filter((v) => !(v.displayTask.feedback ?? '').trim())
+      .map((v) => v.displayTask.title || '제목 없음');
+    const totalWeight = views.reduce((sum, v) => sum + (v.displayTask.weight ?? 0), 0);
+    if (totalWeight !== 100) {
+      toast({
+        title: '저장할 수 없습니다 — 가중치 합계 오류',
+        description: `과업 가중치 합계가 ${totalWeight}%입니다(100% 필요). 가중치는 피평가자가 수정하는 값이므로, '피평가자에게 돌려보내기'로 조정을 요청하세요.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (missingFeedbackTitles.length > 0) {
+      toast({
+        title: `피드백 미작성 ${missingFeedbackTitles.length}건`,
+        description: `모든 과업에 피드백이 있어야 저장할 수 있습니다: ${missingFeedbackTitles.join(', ')}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    const willComplete = scored === total;
     const ok = await confirm({
       title: '최종 평가를 저장하시겠습니까?',
-      description: '저장 후에는 평가 단계가 완료로 전환됩니다.',
+      description: `채점 ${scored}/${total} · 피드백 ${total - missingFeedbackTitles.length}/${total}\n${
+        willComplete
+          ? "저장 후 평가 단계가 '완료'로 전환됩니다."
+          : `미채점 ${total - scored}건이 있어 '평가 중' 상태로 저장됩니다(완료 아님).`
+      }`,
       confirmText: '최종 저장',
     });
     if (!ok) return;
@@ -477,7 +539,12 @@ const Evaluation = () => {
       const ok = handleTemporarySave();
       toast({
         title: ok ? '임시저장되었습니다.' : '임시저장할 내용이 없습니다.',
-        description: ok ? '평가 저장 전까지 점수와 진행 현황에는 반영되지 않습니다.' : undefined,
+        // S2: 임시저장은 이 브라우저(localStorage)와 서버 draft 에 함께 보관된다 — 같은 계정으로
+        // 로그인하면 다른 기기에서도 이어서 작성할 수 있다. 단 정식 저장 전까지 점수·진행 현황에
+        // 반영되지 않는 점은 그대로 안내한다.
+        description: ok
+          ? '같은 계정으로 로그인하면 다른 기기에서도 이어서 작성할 수 있습니다. 평가 저장 전까지 점수와 진행 현황에는 반영되지 않습니다.'
+          : undefined,
         variant: ok ? 'default' : 'destructive',
       });
     } finally {
@@ -543,6 +610,43 @@ const Evaluation = () => {
               뒤로
             </button>
             <span>{`성과 평가 · ${evaluationData.evaluateeName}`}</span>
+            {!overrideEvaluationId && reviewQueue.length > 0 && (
+              // S4: 보드로 돌아가지 않고 검토 대상 사이를 바로 이동. 임시 입력은 자동
+              // 임시저장(드래프트)으로 보존되므로 이동해도 유실되지 않는다.
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  className="sd-btn sd-btn-outline sd-btn-sm"
+                  onClick={() => prevReviewId && navigate(`/evaluation/${prevReviewId}`)}
+                  disabled={!prevReviewId}
+                  title={prevReviewId ? '이전 검토 대상 열기' : '이전 검토 대상이 없습니다.'}
+                  aria-label="이전 검토 대상"
+                >
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </button>
+                <span
+                  style={{
+                    fontSize: 'var(--fs-xs)',
+                    fontWeight: 700,
+                    color: 'var(--fg-muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="이 평가기간에 검토가 필요한(제출됨·평가 중) 피평가자 수"
+                >
+                  검토 필요 {reviewQueue.length}명
+                </span>
+                <button
+                  type="button"
+                  className="sd-btn sd-btn-outline sd-btn-sm"
+                  onClick={() => nextReviewId && navigate(`/evaluation/${nextReviewId}`)}
+                  disabled={!nextReviewId}
+                  title={nextReviewId ? '다음 검토 대상 열기' : '다음 검토 대상이 없습니다.'}
+                  aria-label="다음 검토 대상"
+                >
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              </span>
+            )}
           </span>
         }
         subtitle={[
@@ -603,8 +707,9 @@ const Evaluation = () => {
               >
                 {isDraftSaving ? '처리 중…' : '임시저장'}
               </button>
-              {isSaving ? (
-                // 저장 클릭 후 AI 검토 중 — AI 의견 버튼과 동일한 파랑+shine+이모지 로딩 효과.
+              {isSaving || isAiReviewing ? (
+                // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시
+                // 끝나 검수가 도는 걸 알 수 없던 문제 — 검수 완료 시 통과/경고 토스트로 마무리).
                 <AiOpinionButton loading label="AI 검토 중…" />
               ) : (
                 <button

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { HelpCircle } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { employeeService, evaluationService } from '@/lib/services';
@@ -20,6 +22,8 @@ const MyTasksPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // P3-11: 평가 가이드 모달(기구현 EvaluationGuide 재배선) — 작성 기준·매트릭스 안내.
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     if (!employeeId) return;
@@ -88,7 +92,18 @@ const MyTasksPage = () => {
       <PageHeader
         title="내 과업"
         subtitle={`${user?.name ?? ''}님의 등록 과업과 평가 이력`}
+        actions={
+          <button
+            className="sd-btn sd-btn-outline sd-btn-sm"
+            onClick={() => setShowGuide(true)}
+            title="평가 기준·매트릭스 가이드를 봅니다."
+          >
+            <HelpCircle size={14} aria-hidden="true" />
+            평가 가이드
+          </button>
+        }
       />
+      {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}
 
       <div
         style={{

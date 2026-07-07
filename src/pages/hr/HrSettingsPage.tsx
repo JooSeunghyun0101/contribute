@@ -27,6 +27,14 @@ const HrSettingsPage = () => {
   const defaultTab = ['notifications', 'account', 'prompts', 'advanced'].includes(tabParam ?? '')
     ? (tabParam as string)
     : 'notifications';
+  // controlled Tabs — 이미 이 페이지에 있는 상태에서 ?tab= 딥링크(알림 클릭 등)로 오면
+  // 리마운트가 없어 defaultValue 만으로는 탭이 안 바뀐다. 쿼리 변경을 상태로 동기화.
+  const [activeTab, setActiveTab] = useState(defaultTab);
+  useEffect(() => {
+    if (tabParam && ['notifications', 'account', 'prompts', 'advanced'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
   const [resettingKind, setResettingKind] = useState<null | 'employees' | 'matching' | 'period'>(null);
   const [downloadingQna, setDownloadingQna] = useState(false);
   const [resetPeriods, setResetPeriods] = useState<Array<{ id: string; code: string; name: string; status: string }>>([]);
@@ -175,7 +183,7 @@ const HrSettingsPage = () => {
       <PageHeader title="시스템 설정" subtitle="알림·시스템 관리" />
 
       <div className="flex flex-col gap-6" style={{ padding: '24px 32px 32px' }}>
-        <Tabs defaultValue={defaultTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="notifications">알림</TabsTrigger>
             <TabsTrigger value="account">비밀번호</TabsTrigger>

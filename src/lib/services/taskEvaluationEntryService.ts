@@ -38,6 +38,43 @@ export const taskEvaluationEntryService = {
     }
   },
 
+  // S3: 평가 저장 일괄 처리 — entry upsert(N)+피드백 히스토리+평가상태+알림을 한 트랜잭션·한
+  // 요청으로. 평가자 신원은 서버가 세션으로 강제하므로 entries 에 evaluator 필드가 없어도 된다.
+  async bulkSave(payload: {
+    evaluation_id: string;
+    evaluation_status?: 'completed' | 'evaluating';
+    /** S7 낙관적 잠금 — 화면이 로드했던 시점의 last_modified. 서버 값과 다르면 409. */
+    expected_last_modified?: string | null;
+    entries: Array<{
+      task_uuid: string;
+      task_id?: string;
+      contribution_method?: string | null;
+      contribution_scope?: string | null;
+      score?: number | null;
+      feedback?: string | null;
+      feedback_date?: string | null;
+      /** 피드백 변경으로 히스토리 행을 남길 항목(변경 감지는 호출부가 수행). */
+      create_feedback_history?: boolean;
+      /** 변경 요약(예: '점수, 피드백') — 있으면 서버가 피평가자 알림을 발송. */
+      notify_change_details?: string;
+    }>;
+  }): Promise<{
+    entries: Array<{ id: string; task_uuid: string }>;
+    evaluation_status: string | null;
+    /** 다음 저장의 낙관적 잠금 기준(S7). */
+    last_modified: string | null;
+  }> {
+    try {
+      return await apiFetch('/api/task-evaluation-entries/bulk', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   // 복붙 검수용 — 같은 평가자가 그 기간 다른 피평가자에게 쓴 피드백 모음(현재 평가 제외).
   async getEvaluatorFeedbacks(
     evaluatorId: string,

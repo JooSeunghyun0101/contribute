@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { evaluationPeriodService } from '@/lib/services';
 import { queryKeys } from '@/lib/queryKeys';
+import { useAuth } from '@/contexts/AuthContext';
 import type { EvaluationPeriod } from '@/types';
 
 type EvaluationPeriodContextValue = {
@@ -22,23 +23,33 @@ const STORAGE_KEY = 'selectedEvaluationPeriodId';
 
 const EvaluationPeriodContext = createContext<EvaluationPeriodContextValue | null>(null);
 
-const readSavedPeriodId = () => {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(STORAGE_KEY);
+// P3-2: 공용 PC에서 이전 사용자가 보던 평가기간이 다음 로그인 계정에 승계되지 않도록
+// 저장 키를 계정별로 분리한다. 구 전역 키('selectedEvaluationPeriodId')는 더 이상 읽지 않는다.
+const storageKeyFor = (employeeId: string | null | undefined) =>
+  employeeId ? `${STORAGE_KEY}:${employeeId}` : null;
+
+const readSavedPeriodId = (key: string | null) => {
+  if (!key || typeof window === 'undefined') return null;
+  return window.localStorage.getItem(key);
 };
 
-const writeSavedPeriodId = (periodId: string | null) => {
-  if (typeof window === 'undefined') return;
+const writeSavedPeriodId = (key: string | null, periodId: string | null) => {
+  if (!key || typeof window === 'undefined') return;
   if (periodId) {
-    window.localStorage.setItem(STORAGE_KEY, periodId);
+    window.localStorage.setItem(key, periodId);
   } else {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(key);
   }
 };
 
 export const EvaluationPeriodProvider = ({ children }: { children: ReactNode }) => {
   const queryClient = useQueryClient();
-  const [selectedPeriodId, setSelectedPeriodIdState] = useState<string | null>(() => readSavedPeriodId());
+  const { user } = useAuth();
+  // 로그인 계정 기준 키 — 이 프로바이더는 ProtectedRoute 안에서만 마운트되므로 초기값부터 계정 키로 읽는다.
+  const storageKey = storageKeyFor(user?.employeeId);
+  const [selectedPeriodId, setSelectedPeriodIdState] = useState<string | null>(() =>
+    readSavedPeriodId(storageKeyFor(user?.employeeId)),
+  );
 
   // 서버 상태(평가기간 목록)는 React Query 가 캐시·중복제거·재조회를 담당(마운트마다 재조회 제거).
   const periodsQuery = useQuery({
@@ -58,7 +69,7 @@ export const EvaluationPeriodProvider = ({ children }: { children: ReactNode }) 
     if (!periodsQuery.isSuccess) return;
     const loadedPeriods = periodsQuery.data;
     setSelectedPeriodIdState((current) => {
-      const saved = current ?? readSavedPeriodId();
+      const saved = current ?? readSavedPeriodId(storageKey);
       const savedExists = saved && loadedPeriods.some((period) => period.id === saved);
       if (savedExists) return saved;
 
@@ -67,20 +78,23 @@ export const EvaluationPeriodProvider = ({ children }: { children: ReactNode }) 
         loadedPeriods.find((period) => period.status === 'active')?.id ??
         loadedPeriods[0]?.id ??
         null;
-      writeSavedPeriodId(next);
+      writeSavedPeriodId(storageKey, next);
       return next;
     });
-  }, [periodsQuery.isSuccess, periodsQuery.data]);
+  }, [periodsQuery.isSuccess, periodsQuery.data, storageKey]);
 
   // 외부에서 강제 새로고침 시 공유 캐시를 무효화 → 모든 소비자 동기 재조회.
   const reloadPeriods = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.evaluationPeriods() });
   }, [queryClient]);
 
-  const setSelectedPeriodId = useCallback((periodId: string | null) => {
-    setSelectedPeriodIdState(periodId);
-    writeSavedPeriodId(periodId);
-  }, []);
+  const setSelectedPeriodId = useCallback(
+    (periodId: string | null) => {
+      setSelectedPeriodIdState(periodId);
+      writeSavedPeriodId(storageKey, periodId);
+    },
+    [storageKey],
+  );
 
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.id === selectedPeriodId) ?? null,

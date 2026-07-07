@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { employeeService } from '@/lib/services';
+import { queryKeys } from '@/lib/queryKeys';
 import { buildEvaluatorPeriods, type EvaluatorPeriod } from '@/lib/evaluatorHistory';
 import type { EvaluatorAssignmentHistory } from '@/types';
 import {
@@ -50,44 +52,40 @@ export const useEvaluatorPeriodRoster = (
     [combined],
   );
 
-  const [historyById, setHistoryById] = useState<Map<string, EvaluatorAssignmentHistory[]>>(
-    () => new Map(),
-  );
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  useEffect(() => {
-    const ids = idsKey ? idsKey.split(',') : [];
-    if (!evaluatorId || ids.length === 0) {
-      setHistoryById(new Map());
-      setHistoryLoaded(true);
-      return;
-    }
-    let cancelled = false;
-    setHistoryLoaded(false);
-    (async () => {
-      const entries = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            return [id, await employeeService.getEvaluatorAssignmentHistory(id)] as const;
-          } catch {
-            return [id, [] as EvaluatorAssignmentHistory[]] as const;
-          }
-        }),
-      );
-      if (!cancelled) {
-        setHistoryById(new Map(entries));
-        setHistoryLoaded(true);
+  // S5: 배정이력을 벌크 1회로 조회(기존: 피평가자당 개별 요청 N+1). React Query 캐시라
+  // 보드 복귀 시 이전 분류를 먼저 그리고 백그라운드로 재조회한다(복귀 시 전체 스피너 제거).
+  // 벌크 엔드포인트 실패 시 기존 개별 조회 경로로 폴백해 구서버에서도 동작한다.
+  const historyQuery = useQuery({
+    queryKey: queryKeys.assignmentHistoryBulk(idsKey),
+    enabled: Boolean(evaluatorId) && idsKey.length > 0,
+    queryFn: async (): Promise<Record<string, EvaluatorAssignmentHistory[]>> => {
+      const ids = idsKey.split(',');
+      try {
+        return await employeeService.getEvaluatorAssignmentHistoryBulk(ids);
+      } catch {
+        const entries = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              return [id, await employeeService.getEvaluatorAssignmentHistory(id)] as const;
+            } catch {
+              return [id, [] as EvaluatorAssignmentHistory[]] as const;
+            }
+          }),
+        );
+        return Object.fromEntries(entries);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [evaluatorId, idsKey]);
+    },
+    placeholderData: keepPreviousData,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+  });
+  const historyById = historyQuery.data ?? null;
 
   return useMemo(() => {
     const current: EmployeeEvaluationRecord[] = [];
     const formerList: EmployeeEvaluationRecord[] = [];
     for (const r of combined) {
-      const history = historyById.get(r.employee.employee_id) ?? [];
+      const history = historyById?.[r.employee.employee_id] ?? [];
       // 이력이 없으면(배정 변경 없음) 현재 마스터 평가자가 줄곧 담당 → 현재로 본다.
       const period: EvaluatorPeriod | null | undefined = history.length
         ? buildEvaluatorPeriods(history, { periodId: periodId ?? null }).get(evaluatorId)
@@ -96,7 +94,8 @@ export const useEvaluatorPeriodRoster = (
       if (period.end === null) current.push(r);
       else formerList.push(r);
     }
-    const classifying = !historyLoaded;
+    // 분류 대기 = 이력 데이터가 아직 한 번도 없을 때만(캐시가 있으면 즉시 분류 → 스피너 없음).
+    const classifying = Boolean(evaluatorId) && idsKey.length > 0 && historyById === null;
     return {
       current,
       former: formerList,
@@ -105,5 +104,5 @@ export const useEvaluatorPeriodRoster = (
       isFormerLoading: former.isLoading || classifying,
       formerError: former.error,
     };
-  }, [combined, historyById, historyLoaded, periodId, evaluatorId, cur.isLoading, cur.error, former.isLoading, former.error]);
+  }, [combined, historyById, idsKey, periodId, evaluatorId, cur.isLoading, cur.error, former.isLoading, former.error]);
 };

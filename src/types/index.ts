@@ -356,3 +356,14 @@ export type LoadingState = 'idle' | 'loading' | 'success' | 'error';
 
 // Re-export DTO for task evaluation updates so it can be imported from '@/types'
 export type { TaskEvaluationUpdate } from './evaluation';
+
+// 조직 KPI 타입 — '@/types' 에서 바로 import 가능하도록 re-export
+export type {
+  KpiOrgLevel,
+  KpiDirection,
+  KpiStatus,
+  OrgKpi,
+  KpiNode,
+  OrgKpiInput,
+  OrgKpiUpdate,
+} from './kpi';

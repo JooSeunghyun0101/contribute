@@ -243,6 +243,9 @@ const buildEmployeeProfileRows = (
         evaluation_group: get('평가그룹'),
         employee_id: get('사번') ?? '',
         employee_name: get('성명') ?? '',
+        // 부서ID — 매칭 파일에 행이 없는 평가자 전용 인원(임원 등)의 부서 지정 경로.
+        // 서버가 출처 우선순위(매칭 1순위 > 대상자 2순위)를 적용하므로 충돌 시 매칭 값이 유지된다.
+        department_id: get('부서ID'),
         ...orgFieldsFromRow(row, idx),
         department_name: get('부서명'),
         growth_level_label: get('성장레벨(직급)'),
@@ -904,9 +907,15 @@ const HrUsersPage = () => {
   const handleDeleteUser = async (employee: Employee) => {
     const ok = await confirm({
       title: `${employee.name}(${employee.employee_id}) 사용자를 삭제할까요?`,
-      description:
-        '이 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다. 되돌릴 수 없습니다.',
+      description: (
+        <div className="space-y-1">
+          <p>평가·과업·피드백·변경이력이 함께 영구 삭제되며 되돌릴 수 없습니다.</p>
+          <p>발령으로 평가가 여러 건인 직원의 이전 평가도 함께 삭제됩니다.</p>
+          <p>계속하려면 &quot;삭제&quot;를 입력하세요.</p>
+        </div>
+      ),
       variant: 'danger',
+      requireTypedConfirmation: '삭제',
       confirmText: '삭제',
     });
     if (!ok) return;
@@ -972,11 +981,21 @@ const HrUsersPage = () => {
   const handleBulkDelete = async () => {
     const ids = [...selectedIds];
     if (!ids.length) return;
+    const names = ids.map((id) => employeeMap.get(id)?.name ?? id);
+    const nameList =
+      names.slice(0, 10).join(', ') + (names.length > 10 ? ` 외 ${names.length - 10}명` : '');
     const ok = await confirm({
       title: `선택한 ${ids.length}명의 사용자를 삭제할까요?`,
-      description:
-        '각 직원의 평가·과업·피드백·이력 등 연결 데이터가 모두 삭제됩니다. 되돌릴 수 없습니다.',
+      description: (
+        <div className="space-y-1">
+          <p className="break-all">대상: {nameList}</p>
+          <p>평가·과업·피드백·변경이력이 함께 영구 삭제되며 되돌릴 수 없습니다.</p>
+          <p>발령으로 평가가 여러 건인 직원의 이전 평가도 함께 삭제됩니다.</p>
+          <p>계속하려면 &quot;삭제&quot;를 입력하세요.</p>
+        </div>
+      ),
       variant: 'danger',
+      requireTypedConfirmation: '삭제',
       confirmText: `${ids.length}명 삭제`,
     });
     if (!ok) return;

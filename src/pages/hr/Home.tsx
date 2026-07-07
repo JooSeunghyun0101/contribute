@@ -27,6 +27,7 @@ import {
   type DeptSort,
 } from '@/components/Dashboard/HrDashboardCharts';
 import { buildAggregateMonthlyTrend } from '@/lib/scoreTrend';
+import { isFinalizedEvaluationStatus } from '@/lib/evaluationStatus';
 import {
   getOrgValue,
   matchesOrgNodes,
@@ -82,7 +83,8 @@ const buildMonthlyTrend = (
 
   const completedTimes = records
     .map((r) => {
-      if (r.status !== 'completed') return null;
+      // 완료 판정은 화면 공통 기준(평가자 확정 completed/locked) — evaluationStatus.ts 참조.
+      if (!isFinalizedEvaluationStatus(r.reviewStatus)) return null;
       const ts = r.evaluation?.last_modified;
       const parsed = ts ? new Date(ts).getTime() : NaN;
       return Number.isFinite(parsed) ? parsed : null;
@@ -168,7 +170,10 @@ const HrHome = () => {
     const totalMembers = records.length;
     const completedMembers = records.filter((r) => isFinalizedRec(r)).length;
     const achievedMembers = records.filter((r) => r.achieved).length;
-    const inProgress = records.filter((r) => r.status !== 'completed').length;
+    // 진행 중·미시작도 완료와 같은 차원(리뷰상태)으로 분류 — 완료 + 진행 중 + 미시작 = 전체가 성립.
+    // (기존엔 진행 중이 과업 진행 기준 r.status 라 완료(리뷰상태)와 차원이 달라 합이 안 맞았다.)
+    const notStartedMembers = records.filter((r) => r.reviewStatus === 'not-started').length;
+    const inProgress = totalMembers - completedMembers - notStartedMembers;
     const completionRate =
       totalMembers > 0 ? Math.round((completedMembers / totalMembers) * 100) : 0;
     const achievementRate =
@@ -232,11 +237,11 @@ const HrHome = () => {
       }))
       .sort((a, b) => b.total - a.total);
 
-    // 상태 분포(완료/진행중/미시작)
+    // 상태 분포(완료/진행중/미시작) — KPI 스트립과 동일한 리뷰상태 한 차원 분류.
     const statusCounts = {
       completed: completedMembers,
-      inProgress: records.filter((r) => r.status !== 'not-started' && !isFinalizedRec(r)).length,
-      notStarted: records.filter((r) => r.status === 'not-started').length,
+      inProgress,
+      notStarted: notStartedMembers,
     };
     // 달성 분포(완료자 기준): 달성 / 미달성 / 미평가
     const achievedCompleted = records.filter((r) => isFinalizedRec(r) && r.achieved).length;
@@ -419,6 +424,10 @@ const HrHome = () => {
           <KpiStat label="진행 중" value={`${summary.inProgress}명`} />
           <KpiDivider />
           <KpiStat label="마감" value={deadlineInfo.label} emphasize={deadlineInfo.emphasize} />
+          {/* 완료 판정 기준 각주 — evaluationStatus.ts 단일 기준과 동일 문구 유지 */}
+          <span style={{ marginLeft: 'auto', fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+            완료 = 평가자 확정(완료·잠금) 기준
+          </span>
         </section>
 
         {isLoading ? (
@@ -641,11 +650,11 @@ const DASH_STATUS_TONE: Record<
   completed: 'success',
   locked: 'neutral',
 };
-// '완료/달성 집계·점수 표시' 대상 = 평가자가 확정(제출/완료/잠금)한 평가만.
-// 점수만 들어간 draft(매트릭스 자동점수)는 미확정 → 미평가로 집계(차트·드릴다운·다운로드 공통 기준).
-const FINALIZED_STATUSES = new Set(['submitted', 'completed', 'locked']);
+// '완료/달성 집계·점수 표시' 대상 = 완료 판정 단일 기준(src/lib/evaluationStatus.ts).
+// 완료 = 평가자 저장 완료(completed/locked). submitted 는 피평가자 제출 직후·평가 전이므로
+// 미완료로 집계한다(차트·드릴다운·다운로드·점수 집계 공통 기준 — HR 화면 간 완료율 일치).
 const isFinalizedRec = (r: EmployeeEvaluationRecord) =>
-  FINALIZED_STATUSES.has(r.reviewStatus);
+  isFinalizedEvaluationStatus(r.reviewStatus);
 
 // 성장레벨·점수 막대 클릭 시 뜨는 대상자 명단 모달(+엑셀 다운로드).
 const DashboardMemberModal = ({

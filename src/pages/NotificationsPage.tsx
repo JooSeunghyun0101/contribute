@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
 import NotificationItem from '@/components/Notification/NotificationItem';
 import { useNotifications } from '@/contexts/NotificationContextDB';
@@ -11,8 +12,10 @@ import { ROLE_ORDER, ROLE_LABEL, rolesOf } from '@/lib/notificationRoles';
 type FilterId = 'all' | 'unread';
 
 const NotificationsPage = () => {
-  const { notifications, markAsRead, markAllAsRead, deleteAllNotifications } = useNotifications();
-  const { user } = useAuth();
+  const { notifications, markAsRead, markAllAsRead, deleteAllNotifications, deleteNotification } =
+    useNotifications();
+  const { user, switchRole } = useAuth();
+  const navigate = useNavigate();
   const confirm = useConfirm();
   const [filter, setFilter] = useState<FilterId>('all');
 
@@ -64,6 +67,19 @@ const NotificationsPage = () => {
   const unreadCount = roleScoped.filter((n) => !n.isRead).length;
   const recipientId = notifications[0]?.recipientId ?? '';
 
+  // 딥링크 매핑에 쓸 역할 — 역할 탭이 있으면 현재 탭 역할, 아니면 로그인 역할.
+  const tabRole: UserRole | null = showRoleTabs ? roleFilter : (user?.role ?? null);
+
+  // 알림 클릭 이동. 겸직자가 다른 역할 탭의 알림을 클릭하면 그 역할로 전환 후 이동한다
+  // (TopBar 역할 전환과 동일 동작 — 전환 없이 이동하면 ProtectedRoute 가 홈으로 되돌린다).
+  const handleItemNavigate = (path: string) => {
+    if (user && tabRole && tabRole !== user.role && user.availableRoles.includes(tabRole)) {
+      // switchRole 은 동기적 상태 갱신 — navigate 와 같은 배치로 렌더되어 권한 체크가 새 역할로 평가된다.
+      void switchRole(tabRole);
+    }
+    navigate(path);
+  };
+
   const filters: Array<{ id: FilterId; label: string; count: number }> = [
     { id: 'all', label: '전체', count: roleScoped.length },
     { id: 'unread', label: '읽지 않음', count: unreadCount },
@@ -71,6 +87,22 @@ const NotificationsPage = () => {
 
   const handleClearAll = async () => {
     if (!recipientId) return;
+    // P3-3: 겸직자는 현재 역할 탭의 알림만 삭제 — '전체 삭제'가 다른 역할 탭의 알림까지
+    // 지워버리는 사고 방지("모두 읽음"의 역할 분리와 동일 기준).
+    if (showRoleTabs && roleFilter) {
+      // 리뷰 확정 수정: hr_message 등 여러 역할 공용 타입은 단일 알림이라 삭제 시 다른 탭에서도
+      // 함께 사라진다 — '다른 탭 알림은 남는다'는 단정 문구가 거짓이 되지 않게 실제 동작을 안내.
+      const ok = await confirm({
+        title: `${ROLE_LABEL[roleFilter]} 탭의 알림 ${roleScoped.length}건을 삭제하시겠습니까?`,
+        description:
+          '이 탭에 표시된 알림만 삭제합니다. 단, 여러 역할에 공통으로 표시되는 알림(공지 등)은 다른 역할 탭에서도 함께 삭제됩니다.',
+        variant: 'danger',
+        confirmText: '삭제',
+      });
+      if (!ok) return;
+      for (const n of roleScoped) void deleteNotification(n.id);
+      return;
+    }
     const ok = await confirm({
       title: '모든 알림을 삭제하시겠습니까?',
       variant: 'danger',
@@ -198,7 +230,13 @@ const NotificationsPage = () => {
             </div>
           ) : (
             visible.map((n) => (
-              <NotificationItem key={n.id} notification={n} onMarkAsRead={markAsRead} />
+              <NotificationItem
+                key={n.id}
+                notification={n}
+                onMarkAsRead={markAsRead}
+                currentRole={tabRole}
+                onNavigate={handleItemNavigate}
+              />
             ))
           )}
         </div>

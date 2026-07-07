@@ -22,14 +22,21 @@ export const NOTIFICATION_ROLES: Record<NotificationType, UserRole[]> = {
   evaluation_completed: ['evaluatee'],
   evaluation_reopened: ['evaluatee'],
   evaluator_changed: ['evaluatee'],
+  // task_updated 는 평가자가 과업(점수·피드백)을 수정했을 때 "피평가자"가 받는 알림
+  // (발송처: useEvaluationDataDB handleSave — recipientId=피평가자). 평가자 분류였던 것을 정정.
+  task_updated: ['evaluatee'],
+  // 평가자가 미제출 팀원에게 보내는 제출 리마인드(발송처: team/Home 보드, 수신=피평가자)
+  submit_reminder: ['evaluatee'],
   // 평가자 — 내가 '평가하는' 입장에서 받는 알림
   task_content_changed: ['evaluator'],
-  task_updated: ['evaluator'],
   task_summary: ['evaluator'],
   evaluation_updated: ['evaluator'],
   user_assigned: ['evaluator'],
+  evaluation_submitted: ['evaluator'],
   evaluation_return_requested: ['evaluator'],
   evaluator_unassigned: ['evaluator'],
+  // AI 검수 경고 — 발송처: useEvaluationDataDB handleSave 백그라운드 검수(수신자=평가자 본인)
+  ai_review_flagged: ['evaluator'],
   // HR
   profile_imported: ['hr'],
   change_request: ['hr'],

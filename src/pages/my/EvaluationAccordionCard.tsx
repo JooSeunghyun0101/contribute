@@ -142,15 +142,19 @@ const EvaluationAccordionCard = ({
     [drafts, tasks],
   );
 
+  // 미저장 변경이 있는 기존 과업 수 — 임시저장은 dirty 과업을 일괄 저장하므로 버튼 게이트·라벨에 사용.
+  const dirtyTaskCount = useMemo(
+    () => tasks.filter((t) => isTaskDirty(t.id)).length,
+    [tasks, isTaskDirty],
+  );
   // F-2: 이 카드(자체 로컬 drafts 사용)의 미저장 편집 시 이탈 경고. 작성 중 새 과업 또는 dirty 과업.
   const hasUnsavedEdits = useMemo(() => {
     const newDraft = drafts[NEW_DRAFT_KEY];
     const newDraftHasContent = Boolean(
       newDraft && (newDraft.title?.trim() || newDraft.description?.trim() || newDraft.weight),
     );
-    const anyTaskDirty = Object.keys(drafts).some((key) => key !== NEW_DRAFT_KEY && isTaskDirty(key));
-    return newDraftHasContent || anyTaskDirty;
-  }, [drafts, isTaskDirty]);
+    return newDraftHasContent || dirtyTaskCount > 0;
+  }, [drafts, dirtyTaskCount]);
   useUnsavedChangesWarning(hasUnsavedEdits);
 
   // F-2: 카드 로컬 drafts 를 localStorage 에 자동저장/복원(새로고침·탭닫기 후 작성 중 내용 복구).
@@ -395,14 +399,12 @@ const EvaluationAccordionCard = ({
     if (!evaluationData) return;
     const evalId = evaluationData.id ?? (evaluationData as any).evaluation_id;
     if (!evalId) return;
-    try {
-      await evaluationService.updateEvaluation(evalId, {
-        evaluation_status: 'submitted',
-        last_modified: new Date().toISOString(),
-      } as any);
-    } catch (err) {
-      console.error('평가 상태 업데이트 실패:', err);
-    }
+    // S9: 서버가 최종제출을 검증한다(살아있는 과업 가중치 합 100 등). 여기서 실패를 삼키면
+    // '최종제출 완료' 토스트가 거짓이 되므로 그대로 던져 호출부가 서버 메시지를 보여주게 한다.
+    await evaluationService.updateEvaluation(evalId, {
+      evaluation_status: 'submitted',
+      last_modified: new Date().toISOString(),
+    } as any);
   };
 
   const isPastEvalEditing = !isCurrent;
@@ -549,11 +551,15 @@ const EvaluationAccordionCard = ({
       }
     } catch (err) {
       console.error(err);
+      // 서버 검증 메시지(가중치 합 등)를 그대로 노출 — 과업 저장은 이미 반영됐을 수 있으므로
+      // 화면을 새로고침해 실제 상태와 맞춘다.
       toast({
         title: '저장 실패',
-        description: '서버와 통신 중 오류가 발생했습니다.',
+        description:
+          err instanceof Error && err.message ? err.message : '서버와 통신 중 오류가 발생했습니다.',
         variant: 'destructive',
       });
+      await reloadData().catch(() => {});
     } finally {
       setIsSaving(false);
     }
@@ -951,16 +957,23 @@ const EvaluationAccordionCard = ({
                       className="sd-btn sd-btn-outline sd-btn-sm"
                       onClick={() => handleSave(false)}
                       disabled={
-                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && !isDirty)
+                        // view 모드는 '기존 과업의 미저장 변경'이 있을 때만 활성 — 복원된 새 과업
+                        // draft(hasUnsavedEdits 에는 포함)는 이 버튼 경로로 저장되지 않아
+                        // 아무것도 안 하고 성공 토스트만 뜨는 헛동작이 된다.
+                        isSaving || !canEditTasks || !hasTitle || (mode === 'view' && dirtyTaskCount === 0)
                       }
                       title={
                         canEditTasks
-                          ? '총 가중치가 100%가 아니어도 현재 입력값을 저장합니다.'
+                          ? '총 가중치가 100%가 아니어도 현재 입력값을 저장합니다. 미저장 변경이 있는 다른 과업도 함께 저장됩니다.'
                           : taskEditMessage ?? undefined
                       }
                     >
                       <Save size={14} aria-hidden="true" />
-                      {isSaving ? '저장 중...' : '임시저장'}
+                      {isSaving
+                        ? '저장 중...'
+                        : dirtyTaskCount > 1
+                          ? `임시저장 (변경 ${dirtyTaskCount}건)`
+                          : '임시저장'}
                     </button>
                     <button
                       className="sd-btn sd-btn-primary sd-btn-sm"

@@ -23,6 +23,8 @@ export type TaskFeedbackCardProps = {
   isAiTask?: boolean;
   /** 점수 배지를 솔리드 대신 옅은 틴트로. 직원 화면에서 색 과잉을 줄일 때. */
   tint?: boolean;
+  /** 이전 평가(발령 전) 과업 표기 — 예: '이전 평가 · 김남엽'. 있으면 T번호 대신 이 배지를 단다. */
+  historicalLabel?: string | null;
   entries: TaskFeedbackEntry[];
 };
 
@@ -73,6 +75,7 @@ const TaskFeedbackCard = ({
   score,
   isAiTask,
   tint = false,
+  historicalLabel,
   entries,
 }: TaskFeedbackCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -135,19 +138,36 @@ const TaskFeedbackCard = ({
           flexWrap: 'wrap',
         }}
       >
-        {taskBadge && (
+        {historicalLabel ? (
           <span
             style={{
               fontSize: 'var(--fs-xs)',
-              fontWeight: 800,
-              color: 'var(--bg-card)',
-              background: 'var(--ok-brown)',
+              fontWeight: 700,
+              color: 'var(--fg-muted)',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
               borderRadius: 4,
               padding: '2px 7px',
+              whiteSpace: 'nowrap',
             }}
           >
-            {taskBadge}
+            {historicalLabel}
           </span>
+        ) : (
+          taskBadge && (
+            <span
+              style={{
+                fontSize: 'var(--fs-xs)',
+                fontWeight: 800,
+                color: 'var(--bg-card)',
+                background: 'var(--ok-brown)',
+                borderRadius: 4,
+                padding: '2px 7px',
+              }}
+            >
+              {taskBadge}
+            </span>
+          )
         )}
         {isAiTask && (
           <span

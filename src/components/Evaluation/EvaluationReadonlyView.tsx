@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import { LoadingState } from '@/components/ui/state-views';
 import { Pill } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,7 +7,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useReason } from '@/components/ui/confirm-dialog';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
-import { evaluationService, taskService, taskEvaluationEntryService } from '@/lib/services';
+import { evaluationService, feedbackService, taskService, taskEvaluationEntryService } from '@/lib/services';
+import { formatScore, getScoreGapBucket } from '@/lib/evaluationMatrix';
+import {
+  downloadIndividualReportWorkbook,
+  type IndividualReportData,
+  type IndividualReportTaskRow,
+} from '@/utils/hrDataExport';
 import {
   EvaluatorAccordion,
   resolveTaskScore,
@@ -71,7 +78,7 @@ export const EvaluationReadonlyView = ({
   const { toast } = useToast();
   const askReason = useReason();
   const { matrix } = useEvaluationMatrix();
-  const { selectedPeriodId } = useEvaluationPeriod();
+  const { selectedPeriodId, selectedPeriod } = useEvaluationPeriod();
 
   const [groups, setGroups] = useState<GroupMeta[]>([]);
   const [meta, setMeta] = useState<EvaluateeMeta | null>(null);
@@ -211,6 +218,69 @@ export const EvaluationReadonlyView = ({
     };
   }, [evaluateeId, selectedPeriodId, matrix, initialTaskId]);
 
+  // P3-6: 개인 피드백 리포트 엑셀 — downloadIndividualReportWorkbook(기구현, F-D3a) 배선.
+  // 화면이 이미 가진 그룹(현재 평가 우선)을 직렬화하고, 의견 이력 수만 1회 조회로 보강한다.
+  const [exporting, setExporting] = useState(false);
+  const handleExportIndividualReport = async () => {
+    if (!meta || groups.length === 0) return;
+    const target = groups.find((g) => g.group.isCurrentAssignment) ?? groups[0];
+    const group = target.group;
+    setExporting(true);
+    try {
+      const feedbackCountByTask = new Map<string, number>();
+      try {
+        for (const fh of await feedbackService.getFeedbackHistoryByEmployeeId(evaluateeId)) {
+          feedbackCountByTask.set(fh.task_id, (feedbackCountByTask.get(fh.task_id) ?? 0) + 1);
+        }
+      } catch {
+        /* 이력 수는 보조 정보 — 실패해도 리포트는 생성 */
+      }
+      const growthLevel = meta.growthLevel;
+      const tasks: IndividualReportTaskRow[] = group.tasks.map((view) => {
+        const score = view.score;
+        const gap =
+          score != null && growthLevel > 0 ? Math.round(score) - Math.round(growthLevel) : null;
+        return {
+          title: view.task.title,
+          weight: view.task.weight,
+          contributionMethod: view.task.contributionMethod ?? null,
+          contributionScope: view.task.contributionScope ?? null,
+          score,
+          gap,
+          gapBucket: score != null && growthLevel > 0 ? getScoreGapBucket(score, growthLevel) : null,
+          latestFeedback: view.task.feedback ?? null,
+          latestEvaluatorName: view.task.evaluatorName ?? null,
+          latestFeedbackDate: view.task.feedbackDate ?? null,
+          feedbackCount: feedbackCountByTask.get(view.task.taskId ?? '') ?? 0,
+        };
+      });
+      const data: IndividualReportData = {
+        employeeId: evaluateeId,
+        name: meta.name,
+        position: meta.position,
+        department: meta.department,
+        orgPath: '',
+        growthLevel,
+        growthLevelTitle: '',
+        currentEvaluatorName: group.evaluatorName || null,
+        evaluationStatusLabel: STATUS_LABEL[target.status] ?? target.status,
+        displayScore: formatScore(group.exactScore),
+        flooredScore: group.flooredScore,
+        achieved: group.flooredScore >= growthLevel,
+        totalWeight: group.tasks.reduce((sum, view) => sum + (view.task.weight ?? 0), 0),
+        totalTasks: group.tasks.length,
+        ratedTasks: group.tasks.filter((view) => view.score != null).length,
+        tasks,
+      };
+      const { fileName } = downloadIndividualReportWorkbook(data, {
+        periodLabel: selectedPeriod?.name ?? undefined,
+      });
+      toast({ title: '개인 리포트 다운로드 완료', description: fileName });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleRequestEdit = async (evaluationId: string | undefined, evaluatorName: string) => {
     if (!evaluationId) {
       toast({ title: '수정요청 불가', description: '연결된 평가 레코드가 없습니다.', variant: 'destructive' });
@@ -269,6 +339,18 @@ export const EvaluationReadonlyView = ({
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{meta.department}</span>
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>Lv.{meta.growthLevel}</span>
           {groups.length > 1 && <Pill tone="info">평가자 {groups.length}명 (이동)</Pill>}
+          {enableEditRequest && (
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => void handleExportIndividualReport()}
+              disabled={exporting}
+              title="현재 평가 기준 개인 피드백 리포트(요약·과업상세)를 엑셀로 내려받습니다."
+            >
+              <Download size={14} aria-hidden="true" />
+              {exporting ? '생성 중…' : '개인 리포트 엑셀'}
+            </button>
+          )}
         </div>
       )}
 

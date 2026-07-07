@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { ErrorState } from '@/components/ui/state-views';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -114,12 +115,18 @@ const EvaluatorRequestPage = () => {
   const [requestedEvaluatorId, setRequestedEvaluatorId] = useState('');
   const [reason, setReason] = useState('');
 
+  // P3-9: 로드 실패를 '요청 없음/구간 없음' 빈 상태로 위장하지 않는다.
+  const [requestsError, setRequestsError] = useState(false);
+  const [segmentsError, setSegmentsError] = useState(false);
+
   const loadRequests = useCallback(async () => {
     if (!user?.employeeId) return;
     try {
       setRequests(await changeRequestService.list({ requestedBy: user.employeeId }));
+      setRequestsError(false);
     } catch {
       setRequests([]);
+      setRequestsError(true);
     }
   }, [user?.employeeId]);
 
@@ -159,6 +166,7 @@ const EvaluatorRequestPage = () => {
         setSelectedHistoryId('');
         return;
       }
+      setSegmentsError(false);
       try {
         const history = await employeeService.getEvaluatorAssignmentHistory(evaluateeId);
         if (cancelled) return;
@@ -168,6 +176,7 @@ const EvaluatorRequestPage = () => {
         if (!cancelled) {
           setSegments([]);
           setSelectedHistoryId('');
+          setSegmentsError(true);
         }
       }
     };
@@ -313,7 +322,11 @@ const EvaluatorRequestPage = () => {
           )}
 
           <Field label="평가 구간">
-            {visibleSegments.length === 0 ? (
+            {segmentsError ? (
+              <span style={{ color: 'var(--danger)' }}>
+                평가 구간을 불러오지 못했습니다. 대상자를 다시 선택하거나 잠시 후 새로고침해 주세요.
+              </span>
+            ) : visibleSegments.length === 0 ? (
               <span style={{ color: 'var(--fg-muted)' }}>
                 {evaluateeId ? '선택한 평가기간에 해당하는 평가 구간이 없습니다.' : '대상자를 먼저 선택하세요.'}
               </span>
@@ -376,6 +389,8 @@ const EvaluatorRequestPage = () => {
         <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 16 }}>내 변경요청 내역</h3>
         {loading ? (
           <div style={{ color: 'var(--fg-muted)', padding: '16px 0' }}>불러오는 중…</div>
+        ) : requestsError ? (
+          <ErrorState message="변경요청 내역을 불러오지 못했습니다." onRetry={() => void loadRequests()} />
         ) : requests.length === 0 ? (
           <div style={{ color: 'var(--fg-muted)', padding: '16px 0' }}>아직 보낸 변경요청이 없습니다.</div>
         ) : (

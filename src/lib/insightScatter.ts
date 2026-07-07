@@ -39,10 +39,25 @@ const orgPathTo = (r: EmployeeEvaluationRecord, level: OrgScatterLevel): string 
   return parts.join(' › ');
 };
 
-const groupKeyOf = (axis: ScatterAxis, r: EmployeeEvaluationRecord, orgLevel: OrgScatterLevel): string => {
-  if (axis === 'evaluator') return r.evaluation?.evaluator_name?.trim() || '평가자 미배정';
-  if (axis === 'job') return (r.employee.job_role ?? '').trim() || '직무 미지정';
-  return orgPathTo(r, orgLevel) || '조직 미지정';
+// P3-5: 평가자 축은 그룹 키=evaluator_id(동명이인 합산 방지), 표시는 이름.
+// 같은 이름의 평가자가 여럿이면 표시명에 사번을 병기해 구분한다(buildScatterPoints 쪽 처리).
+const groupOf = (
+  axis: ScatterAxis,
+  r: EmployeeEvaluationRecord,
+  orgLevel: OrgScatterLevel,
+): { key: string; label: string } => {
+  if (axis === 'evaluator') {
+    const id = String((r.evaluation as { evaluator_id?: string | null } | undefined)?.evaluator_id ?? '').trim();
+    const name = r.evaluation?.evaluator_name?.trim() || '';
+    if (!id && !name) return { key: '__unassigned__', label: '평가자 미배정' };
+    return { key: id ? `id:${id}` : `name:${name}`, label: name || id };
+  }
+  if (axis === 'job') {
+    const job = (r.employee.job_role ?? '').trim() || '직무 미지정';
+    return { key: job, label: job };
+  }
+  const org = orgPathTo(r, orgLevel) || '조직 미지정';
+  return { key: org, label: org };
 };
 
 const growthLevelOf = (s: ValidSample): number => Math.round(Number(s.record.employee.growth_level) || 0);
@@ -75,16 +90,23 @@ export const buildScatterPoints = (
     .filter((s): s is ValidSample => s !== null);
   const cohortMean = cohortMeanByLevel(cohortSamples);
 
-  const groups = new Map<string, ValidSample[]>();
+  const groups = new Map<string, { label: string; list: ValidSample[] }>();
   for (const s of samples) {
-    const key = groupKeyOf(axis, s.record, orgLevel);
-    const arr = groups.get(key);
-    if (arr) arr.push(s);
-    else groups.set(key, [s]);
+    const g = groupOf(axis, s.record, orgLevel);
+    const cur = groups.get(g.key);
+    if (cur) cur.list.push(s);
+    else groups.set(g.key, { label: g.label, list: [s] });
   }
+  // 표시명이 겹치면(동명이인 평가자) 사번을 병기해 점을 구분한다.
+  const labelCount = new Map<string, number>();
+  for (const { label } of groups.values()) labelCount.set(label, (labelCount.get(label) ?? 0) + 1);
 
   const points: ScatterPoint[] = [];
-  for (const [label, list] of groups) {
+  for (const [groupKey, { label: rawLabel, list }] of groups) {
+    const label =
+      axis === 'evaluator' && (labelCount.get(rawLabel) ?? 0) > 1 && groupKey.startsWith('id:')
+        ? `${rawLabel} (${groupKey.slice(3)})`
+        : rawLabel;
     const n = list.length;
     const scores = list.map((s) => s.record.weightedScore);
     const gaps = list.map((s) => s.gap);
@@ -114,7 +136,7 @@ export const buildScatterPoints = (
       .sort((a, b) => b.gap - a.gap);
 
     points.push({
-      id: label,
+      id: groupKey,
       label,
       n,
       bias: Math.round(bias * 100) / 100,

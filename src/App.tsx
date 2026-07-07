@@ -1,6 +1,5 @@
 import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 import { FullScreenLoader } from "@/components/ui/loader";
@@ -9,6 +8,7 @@ import { ApiRequestError } from "@/lib/api";
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ORG_KPI_ENABLED } from "@/lib/featureFlags";
 import { EvaluationMatrixProvider } from "@/contexts/EvaluationMatrixContext";
 import { ExpectationProvider } from "@/contexts/ExpectationContext";
 import { NotificationProviderDB } from "@/contexts/NotificationContextDB";
@@ -23,6 +23,7 @@ import NotFound from "./pages/NotFound";
 
 const Evaluation = lazy(() => import("./pages/Evaluation"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const KpiManagePage = lazy(() => import("./pages/kpi/KpiManagePage"));
 
 const MyHome = lazy(() => import("./pages/my/Home"));
 const MyTasksPage = lazy(() => import("./pages/my/MyTasksPage"));
@@ -98,7 +99,6 @@ const App = () => (
     <ErrorBoundary>
     <TooltipProvider>
       <Toaster />
-      <Sonner />
       <ConfirmDialogProvider>
       <AuthProvider>
         <EvaluationMatrixProvider>
@@ -111,6 +111,17 @@ const App = () => (
 
               <Route element={<AppShell />}>
                 <Route path="/notifications" element={<NotificationsPage />} />
+                {/* 조직 KPI — HR·평가자 공용. 플래그 OFF(기본)면 라우트 자체가 없어 404. */}
+                {ORG_KPI_ENABLED && (
+                  <Route
+                    path="/kpi"
+                    element={
+                      <ProtectedRoute allowedRoles={["hr", "evaluator"]}>
+                        <KpiManagePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                )}
                 {/* 피평가자 */}
                 <Route
                   path="/my"

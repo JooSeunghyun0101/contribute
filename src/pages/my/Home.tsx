@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { LoadingState } from '@/components/ui/state-views';
@@ -54,7 +55,10 @@ const MyHome = () => {
   const { evaluationData, isLoading, calculateTotalScore, isAchieved } =
     useEvaluationDataDB(user?.employeeId || '', { readOnly: true });
 
-  const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
+  // 발령자는 이전 평가 과업(isHistoricalEvaluation)이 병합되어 온다(S1) — 점수·가중치·과업
+  // 목록 등 '현재 평가' 통계는 현재 과업만 쓰고, 최근 피드백만 이전 평가까지 포함한다.
+  const allTasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
+  const tasks = useMemo(() => allTasks.filter((t) => !t.isHistoricalEvaluation), [allTasks]);
   const { exactScore } = calculateTotalScore();
   const achieved = isAchieved();
   const [fireworkTrigger, setFireworkTrigger] = useState<CelebrationTrigger | null>(null);
@@ -166,10 +170,10 @@ const MyHome = () => {
     };
   }, [growthScopeId]);
 
-  /* 최근 피드백 */
+  /* 최근 피드백 — 이전 평가(발령 전) 피드백도 포함해 최신순. */
   const recentFeedbacks = useMemo(
     () =>
-      tasks
+      allTasks
         .flatMap((task, i) =>
           (task.feedbackHistory ?? []).map((fb) => ({
             ...fb,
@@ -183,29 +187,52 @@ const MyHome = () => {
         )
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 2),
-    [matrix, tasks],
+    [matrix, allTasks],
   );
 
   // 최상단 한 줄 알림 — 성과보고(=최종제출) 주기. 매월 최소 1회 제출을 안내한다.
-  // (현재 점수·목표 달성은 헤더에 이미 크게 있어 여기서는 제외)
-  const summaryText = useMemo(() => {
-    if (!evaluationData) return '평가 데이터가 없습니다.';
+  // P3-15 정합: ① 마감/잠금/작성 전 기간 조회 중에는 재촉하지 않는다(할 수 있는 행동이 없음)
+  // ② 최종제출 후 잠금 상태면 '재보고하려면 평가자에게 수정 요청' 경로를 안내한다(재촉↔잠금 모순 해소)
+  // ③ 행동이 필요한 문구에는 '내 과업으로' 링크를 단다. ※'매월 제출' 정책 자체는 제도 결정 사항.
+  const summary = useMemo((): { text: string; action: 'tasks' | null } => {
+    if (selectedPeriod && selectedPeriod.status !== 'active') {
+      const statusLabel =
+        selectedPeriod.status === 'closed' ? '마감' : selectedPeriod.status === 'locked' ? '잠금' : '작성 전';
+      return { text: `${selectedPeriod.name}은(는) ${statusLabel} 상태의 평가기간입니다 · 조회 전용`, action: null };
+    }
+    if (!evaluationData) return { text: '평가 데이터가 없습니다.', action: null };
+    const locked = ['submitted', 'evaluating', 'completed', 'locked'].includes(
+      evaluationData.evaluationStatus ?? '',
+    );
     const submittedAt = evaluationData.submittedAt;
     if (!submittedAt) {
-      return '아직 성과보고(최종제출)가 없습니다. 매월 최소 1회는 성과보고를 해주세요.';
+      return {
+        text: '아직 성과보고(최종제출)가 없습니다. 매월 최소 1회는 성과보고를 해주세요.',
+        action: 'tasks',
+      };
     }
     const now = new Date();
     const last = new Date(submittedAt);
-    if (Number.isNaN(last.getTime())) return '성과보고 기록을 확인할 수 없습니다.';
+    if (Number.isNaN(last.getTime())) return { text: '성과보고 기록을 확인할 수 없습니다.', action: null };
     const days = Math.max(0, Math.floor((now.getTime() - last.getTime()) / 86_400_000));
     const lastLabel = days === 0 ? '오늘' : `${days}일 전`;
     const thisMonth =
       last.getFullYear() === now.getFullYear() && last.getMonth() === now.getMonth();
     if (thisMonth) {
-      return `이번 달 성과보고 완료 · 마지막 제출 ${lastLabel}`;
+      return { text: `이번 달 성과보고 완료 · 마지막 제출 ${lastLabel}`, action: null };
     }
-    return `이번 달 성과보고가 없습니다 (마지막 ${lastLabel}) · 매월 최소 1회는 성과보고를 해주세요`;
-  }, [evaluationData]);
+    if (locked) {
+      // 제출 후 잠금 — 스스로 재제출할 수 없으므로 재촉 대신 실제 가능한 경로를 안내.
+      return {
+        text: `마지막 성과보고 ${lastLabel} · 내용을 다시 보고하려면 내 과업에서 평가자에게 수정 요청을 보내세요`,
+        action: 'tasks',
+      };
+    }
+    return {
+      text: `이번 달 성과보고가 없습니다 (마지막 ${lastLabel}) · 매월 최소 1회는 성과보고를 해주세요`,
+      action: 'tasks',
+    };
+  }, [evaluationData, selectedPeriod]);
 
   if (isLoading) {
     return (
@@ -351,8 +378,22 @@ const MyHome = () => {
               알림
             </span>
             <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)' }}>
-              {summaryText}
+              {summary.text}
             </span>
+            {summary.action === 'tasks' && (
+              <Link
+                to="/my/tasks"
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 'var(--fs-sm)',
+                  fontWeight: 800,
+                  color: 'var(--ok-orange)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                내 과업으로 →
+              </Link>
+            )}
           </div>
 
           {/* ── 2-컬럼 (기여 분포 + 간트) ── 화면상 '두 번째' 줄(order 로 과업비율 줄과 자리 바꿈) ── */}
@@ -1082,6 +1123,50 @@ const MyHome = () => {
                 </p>
               )}
             </div>
+            {/* 최근 피드백 — 로그인 직후 '평가자가 뭐라고 했는지'를 첫 화면에서 바로 볼 수 있게. */}
+            {recentFeedbacks.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)' }}>
+                    최근 피드백
+                  </span>
+                  <Link
+                    to="/my/feedback"
+                    style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--ok-orange)' }}
+                  >
+                    피드백 이력 전체 보기 →
+                  </Link>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {recentFeedbacks.map((fb) => (
+                    <div key={fb.id} style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.6 }}>
+                      <span style={{ fontWeight: 700 }}>{fb.taskTitle}</span>
+                      <span style={{ color: 'var(--fg-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 6 }}>
+                        {new Date(fb.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <div
+                        style={{
+                          color: 'var(--fg-muted)',
+                          overflow: 'hidden',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        {fb.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           </div>
         </>

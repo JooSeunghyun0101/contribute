@@ -504,6 +504,24 @@ export const employeeService = {
     }
   },
 
+  // S5: 배정이력 벌크 — 보드가 피평가자별로 개별 조회(N+1)하던 것을 한 요청으로. 키=사번.
+  async getEvaluatorAssignmentHistoryBulk(
+    employeeIds: string[],
+  ): Promise<Record<string, EvaluatorAssignmentHistory[]>> {
+    try {
+      return await apiFetch<Record<string, EvaluatorAssignmentHistory[]>>(
+        '/api/evaluator-assignment-history/bulk',
+        {
+          method: 'POST',
+          body: JSON.stringify({ employee_ids: employeeIds }),
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
   async cancelEvaluatorAssignment(
     historyId: string,
     payload: AssignmentActionPayload = {},

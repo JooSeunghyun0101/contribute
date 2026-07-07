@@ -19,9 +19,22 @@ import {
   type OrgLevel,
 } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
+import { isFinalizedEvaluationStatus } from '@/lib/evaluationStatus';
 import { employeeService } from '@/lib/services';
 import type { Employee } from '@/types';
-import { downloadDepartmentMembersWorkbook, type DepartmentExportMember } from '@/utils/hrDataExport';
+import {
+  downloadDepartmentMembersWorkbook,
+  downloadOrgResultWorkbook,
+  type DepartmentExportMember,
+  type OrgResultRow,
+} from '@/utils/hrDataExport';
+import {
+  MIN_SAMPLE,
+  emptyBuckets,
+  sampleStdDev,
+  toValidSample,
+  type ValidSample,
+} from '@/lib/orgStats';
 
 type SortKey =
   | 'completion-asc'
@@ -42,8 +55,9 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name-asc', label: '부서명 가나다순' },
 ];
 
+// 완료 판정 단일 기준(src/lib/evaluationStatus.ts) — 완료 = 평가자 확정(completed/locked).
 const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
-  record.reviewStatus === 'completed' || record.reviewStatus === 'locked';
+  isFinalizedEvaluationStatus(record.reviewStatus);
 
 // 그룹핑·필터·표 org 표시는 '그 평가 기간'의 조직 기준(evaluatee_org_*), 없으면 현재 employee.org_* 폴백.
 const recordOrg = (record: EmployeeEvaluationRecord) =>
@@ -78,7 +92,8 @@ const groupEvaluatorNames = (
 
 const HrDepartmentsPage = () => {
   const { records, isLoading, error } = useCompanyDashboardRecords();
-  const { selectedPeriodId } = useEvaluationPeriod();
+  const { selectedPeriodId, selectedPeriod } = useEvaluationPeriod();
+  const { toast } = useToast();
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const deptParam = searchParams.get('dept');
@@ -383,12 +398,68 @@ const HrDepartmentsPage = () => {
     });
   }, [visibleDepartments, groupBySection]);
 
+  // P3-6: 화면에 집계된 그룹(현재 필터·집계 단위 그대로)을 부서·본부 결과 엑셀로 —
+  // downloadOrgResultWorkbook(기구현, F-D2)을 배선. 통계 정의는 orgStats 단일 출처.
+  const handleExportOrgResults = () => {
+    const rows: OrgResultRow[] = [...recordsByDepartment.entries()]
+      .map(([key, members]) => {
+        const samples = members
+          .map(toValidSample)
+          .filter((s): s is ValidSample => s !== null);
+        const gaps = samples.map((s) => s.gap);
+        const buckets = emptyBuckets();
+        for (const s of samples) buckets[s.bucket] += 1;
+        const scores = samples
+          .map((s) => Number(s.record.weightedScore))
+          .filter((v) => Number.isFinite(v));
+        const sepIdx = key.lastIndexOf(' › ');
+        return {
+          levelLabel: groupLabel,
+          org: sepIdx >= 0 ? key.slice(sepIdx + 3) : key,
+          parentPath: sepIdx >= 0 ? key.slice(0, sepIdx) : '',
+          assignedCount: members.length,
+          completedCount: members.filter(isEvaluationFinalized).length,
+          n: samples.length,
+          achievedCount: samples.filter((s) => s.gap >= 0).length,
+          meanGap: gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null,
+          sd: sampleStdDev(gaps),
+          meanScore: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
+          buckets,
+          isSmall: samples.length < MIN_SAMPLE,
+          isUnassigned: key === '미지정',
+        };
+      })
+      .sort((a, b) => a.parentPath.localeCompare(b.parentPath, 'ko') || a.org.localeCompare(b.org, 'ko'));
+    if (rows.length === 0) {
+      toast({ title: '내보낼 집계 결과가 없습니다.' });
+      return;
+    }
+    const { fileName, rowCount } = downloadOrgResultWorkbook(rows, {
+      levelLabel: groupLabel,
+      periodLabel: selectedPeriod?.name ?? undefined,
+    });
+    toast({ title: '집계표 다운로드 완료', description: `${fileName} · ${rowCount}개 조직` });
+  };
+
   return (
     <>
       <PageHeader
         title="부서별 진행 현황"
         subtitle="본부·부·팀 단위로 완료율, 목표 달성률, 점수 분포를 한 화면에서 확인합니다."
-        actions={<Pill tone="orange">{groupLabel} {departments.length}개</Pill>}
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={handleExportOrgResults}
+              disabled={recordsByDepartment.size === 0}
+              title="현재 필터·집계 단위 기준의 조직별 결과(완료율·평균갭·표준편차·분포)를 엑셀로 내려받습니다."
+            >
+              <Download size={14} aria-hidden="true" />
+              집계표 엑셀
+            </button>
+            <Pill tone="orange">{groupLabel} {departments.length}개</Pill>
+          </div>
+        }
         filters={
           <>
             <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 360 }}>

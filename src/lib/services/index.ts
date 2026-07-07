@@ -21,6 +21,7 @@ export { auditLogService } from './auditLogService';
 export type { AuditLogRow, AuditLogQuery, AuditLogPage } from './auditLogService';
 export { authService } from './authService';
 export type { AuthSession } from './authService';
+export { kpiService } from './kpiService';
 export type { EvaluationPeriodInput, EvaluationPeriodUpdate } from './evaluationPeriodService';
 export type { TaskEvaluationEntryInput } from './taskEvaluationEntryService';
 export type { ChangeRequestInput, ChangeRequestQuery } from './changeRequestService';

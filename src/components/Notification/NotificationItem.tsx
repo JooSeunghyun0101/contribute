@@ -13,10 +13,16 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Notification, NotificationType } from '@/types/notification';
+import { getNotificationDestination } from '@/lib/notificationNavigation';
+import type { UserRole } from '@/types';
 
 interface NotificationItemProps {
   notification: Notification;
   onMarkAsRead: (id: string) => void;
+  /** 딥링크 매핑에 쓸 역할 — 겸직자는 현재 보고 있는 역할 탭의 역할. 없으면 이동 없음. */
+  currentRole?: UserRole | null;
+  /** 매핑된 목적지가 있을 때 호출(팝오버 닫기·역할 전환 등은 호출측 책임). 없으면 이동 없음. */
+  onNavigate?: (path: string) => void;
 }
 
 const ICON_MAP: Record<NotificationType, LucideIcon> = {
@@ -24,6 +30,7 @@ const ICON_MAP: Record<NotificationType, LucideIcon> = {
   task_summary: MessageSquare,
   evaluation_completed: CheckCircle2,
   evaluation_started: CheckCircle2,
+  evaluation_submitted: CheckCircle2,
   score_changed: Target,
   task_content_changed: FileText,
   task_updated: FileText,
@@ -38,6 +45,8 @@ const ICON_MAP: Record<NotificationType, LucideIcon> = {
   change_request: UserPlus,
   change_request_result: CheckCircle2,
   reminder: Bell,
+  ai_review_flagged: AlertCircle,
+  submit_reminder: Bell,
 };
 
 const formatRelativeTime = (iso: string): string => {
@@ -56,18 +65,33 @@ const formatRelativeTime = (iso: string): string => {
   return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric' }).format(date);
 };
 
-const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onMarkAsRead }) => {
+const NotificationItem: React.FC<NotificationItemProps> = ({
+  notification,
+  onMarkAsRead,
+  currentRole,
+  onNavigate,
+}) => {
   const Icon = ICON_MAP[notification.type] ?? Bell;
   const isUnread = !notification.isRead;
+  // 타입·역할별 매핑이 있는 알림만 관련 화면으로 이동(없으면 현행처럼 읽음 처리만).
+  const destination = onNavigate ? getNotificationDestination(notification, currentRole) : null;
+  const clickable = isUnread || destination !== null;
+
+  const handleClick = () => {
+    if (isUnread) onMarkAsRead(notification.id);
+    if (destination && onNavigate) onNavigate(destination);
+  };
 
   return (
     <button
       type="button"
-      onClick={() => isUnread && onMarkAsRead(notification.id)}
-      className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-[var(--bg-muted)] last:border-b-0"
+      onClick={handleClick}
+      className={`flex w-full items-start gap-3 px-3 py-3 text-left transition-colors last:border-b-0${
+        clickable ? ' hover:bg-[var(--bg-muted)]' : ''
+      }`}
       style={{
         borderBottom: '1px solid var(--border)',
-        cursor: isUnread ? 'pointer' : 'default',
+        cursor: clickable ? 'pointer' : 'default',
       }}
     >
       <div

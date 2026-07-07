@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1902,6 +1902,7 @@ const getTaskForEvaluationEntry = async (client, payload) => {
         t.id,
         t.task_id,
         t.evaluation_id,
+        t.deleted_at,
         e.evaluatee_id,
         e.evaluation_status,
         CASE
@@ -1939,6 +1940,15 @@ const getTaskForEvaluationEntry = async (client, payload) => {
   const task = rows[0];
   if (!task) {
     throw Object.assign(new Error('Task not found'), { statusCode: 404 });
+  }
+
+  // 소프트 삭제된 과업에 대한 채점(entry) 기록 차단 — 피평가자가 과업을 삭제·재제출한 뒤
+  // 평가자의 stale 탭이 저장하면 삭제 과업에 유령 점수가 남는 경로를 서버에서 원천 봉쇄.
+  if (task.deleted_at) {
+    throw Object.assign(
+      new Error('삭제된 과업에는 평가를 저장할 수 없습니다. 화면을 새로고침해 최신 과업 목록으로 다시 평가해 주세요.'),
+      { statusCode: 409 },
+    );
   }
 
   if (payload.evaluation_id && task.evaluation_id !== payload.evaluation_id) {
@@ -2561,6 +2571,33 @@ const requireHr = async (req, res, next) => {
     next();
   } catch (err) {
     console.error('HR 권한 확인 실패:', err.message);
+    res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
+  }
+};
+
+// 요청자 평가자 여부 — available_roles 에 'evaluator'. 소속 org(팀 스코프 제한용)도 함께 캐시.
+const requesterIsEvaluator = async (req) => {
+  if (req._isEvaluator !== undefined) return req._isEvaluator;
+  const { rows } = await pool.query(
+    `SELECT org_corporation, org_division, org_department, org_team
+       FROM employees
+      WHERE employee_id::text = $1 AND 'evaluator' = ANY(available_roles)
+      LIMIT 1`,
+    [req.session.employeeId],
+  );
+  req._evaluatorOrg = rows[0] ?? null;
+  req._isEvaluator = rows.length > 0;
+  return req._isEvaluator;
+};
+
+// KPI 등록/배분: HR 이거나 평가자. (세부 스코프 — 팀장은 자기 팀만 — 은 각 핸들러에서 검사)
+const requireHrOrEvaluator = async (req, res, next) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    if ((await requesterIsHr(req)) || (await requesterIsEvaluator(req))) return next();
+    return res.status(403).json({ error: 'HR 또는 평가자 권한이 필요합니다.' });
+  } catch (err) {
+    console.error('KPI 권한 확인 실패:', err.message);
     res.status(500).json({ error: '권한 확인 중 오류가 발생했습니다.' });
   }
 };
@@ -3633,6 +3670,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             position,
             department,
             department_id,
+            department_id_source,
             growth_level,
             available_roles,
             org_sequence,
@@ -3650,12 +3688,23 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             created_at,
             updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
+          VALUES ($1,$2,$3,$4,$5,CASE WHEN $5::text IS NULL THEN NULL ELSE 'profile' END,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
             position = COALESCE(NULLIF(EXCLUDED.position, ''), employees.position),
             department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
-            department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            -- 부서ID 우선순위: 매칭 업로드(1순위)가 넣은 값은 대상자 업로드(2순위)가 덮지 못한다.
+            -- 대상자 업로드끼리는 새 값이 갱신(profile 출처 값은 재업로드로 정정 가능).
+            department_id = CASE
+              WHEN EXCLUDED.department_id IS NULL THEN employees.department_id
+              WHEN employees.department_id IS NOT NULL AND employees.department_id_source = 'matching' THEN employees.department_id
+              ELSE EXCLUDED.department_id
+            END,
+            department_id_source = CASE
+              WHEN EXCLUDED.department_id IS NULL THEN employees.department_id_source
+              WHEN employees.department_id IS NOT NULL AND employees.department_id_source = 'matching' THEN employees.department_id_source
+              ELSE 'profile'
+            END,
             growth_level = EXCLUDED.growth_level,
             available_roles = CASE
               WHEN $16::boolean THEN (
@@ -3716,6 +3765,24 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           row.org_team ?? null,
         ]
       );
+    }
+
+    // 부서ID가 정해진 직원의 소속 4단계(org_*)를 기본 기간 조직 스냅샷에서 자동 파생 —
+    // 매칭 파일에 행이 없는 평가자 전용 인원(임원 등)도 부서ID만 넣으면 소속이 채워진다
+    // (조직정보 업로드를 다시 하지 않아도 됨. 조직정보 업로드의 매칭 규칙과 동일).
+    {
+      const affectedIds = mergedRows.map((r) => r.employee_id).filter(Boolean);
+      if (affectedIds.length > 0) {
+        await client.query(
+          `UPDATE employees e
+              SET org_corporation = s.org_corporation, org_division = s.org_division,
+                  org_department = s.org_department, org_team = s.org_team
+             FROM org_structure s
+             JOIN evaluation_periods p ON p.id = s.evaluation_period_id AND p.is_default
+            WHERE e.department_id = s.dept_code AND e.employee_id::text = ANY($1::text[]) AND e.employee_id <> 'admin'`,
+          [affectedIds],
+        );
+      }
     }
 
     // 대상자 업로드 평가기간 귀속:
@@ -4388,6 +4455,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             position,
             department,
             department_id,
+            department_id_source,
             growth_level,
             evaluator_id,
             available_roles,
@@ -4406,10 +4474,15 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
             created_at,
             updated_at
           )
-          VALUES ($1,$2,'구성원',$3,$4,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
+          VALUES ($1,$2,'구성원',$3,$4,CASE WHEN $4::text IS NULL THEN NULL ELSE 'matching' END,NULL,$5,$6::text[],$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             evaluator_id = EXCLUDED.evaluator_id,
+            -- 부서ID 1순위 출처: 매칭 값이 있으면 항상 갱신(대상자 업로드 값보다 우선).
             department_id = COALESCE(EXCLUDED.department_id, employees.department_id),
+            department_id_source = CASE
+              WHEN EXCLUDED.department_id IS NOT NULL THEN 'matching'
+              ELSE employees.department_id_source
+            END,
             department = COALESCE(NULLIF(EXCLUDED.department, '미지정'), employees.department),
             available_roles = (
               SELECT array_agg(role ORDER BY CASE role WHEN 'evaluatee' THEN 1 WHEN 'evaluator' THEN 2 WHEN 'hr' THEN 3 ELSE 9 END)
@@ -4454,6 +4527,22 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
           row.org_team ?? null,
         ]
       );
+    }
+
+    // 부서ID가 정해진 직원의 소속 4단계(org_*)를 기본 기간 조직 스냅샷에서 자동 파생(대상자 업로드와 동일).
+    {
+      const affectedIds = primaryRows.map((r) => r.employee_id).filter(Boolean);
+      if (affectedIds.length > 0) {
+        await client.query(
+          `UPDATE employees e
+              SET org_corporation = s.org_corporation, org_division = s.org_division,
+                  org_department = s.org_department, org_team = s.org_team
+             FROM org_structure s
+             JOIN evaluation_periods p ON p.id = s.evaluation_period_id AND p.is_default
+            WHERE e.department_id = s.dept_code AND e.employee_id::text = ANY($1::text[]) AND e.employee_id <> 'admin'`,
+          [affectedIds],
+        );
+      }
     }
 
     // ── 파일=정답 기준 reconcile: 직원별 평가자 단계 동기화 ──────────
@@ -4825,6 +4914,79 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
       }
     }
 
+    // 소속(org_*) 수정은 '현재 조직 기간'(is_default) 의 평가행에도 동기화한다.
+    // 사용자관리 화면·KPI 조직장 산정이 기간 조직(evaluatee_org_*)을 우선하므로, 마스터만
+    // 바꾸면 저장해도 화면·산정에 반영되지 않는다. 발령자의 이전 평가행(다른 평가자 배정)은
+    // 이력이라 건드리지 않고 '현재 평가자 행'(배정=마스터 평가자, K19 와 동일 규칙)만 갱신
+    // — 일치 행이 없으면 최신 행 1개로 폴백.
+    const orgTouched = updateEntries.some(([k]) =>
+      ['org_corporation', 'org_division', 'org_department', 'org_team'].includes(k)
+    );
+    if (orgTouched) {
+      const { rows: defPeriodRows } = await client.query(
+        'SELECT id FROM evaluation_periods WHERE is_default = true LIMIT 1'
+      );
+      const defaultPeriodId = defPeriodRows[0]?.id ?? null;
+      if (defaultPeriodId) {
+        const orgValues = [
+          updatedEmployee.org_corporation ?? null,
+          updatedEmployee.org_division ?? null,
+          updatedEmployee.org_department ?? null,
+          updatedEmployee.org_team ?? null,
+        ];
+        const masterEvaluatorId =
+          updatedEmployee.evaluator_id == null ? null : String(updatedEmployee.evaluator_id);
+        const { rowCount: syncedRows } = await client.query(
+          `UPDATE evaluations SET evaluatee_org_corporation = $3, evaluatee_org_division = $4,
+                  evaluatee_org_department = $5, evaluatee_org_team = $6, updated_at = NOW()
+            WHERE evaluatee_id = $1 AND evaluation_period_id = $2 AND record_status = 'active'
+              AND id IN (
+                SELECT ev2.id FROM evaluations ev2
+                LEFT JOIN evaluator_assignment_history h ON h.id = ev2.assignment_history_id
+                WHERE ev2.evaluatee_id = $1 AND ev2.evaluation_period_id = $2
+                  AND ev2.record_status = 'active'
+                  AND COALESCE(h.new_evaluator_id::text, $7::text) IS NOT DISTINCT FROM $7::text
+              )`,
+          [req.params.id, defaultPeriodId, ...orgValues, masterEvaluatorId]
+        );
+        if (syncedRows === 0) {
+          await client.query(
+            `UPDATE evaluations SET evaluatee_org_corporation = $3, evaluatee_org_division = $4,
+                    evaluatee_org_department = $5, evaluatee_org_team = $6, updated_at = NOW()
+              WHERE id = (SELECT id FROM evaluations
+                           WHERE evaluatee_id = $1 AND evaluation_period_id = $2
+                             AND record_status = 'active'
+                           ORDER BY created_at DESC LIMIT 1)`,
+            [req.params.id, defaultPeriodId, ...orgValues]
+          );
+        }
+        // 부서ID도 새 소속과 정합화 — 기본 기간 조직 스냅샷에서 4단계 조합이 일치하는 부서코드를
+        // 역조회한다. 기존값이 후보면 유지, 아니면 첫 후보로 교체, 스냅샷에 없는 조합이면 NULL
+        // (옛 코드를 남기면 업로드 소속 파생·마스터 폴백 번역이 옛 조직으로 되돌린다).
+        const { rows: deptRows } = await client.query(
+          `SELECT dept_code FROM org_structure
+            WHERE evaluation_period_id = $1
+              AND org_corporation IS NOT DISTINCT FROM $2 AND org_division IS NOT DISTINCT FROM $3
+              AND org_department IS NOT DISTINCT FROM $4 AND org_team IS NOT DISTINCT FROM $5
+            ORDER BY dept_code`,
+          [defaultPeriodId, ...orgValues]
+        );
+        const deptCandidates = deptRows.map((r) => r.dept_code);
+        const nextDeptId = deptCandidates.includes(updatedEmployee.department_id)
+          ? updatedEmployee.department_id
+          : deptCandidates[0] ?? null;
+        if (nextDeptId !== (updatedEmployee.department_id ?? null)) {
+          await client.query(
+            `UPDATE employees SET department_id = $2, department_id_source = 'profile', updated_at = NOW()
+              WHERE employee_id = $1`,
+            [req.params.id, nextDeptId]
+          );
+          updatedEmployee.department_id = nextDeptId;
+          updatedEmployee.department_id_source = 'profile';
+        }
+      }
+    }
+
     // 감사로그: 바뀐 화이트리스트 필드만 old→new. 평가자 변경이면 별도 action_type.
     const employeeAuditKeys = updateEntries
       .map(([k]) => k)
@@ -4857,6 +5019,81 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
   }
 });
 
+
+// ── 임시저장 draft 서버 보관 (S2) ────────────────────────────────────────────
+// localStorage 임시저장의 서버 승격 — 기기 간 이어서 작성, 브라우저 데이터 삭제 유실 방지.
+// payload 는 클라이언트 draft 맵 그대로 보관(서버는 내용을 해석하지 않는다). 접근은 소유자
+// (세션 사용자) 본인 것만. 빈 payload 저장 = 삭제. POST 는 PUT 과 동일 동작으로, 탭 종료
+// 직전 fetch keepalive 전송 경로다.
+const UI_DRAFT_MAX_BYTES = 200 * 1024;
+const uiDraftKeyOf = (req) => {
+  const key = String(req.params.key ?? '').trim();
+  return key && key.length <= 300 ? key : null;
+};
+app.get('/api/drafts/:key', async (req, res) => {
+  if (!isDbAvailable) return res.json(null);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT payload, updated_at FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2',
+      [String(req.session.employeeId), key]
+    );
+    res.json(rows[0] ?? null);
+  } catch (err) {
+    console.error('Error fetching ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+const upsertUiDraft = async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  const payload = req.body?.payload;
+  try {
+    if (!payload || typeof payload !== 'object' || Object.keys(payload).length === 0) {
+      await pool.query('DELETE FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2', [
+        String(req.session.employeeId),
+        key,
+      ]);
+      return res.json({ ok: true, cleared: true });
+    }
+    const json = JSON.stringify(payload);
+    if (Buffer.byteLength(json, 'utf8') > UI_DRAFT_MAX_BYTES) {
+      return res.status(413).json({ error: '임시저장 데이터가 너무 큽니다.' });
+    }
+    await pool.query(
+      `INSERT INTO ui_drafts (owner_id, draft_key, payload, updated_at)
+       VALUES ($1, $2, $3::jsonb, NOW())
+       ON CONFLICT (owner_id, draft_key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [String(req.session.employeeId), key, json]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error saving ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+};
+app.put('/api/drafts/:key', upsertUiDraft);
+app.post('/api/drafts/:key', upsertUiDraft);
+app.delete('/api/drafts/:key', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const key = uiDraftKeyOf(req);
+  if (!key) return res.status(400).json({ error: 'draft key 가 올바르지 않습니다.' });
+  try {
+    await pool.query('DELETE FROM ui_drafts WHERE owner_id = $1 AND draft_key = $2', [
+      String(req.session.employeeId),
+      key,
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting ui draft:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
 
 app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, res) => {
   if (!isDbAvailable) {
@@ -4891,6 +5128,141 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
       return res.json([]);
     }
     console.error('Error fetching evaluator assignment history:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ── HR 전체 평가 데이터 벌크 export (P3-7) ──────────────────────────────────
+// 전체 엑셀 내보내기가 클라이언트에서 직원·평가별 순차 조회(수천 요청)로 돌던 것을 한 요청으로
+// 대체한다. 각 배열은 기존 개별 라우트가 주던 것과 같은 원자료(superset)이고, 조합·필터는
+// 클라이언트(hrDataExport)가 기존 로직 그대로 수행한다(거동 동일). 평가 행의 평가자 해석·정렬은
+// /api/evaluations/employee/:id 와 동일 규칙.
+app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  try {
+    // 리뷰 확정 수정: legacy 경로(/api/evaluations/employee/:id, 기간 미지정=활성 기간)와
+    // 동일한 기간 스코프를 적용 — 없으면 전 기간(2025+2026)이 혼입되어 행 수·'현재/이전'
+    // 판정이 기존 산출물과 달라진다. periodId 쿼리로 특정 기간 지정도 가능.
+    const periodFilter = await resolveEvaluationPeriodFilter(req.query, 1);
+    const periodClause = periodFilter.clause
+      .replaceAll('evaluation_period_id', 'ev.evaluation_period_id')
+      .replaceAll('evaluation_year', 'ev.evaluation_year');
+    const [employeesQ, evaluationsQ, tasksQ, entriesQ, feedbacksQ, historiesQ] = await Promise.all([
+      pool.query('SELECT * FROM employees'),
+      pool.query(
+        `
+          SELECT
+            ev.*,
+            COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id) AS evaluator_id,
+            latest_ah.changed_at AS evaluator_assigned_at,
+            ev_emp.name AS evaluator_name,
+            ev_emp.position AS evaluator_position,
+            ev_emp.department AS evaluator_department
+          FROM evaluations ev
+          LEFT JOIN employees emp ON emp.employee_id = ev.evaluatee_id
+          LEFT JOIN LATERAL (
+            SELECT h.*
+            FROM evaluator_assignment_history h
+            WHERE h.evaluation_id = ev.id
+              AND h.employee_id = ev.evaluatee_id
+              AND h.status = 'applied'
+              AND h.change_type <> 'cancel'
+            ORDER BY h.changed_at DESC, h.id DESC
+            LIMIT 1
+          ) latest_ah ON TRUE
+          LEFT JOIN employees ev_emp ON ev_emp.employee_id = COALESCE(latest_ah.new_evaluator_id, emp.evaluator_id)
+          WHERE COALESCE(ev.record_status, 'active') = 'active'
+            AND ${periodClause}
+          ORDER BY ev.evaluatee_id,
+            CASE WHEN ev.evaluation_status = 'draft' THEN 0 ELSE 1 END,
+            latest_ah.changed_at DESC NULLS LAST,
+            ev.created_at DESC
+        `,
+        periodFilter.values
+      ),
+      pool.query('SELECT * FROM tasks'),
+      // 리뷰 확정 수정: 취소(cancelled)된 채점·피드백 제외 — 단건 라우트와 동일 필터.
+      // 없으면 발령 원복 등으로 취소된 entry(취소 시 updated_at 갱신)가 최신-우선 대표
+      // 선택에서 이겨 취소된 점수가 엑셀 대표값으로 기재될 수 있다.
+      pool.query(`SELECT * FROM task_evaluation_entries WHERE COALESCE(status, 'active') = 'active'`),
+      pool.query(`SELECT * FROM feedback_history WHERE COALESCE(status, 'active') = 'active'`),
+      pool.query(
+        `
+          SELECT h.*, prev.name AS previous_evaluator_name, next.name AS new_evaluator_name,
+                 actor.name AS changed_by_name, cancel_actor.name AS cancelled_by_name,
+                 p.name AS evaluation_period_name, p.evaluation_year
+          FROM evaluator_assignment_history h
+          LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
+          LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
+          LEFT JOIN employees actor ON actor.employee_id = h.changed_by
+          LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
+          LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
+          ORDER BY h.changed_at DESC, h.id DESC
+        `
+      ),
+    ]);
+    // 보안: 인증 컬럼은 응답에서 제거(SELECT * 라우트 공통 규칙).
+    const employees = employeesQ.rows.map(
+      ({ password_hash: _ph, must_change_password: _mc, ...safe }) => safe
+    );
+    res.json({
+      employees,
+      evaluations: evaluationsQ.rows,
+      tasks: tasksQ.rows,
+      task_evaluation_entries: entriesQ.rows,
+      feedback_history: feedbacksQ.rows,
+      assignment_histories: historiesQ.rows,
+    });
+  } catch (err) {
+    console.error('Error building HR export payload:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ── 배정이력 벌크 조회 (S5) ─────────────────────────────────────────────────
+// 평가보드가 피평가자마다 이력을 개별 조회(N+1)하던 것을 한 요청으로 묶는다.
+// 응답 행·노출 범위는 위 단건 라우트와 동일(세션 사용자, h.* + 조인 이름), 키=사번.
+app.post('/api/evaluator-assignment-history/bulk', async (req, res) => {
+  if (!isDbAvailable) return res.json({});
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const ids = Array.isArray(req.body?.employee_ids)
+    ? [...new Set(req.body.employee_ids.map((v) => String(v)).filter(Boolean))]
+    : [];
+  if (ids.length === 0) return res.json({});
+  if (ids.length > 500) {
+    return res.status(400).json({ error: '한 번에 조회 가능한 인원(500)을 초과했습니다.' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+        SELECT
+          h.*,
+          prev.name AS previous_evaluator_name,
+          next.name AS new_evaluator_name,
+          actor.name AS changed_by_name,
+          cancel_actor.name AS cancelled_by_name,
+          p.name AS evaluation_period_name,
+          p.evaluation_year
+        FROM evaluator_assignment_history h
+        LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
+        LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
+        LEFT JOIN employees actor ON actor.employee_id = h.changed_by
+        LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
+        LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
+        WHERE h.employee_id = ANY($1::text[])
+        ORDER BY h.changed_at DESC, h.id DESC
+      `,
+      [ids]
+    );
+    const out = {};
+    for (const id of ids) out[id] = [];
+    for (const row of rows) {
+      (out[row.employee_id] ??= []).push(row);
+    }
+    res.json(out);
+  } catch (err) {
+    if (MISSING_PERIOD_SCHEMA_CODES.has(err.code)) return res.json({});
+    console.error('Error fetching evaluator assignment history (bulk):', err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -5755,6 +6127,58 @@ app.get('/api/admin/password-reset-requests', requireHr, async (req, res) => {
   } catch (err) {
     console.error('비밀번호 초기화 요청 목록 조회 실패:', err.message);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 사이드바 배지 카운트 — 역할별 '지금 액션이 필요한 건수'를 요청 1회로 반환.
+//   피평가자: 선택 기간 내 본인 평가 중 성과보고 미제출(제출 전 상태) 건수
+//   평가자:   본인 담당(현 배정 기준) 평가 중 검토 필요(submitted·evaluating) 건수
+//   HR:       변경요청·비밀번호 초기화 대기 건수 (HR 역할일 때만 계산)
+// 발령 취소 등 record_status 특수 케이스는 보드의 정밀 분류와 미세하게 다를 수 있는 근사치(배지 용도).
+app.get('/api/badge-counts', async (req, res) => {
+  if (!isDbAvailable) return res.json({});
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const me = String(req.session.employeeId);
+  const periodId = typeof req.query.periodId === 'string' && req.query.periodId ? req.query.periodId : null;
+  try {
+    const out = { myPendingSubmit: 0, reviewNeeded: 0, pendingChangeRequests: 0, pendingPasswordResets: 0 };
+    if (periodId) {
+      const mine = await pool.query(
+        `SELECT COUNT(*)::int AS c
+           FROM evaluations ev
+          WHERE ev.evaluatee_id::text = $1 AND ev.evaluation_period_id = $2
+            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND COALESCE(ev.evaluation_status, 'in-progress') NOT IN ('submitted','evaluating','completed','locked')`,
+        [me, periodId],
+      );
+      out.myPendingSubmit = mine.rows[0]?.c ?? 0;
+      const review = await pool.query(
+        `SELECT COUNT(*)::int AS c
+           FROM evaluations ev
+           LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+           LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+          WHERE ev.evaluation_period_id = $2
+            AND COALESCE(ev.record_status, 'active') = 'active'
+            AND COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) = $1
+            AND ev.evaluation_status IN ('submitted','evaluating')`,
+        [me, periodId],
+      );
+      out.reviewNeeded = review.rows[0]?.c ?? 0;
+    }
+    if (await requesterIsHr(req)) {
+      const cr = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM evaluator_change_requests WHERE status = 'pending'`,
+      );
+      out.pendingChangeRequests = cr.rows[0]?.c ?? 0;
+      const pr = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM password_reset_requests WHERE status = 'pending'`,
+      );
+      out.pendingPasswordResets = pr.rows[0]?.c ?? 0;
+    }
+    res.json(out);
+  } catch (err) {
+    console.error('배지 카운트 조회 실패:', err.message);
+    res.json({});
   }
 });
 
@@ -7224,6 +7648,1031 @@ app.delete('/api/evaluation-periods/:id', requireHr, async (req, res) => {
   }
 });
 
+/* ── 조직 KPI 정렬 ───────────────────────────────────────────────
+ * 정량(억/%/건) 목표를 조직 단위로 등록하고 과업에 배분·실적 추적. parent_kpi_id 트리 자동 롤업.
+ * 기존 정성 점수(매트릭스)·과업과는 완전히 분리해 KPI 단독으로 관리한다(실적은 KPI 에 직접 입력,
+ * 과업 배분 기능은 2026-07-02 사용자 결정으로 제거 — task_kpi_allocations 테이블은 비파괴 보존). */
+
+const KPI_LEVEL_DEPTH = { corporation: 0, division: 1, department: 2, team: 3 };
+const KPI_LEVELS = ['corporation', 'division', 'department', 'team'];
+// 조직 경로(상위 조상) 저장 — 동명 조직(법인 간 같은 팀명) 구분. org_key=해당 레벨 값, 그보다 상위만 경로 컬럼에.
+const KPI_PATH_COLS = { corporation: 'org_path_corporation', division: 'org_path_division', department: 'org_path_department' };
+const kpiAncestorLevels = (orgLevel) =>
+  ['corporation', 'division', 'department'].filter((l) => KPI_LEVEL_DEPTH[l] < KPI_LEVEL_DEPTH[orgLevel]);
+// body 의 경로 입력을 레벨에 맞게 정규화 — 조상 레벨만 채우고 나머지는 NULL.
+const normalizeKpiPath = (orgLevel, body) => {
+  const out = { org_path_corporation: null, org_path_division: null, org_path_department: null };
+  for (const l of kpiAncestorLevels(orgLevel)) {
+    const v = String(body?.[KPI_PATH_COLS[l]] ?? '').trim();
+    out[KPI_PATH_COLS[l]] = v || null;
+  }
+  return out;
+};
+const kpiNum = (v) => (v == null ? null : Number(v));
+
+// 평면 조회 + 노드 자체 실적(own_*). 롤업은 buildKpiTree 가 트리에서 계산.
+// 실적은 KPI 에 직접 입력하는 achieved_value — 과업 배분(task_kpi_allocations)은 기능 제거로 미사용
+// (사용자 결정 2026-07-02: KPI 는 과업과 분리해 단독 관리. 배분 테이블은 비파괴 보존).
+const loadKpiRowsForPeriod = async (periodId) => {
+  const { rows } = await pool.query(
+    `SELECT k.* FROM org_kpis k
+      WHERE k.evaluation_period_id = $1
+      ORDER BY k.org_level, k.name`,
+    [periodId],
+  );
+  for (const r of rows) {
+    r.target_value = Number(r.target_value);
+    r.own_achieved = r.achieved_value == null ? 0 : Number(r.achieved_value);
+    r.own_achieved_count = r.achieved_value == null ? 0 : 1;
+  }
+  return rows;
+};
+
+// 진척률 — direction 반영. higher=실적/목표. lower(낮을수록 좋음)=목표/실적:
+//   실적 미입력이면 0(판정 불가), 실적 0 이하면 1(목표 이하 유지 = 달성), 그 외 목표/실적(실적≤목표 ⇒ ≥1).
+const computeKpiProgress = (node) => {
+  if (!(node.target_value > 0)) return 0;
+  if (node.direction === 'lower') {
+    if (!(node.rolled_achieved_count > 0)) return 0;
+    if (node.rolled_achieved <= 0) return 1;
+    return node.target_value / node.rolled_achieved;
+  }
+  return node.rolled_achieved / node.target_value;
+};
+
+// 트리 구성 + 후위순회 롤업. 각 KPI 실적은 자기 노드에 1회 귀속 → 조상 합산(이중계산 없음).
+const buildKpiTree = (rows) => {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const r of rows) {
+    r.children = [];
+    r.rolled_achieved = r.own_achieved;
+    r.rolled_achieved_count = r.own_achieved_count ?? 0;
+  }
+  const roots = [];
+  for (const r of rows) {
+    const parent = r.parent_kpi_id ? byId.get(r.parent_kpi_id) : null;
+    if (parent) parent.children.push(r);
+    else roots.push(r);
+  }
+  // 상위 KPI 이름 — 비-HR 트리에서 부모가 가시성 밖이라 재루팅되어도 '어디에 연결됐는지'는 보여준다.
+  for (const r of rows) {
+    r.parent_name = r.parent_kpi_id ? byId.get(r.parent_kpi_id)?.name ?? null : null;
+  }
+  const seen = new Set();
+  const visit = (node) => {
+    if (seen.has(node.id)) return; // 손상 데이터 순환 방어
+    seen.add(node.id);
+    for (const child of node.children) {
+      visit(child);
+      node.rolled_achieved += child.rolled_achieved;
+      node.rolled_achieved_count += child.rolled_achieved_count;
+    }
+    node.progress = computeKpiProgress(node);
+  };
+  roots.forEach(visit);
+  return roots;
+};
+
+const serializeKpiBase = (r) => ({
+  id: r.id,
+  evaluation_period_id: r.evaluation_period_id,
+  parent_kpi_id: r.parent_kpi_id,
+  org_level: r.org_level,
+  org_key: r.org_key,
+  org_path_corporation: r.org_path_corporation ?? null,
+  org_path_division: r.org_path_division ?? null,
+  org_path_department: r.org_path_department ?? null,
+  parent_name: r.parent_name ?? null,
+  name: r.name,
+  unit: r.unit,
+  target_value: kpiNum(r.target_value),
+  direction: r.direction,
+  description: r.description,
+  owner_id: r.owner_id,
+  status: r.status,
+  created_by: r.created_by,
+  created_at: r.created_at,
+  updated_at: r.updated_at,
+  // KPI 직접 입력 실적(NULL=미입력) — 트리 롤업(rolled_achieved)과 별개로 폼 프리필용.
+  achieved_value: kpiNum(r.achieved_value),
+  own_achieved: kpiNum(r.own_achieved) ?? 0,
+  rolled_achieved: kpiNum(r.rolled_achieved),
+  progress: r.progress ?? null,
+  // 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분하기 위한 신호.
+  has_actuals: Number(r.rolled_achieved_count ?? r.own_achieved_count ?? 0) > 0,
+  // 요청자가 관리(수정·삭제·하위추가)할 수 있는가 — false 면 읽기 전용(범위 밖 조상 등).
+  can_manage: r.can_manage !== false,
+});
+const serializeKpiTree = (r) => ({ ...serializeKpiBase(r), children: (r.children || []).map(serializeKpiTree) });
+
+// parent_kpi_id 검증: 같은 기간·상위 레벨·같은 단위·조직 경로 정합·순환 금지.
+// childPath: 이 KPI 의 조상 조직 { corporation, division, department } (모르면 null — 레거시 관용).
+// 겸직·매트릭스 체인 하위 판정 — 자식 조직장의 상향 평가체인에 부모 조직의 조직장이 있으면
+// 조직 경로(법인·본부)가 달라도 부모의 하위 조직으로 본다(예: OKH 인사부장이 직접 평가하는
+// OK 인사팀). 어느 한쪽이라도 조직장 미산정이면 false(경로 규칙만 적용).
+const kpiChainUnder = (leadership, childLevel, childKey, parentLevel, parentKey) => {
+  if (!leadership) return false;
+  const childLeader = leadership.leaderIdByKey[childLevel]?.get(childKey) ?? null;
+  const parentLeader = leadership.leaderIdByKey[parentLevel]?.get(parentKey) ?? null;
+  return Boolean(childLeader && parentLeader && leadership.upPath(childLeader).includes(parentLeader));
+};
+
+const validateKpiParent = async (client, { id, parentKpiId, periodId, orgLevel, orgKey, unit, childPath, leadership }) => {
+  if (!parentKpiId) return;
+  const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1', [parentKpiId]);
+  const parent = rows[0];
+  const fail = (msg) => {
+    const e = new Error(msg);
+    e.statusCode = 400;
+    throw e;
+  };
+  if (!parent) fail('상위 KPI를 찾을 수 없습니다.');
+  if (parent.evaluation_period_id !== periodId) fail('상위 KPI는 같은 평가기간이어야 합니다.');
+  if (KPI_LEVEL_DEPTH[orgLevel] <= KPI_LEVEL_DEPTH[parent.org_level])
+    fail('상위 KPI는 더 상위 조직 레벨이어야 합니다.');
+  if (parent.unit !== unit) fail('상위 KPI와 단위가 같아야 롤업됩니다.');
+  // 조직 경로 정합 — 상위 KPI 는 이 KPI 조직의 '실제 상위 조직'이어야 한다(엉뚱한 본부·부 연결 금지).
+  // 경로를 모르는(NULL) 쪽은 관용해 레거시 KPI 를 깨지 않는다.
+  if (childPath) {
+    let pathOk = true;
+    const ancestorAtParentLevel = childPath[parent.org_level] ?? null;
+    if (ancestorAtParentLevel && parent.org_key !== ancestorAtParentLevel) pathOk = false;
+    if (pathOk) {
+      for (const l of kpiAncestorLevels(parent.org_level)) {
+        const pv = parent[KPI_PATH_COLS[l]];
+        const cv = childPath[l];
+        if (pv && cv && pv !== cv) {
+          pathOk = false;
+          break;
+        }
+      }
+    }
+    // 경로 불일치라도 겸직 평가라인 하위(자식 조직장의 상향 체인에 부모 조직장)면 허용 —
+    // 매트릭스 조직에서 법인·본부가 다른 직속 팀을 상위 KPI 에 연결하는 케이스.
+    if (!pathOk) {
+      const childKey = kpiTupleKey({ ...childPath, [orgLevel]: orgKey }, orgLevel);
+      const parentKey = kpiTupleKey(
+        {
+          corporation: parent.org_path_corporation,
+          division: parent.org_path_division,
+          department: parent.org_path_department,
+          [parent.org_level]: parent.org_key,
+        },
+        parent.org_level,
+      );
+      if (!kpiChainUnder(leadership, orgLevel, childKey, parent.org_level, parentKey)) {
+        fail(`상위 KPI 조직(${parent.org_key})이 이 KPI 조직의 상위 경로도, 겸직 평가라인 상위도 아닙니다.`);
+      }
+    }
+  }
+  // 순환 방지: parent 에서 위로 올라가며 자기 자신(id)에 도달하면 거부.
+  if (id) {
+    let cur = parent;
+    const guard = new Set();
+    while (cur && cur.parent_kpi_id && !guard.has(cur.id)) {
+      if (cur.parent_kpi_id === id) fail('순환 참조는 허용되지 않습니다.');
+      guard.add(cur.id);
+      const next = await client.query('SELECT id, parent_kpi_id FROM org_kpis WHERE id = $1', [cur.parent_kpi_id]);
+      cur = next.rows[0];
+    }
+  }
+};
+
+// 접근제어: KPI는 평가체인을 따른다. 비-HR 요청자는 '관리 조직'의 KPI만 조회/수정 가능.
+// 관리 조직(레벨별) = 그 조직(레벨·값)의 평가대상 전원이 요청자의 하위 평가체인에 속하는 조직.
+//   → 상위평가자는 하위 조직 전체를 보고, 일부만 평가하는 사람은 그 상위 조직을 못 본다(체인 격리).
+// 반환: HR 이면 null(=전체 허용). 아니면 {corporation:Set, division:Set, department:Set, team:Set}.
+// 'HR 모드로 동작 중인가' — HR 역할 보유 + 현재 활성 역할이 HR(또는 미지정). 평가자 모드면 false.
+// 활성 역할은 클라이언트가 X-Active-Role 로 전달(role switch UX). available_roles 와 교차검증하므로
+// evaluator 자청은 자기 권한 축소로만 작용(상향 불가).
+const kpiActingAsHr = async (req) => {
+  if (!(await requesterIsHr(req))) return false;
+  const claim = String(req.headers['x-active-role'] || '').toLowerCase();
+  return claim !== 'evaluator' && claim !== 'evaluatee';
+};
+
+// ── 조직장(리더십) 산정 — KPI 등록 권한·가시성·조직장 라벨의 단일 원천 ─────────────
+// 규칙(사용자 확정 2026-07-02):
+//   조직장(O) = 다음을 만족하는 가장 아래(최심) 후보 1명:
+//     (구성원성) O 소속이다 — 소속은 그 기간 평가행 우선, 평가행이 없으면(미평가 임원)
+//                employees.org_* 마스터 폴백. 또는 특례로, O 구성원 '전원'을 직접 평가한다(팀장 겸임).
+//     (전원 수렴) O 구성원(평가자 미배정 제외) 전원의 상향 평가라인이 본인을 거친다.
+//     (내부 최상위) 본인의 평가자는 O 구성원이 아니다.
+//   예) 인사팀·인사기획팀=박판근(직접 평가), 인사부=박준형(소속 등록 시 — 박판근은 그의 평가자
+//       박준형이 부 구성원이 되므로 자동 탈락), 경영지원본부=없음(라인 미수렴 → HR 탭에서만 등록).
+//   제외 행: 평가권한 없는 평가자에게 매칭된 평가행(퇴사자 관례 — 유령 조직 방지).
+//   평가자 미배정 구성원은 구성원으로 유지하되 수렴 판정에서만 제외.
+const computeKpiLeadership = async (periodId) => {
+  const { rows } = await pool.query(
+    `SELECT ev.evaluatee_id::text AS id,
+            ev.evaluatee_org_corporation AS corporation, ev.evaluatee_org_division AS division,
+            ev.evaluatee_org_department AS department, ev.evaluatee_org_team AS team,
+            COALESCE(h.new_evaluator_id::text, e.evaluator_id::text) AS evaluator_id,
+            pe.available_roles AS evaluator_roles
+       FROM evaluations ev
+       LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+       LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+       LEFT JOIN employees pe ON pe.employee_id::text = COALESCE(h.new_evaluator_id::text, e.evaluator_id::text)
+      WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'
+      ORDER BY ev.evaluatee_id, ev.created_at`,
+    [periodId],
+  );
+  const { rows: empRows } = await pool.query(
+    `SELECT employee_id::text AS id, name, evaluator_id::text AS ev, department_id,
+            org_corporation AS corporation, org_division AS division,
+            org_department AS department, org_team AS team
+       FROM employees`,
+  );
+  // 마스터 org_* 는 '기본 기간' 명칭으로 파생돼 있어 다른 기간(연도별 조직명 상이)과 어긋난다.
+  // 평가행 없는 인원(임원)의 소속 폴백은 부서ID를 '이 기간'의 조직 스냅샷으로 번역해 쓴다.
+  const { rows: snapRows } = await pool.query(
+    `SELECT dept_code, org_corporation AS corporation, org_division AS division,
+            org_department AS department, org_team AS team
+       FROM org_structure WHERE evaluation_period_id = $1`,
+    [periodId],
+  );
+  const snapByDept = new Map(snapRows.map((s) => [s.dept_code, s]));
+  const empById = new Map(
+    empRows.map((r) => {
+      const s = r.department_id ? snapByDept.get(r.department_id) : null;
+      return [r.id, s ? { ...r, corporation: s.corporation, division: s.division, department: s.department, team: s.team } : r];
+    }),
+  );
+  const valid = rows.filter(
+    (r) => !r.evaluator_id || !(Array.isArray(r.evaluator_roles) && !r.evaluator_roles.includes('evaluator')),
+  );
+  // 발령자는 같은 기간에 평가행이 여러 개(이전 평가 보존)이고 행마다 소속·평가자가 다르다.
+  // 사람 단위 Map 으로 뭉개면 이전 조직 구성원 판정이 '현재' 평가자 체인으로 오염돼
+  // 이전 조직의 전원 수렴이 깨진다(예: 인사기획팀→타사 인사팀 발령자 때문에 인사기획팀 조직장 소실).
+  // → 소속·수렴은 행 단위로 판정하고, 사람 단위 상향 홉은 마스터 평가자와 일치하는 행을 우선한다.
+  const rowsById = new Map();
+  for (const r of valid) {
+    let list = rowsById.get(r.id);
+    if (!list) rowsById.set(r.id, (list = []));
+    list.push(r);
+  }
+  const periodParent = new Map();
+  for (const [id, list] of rowsById) {
+    const cur = list.find((r) => r.evaluator_id && r.evaluator_id === empById.get(id)?.ev) ?? list[list.length - 1];
+    if (cur.evaluator_id) periodParent.set(id, cur.evaluator_id);
+  }
+  // 상향 한 칸: 기간 배정 우선, 평가행 없는 임원 구간은 마스터 evaluator_id 폴백.
+  const parentOf = (id) => periodParent.get(id) ?? empById.get(id)?.ev ?? null;
+  const pathCache = new Map();
+  const upPath = (id) => {
+    const hit = pathCache.get(id);
+    if (hit) return hit;
+    const path = [id];
+    const guard = new Set([id]);
+    let cur = id;
+    for (let i = 0; i < 60; i++) {
+      const nxt = parentOf(cur);
+      if (!nxt || guard.has(nxt)) break;
+      guard.add(nxt);
+      path.push(nxt);
+      cur = nxt;
+    }
+    pathCache.set(id, path);
+    return path;
+  };
+  // 레벨별 조직 인덱스(pathKey → { tuple, members }) — members 는 행 단위 { id, ev }
+  // (ev = 그 행의 평가자: 발령자의 이전 행은 이전 평가자로 수렴해야 이전 조직이 안 깨진다).
+  const perLevel = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  for (const r of valid) {
+    for (const lvl of KPI_LEVELS) {
+      if (!r[lvl]) continue;
+      const key = kpiTupleKey(r, lvl);
+      let o = perLevel[lvl].get(key);
+      if (!o) {
+        const tuple = { corporation: null, division: null, department: null, team: null };
+        for (const l of KPI_LEVELS) {
+          tuple[l] = r[l] ?? null;
+          if (l === lvl) break;
+        }
+        o = { tuple, members: [] };
+        perLevel[lvl].set(key, o);
+      }
+      o.members.push({ id: r.id, ev: r.evaluator_id ?? null });
+    }
+  }
+  // 구성원 판정: 그 사람의 기간 행 '어느 하나'라도 O 에 속하면 구성원(행 없으면 마스터 폴백).
+  const isMemberOf = (id, lvl, key) => {
+    const srcs = rowsById.get(id) ?? (empById.has(id) ? [empById.get(id)] : []);
+    return srcs.some((t) => t[lvl] && kpiTupleKey(t, lvl) === key);
+  };
+  // 구성원 행의 상향 경로: 첫 홉은 그 행의 평가자, 그 위는 parentOf.
+  const chainOf = (m) => [m.id, ...upPath(m.ev).filter((x) => x !== m.id)];
+  const leaders = { corporation: {}, division: {}, department: {}, team: {} }; // key → [이름]
+  const leaderIdByKey = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  for (const lvl of KPI_LEVELS) {
+    for (const [key, o] of perLevel[lvl]) {
+      const seen = new Set();
+      const anchored = o.members.filter((m) => {
+        const k = `${m.id}|${m.ev}`;
+        if (!m.ev || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      if (anchored.length === 0) continue;
+      const base = chainOf(anchored[0]);
+      const common = new Set(base);
+      for (let i = 1; i < anchored.length && common.size > 0; i++) {
+        const s = new Set(chainOf(anchored[i]));
+        for (const el of [...common]) if (!s.has(el)) common.delete(el);
+      }
+      const isMember = (p) => isMemberOf(p, lvl, key);
+      const directAll = (p) => anchored.every((m) => m.id === p || m.ev === p);
+      let leader = null;
+      for (const p of base) {
+        if (!common.has(p)) continue;
+        const boss = parentOf(p);
+        if (boss && isMember(boss)) continue; // 위에 조직 내부 상급자가 있으면 조직장 아님
+        if (isMember(p) || directAll(p)) {
+          leader = p;
+          break;
+        }
+      }
+      if (leader) {
+        leaderIdByKey[lvl].set(key, leader);
+        const name = empById.get(leader)?.name;
+        if (name) leaders[lvl][key] = [name];
+      }
+    }
+  }
+  return { perLevel, leaders, leaderIdByKey, upPath };
+};
+
+// KPI 요청 스코프 — 조직 선택지·가시성·수정권의 단일 기준. 화면 탭(활성 역할)로만 갈린다.
+//  - 'all'  : HR 관리자 탭(활성 역할 hr) → 전사 KPI 전체(admin 과 동일). 조직장 없는 조직도 등록 가능.
+//  - 'chain': 평가자 탭 → '내가 조직장인 조직 + 그 하위 조직 전체'(상위 조직장은 하위도 등록·관리 가능)
+//             + '조직장이 내 하향 평가체인에 속한 조직'. 겸직·매트릭스 조직에서는 평가선이 법인·본부
+//             경계를 넘으므로(예: OKH 인사부장이 OK 인사팀장을 직접 평가) 조직 경로 접두만으로는
+//             하위를 못 잡는다 — 조직장의 상향 평가체인에 내가 있으면 내 관할로 본다.
+// choiceTuples: 레벨별 Map(pathKey → 튜플) — 등록 선택지이자 가시성/수정권 판정 기준.
+const getKpiScope = async (req, periodId) => {
+  const leadership = await computeKpiLeadership(periodId);
+  const choiceTuples = { corporation: new Map(), division: new Map(), department: new Map(), team: new Map() };
+  if (await kpiActingAsHr(req)) {
+    for (const lvl of KPI_LEVELS) for (const [key, o] of leadership.perLevel[lvl]) choiceTuples[lvl].set(key, o.tuple);
+    return { mode: 'all', leadership, choiceTuples };
+  }
+  const me = String(req.session.employeeId);
+  const myKeys = [];
+  for (const lvl of KPI_LEVELS) {
+    for (const [key, leaderId] of leadership.leaderIdByKey[lvl]) {
+      // 내가 조직장이거나(upPath 첫 원소=본인), 조직장의 상향 평가체인에 내가 있으면 내 관할.
+      if (leadership.upPath(leaderId).includes(me)) myKeys.push(key);
+    }
+  }
+  // 내 조직(들)과 그 하위 — pathKey 접두 일치(상위 레벨 키는 하위 키의 접두).
+  const underMine = (key) => myKeys.some((mk) => key === mk || key.startsWith(mk + '|'));
+  for (const lvl of KPI_LEVELS) {
+    for (const [key, o] of leadership.perLevel[lvl]) if (underMine(key)) choiceTuples[lvl].set(key, o.tuple);
+  }
+  return { mode: 'chain', leadership, choiceTuples };
+};
+
+// 조직 경로 튜플 키 — 최상위(법인)부터 해당 레벨까지 '|' 로 연결(동명 조직 구분의 기준 키).
+const kpiTupleKey = (t, level) => {
+  const parts = [];
+  for (const l of KPI_LEVELS) {
+    parts.push(t[l] ?? '');
+    if (l === level) break;
+  }
+  return parts.join('|');
+};
+
+// KPI 가시성·관리권 판정기 — 'all': 전부(HR 관리자 탭).
+// 'chain': KPI 의 조직이 내 스코프(내가 조직장인 조직+하위) 안이면 관리 가능 — 누가 만들었든
+// 팀 KPI 는 팀장이, 부 KPI 는 부장이 관리한다(레거시 NULL 경로는 이름 매칭 관용).
+// 스코프 밖 상위 KPI 는 트리에서 조상 읽기전용으로만 노출(기존 로직 재사용).
+const buildKpiVisibility = async (req, periodId) => {
+  const scope = await getKpiScope(req, periodId);
+  if (scope.mode === 'all') return { scope, visible: () => true };
+  return { scope, visible: (k) => canCreateOrgTuple(scope.choiceTuples, k.org_level, k.org_key, k) };
+};
+// 등록/변경 허용 검사 — (레벨·조직명·경로)가 실제 평가 데이터의 조직 조합과 일치해야 한다.
+// path 값이 비어 있으면(레거시) 이름 일치만 요구해 기존 KPI 수정을 깨지 않는다.
+const canCreateOrgTuple = (perLevel, level, orgKey, path) => {
+  for (const tuple of perLevel[level].values()) {
+    if (tuple[level] !== orgKey) continue;
+    let ok = true;
+    for (const l of kpiAncestorLevels(level)) {
+      const want = path?.[KPI_PATH_COLS[l]] ?? null;
+      if (want && tuple[l] !== want) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+};
+
+// GET 목록(평면) — own_*/rolled_*/progress 동봉. 롤업 위해 기간 전체 로드 후 필터.
+app.get('/api/org-kpis', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(periodId);
+    buildKpiTree(rows); // rolled_*/progress 채움(전체 기준)
+    const { visible } = await buildKpiVisibility(req, periodId);
+    let out = rows.filter(visible);
+    if (req.query.level) out = out.filter((r) => r.org_level === req.query.level);
+    if (req.query.orgKey) out = out.filter((r) => r.org_key === req.query.orgKey);
+    res.json(out.map(serializeKpiBase));
+  } catch (err) {
+    console.error('Error listing KPIs:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET 트리(children 중첩) — :id 보다 먼저 등록해야 'tree' 가 :id 로 안 먹힘.
+app.get('/api/org-kpis/tree', async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(periodId);
+    buildKpiTree(rows); // 롤업은 전체 기준으로 먼저 계산(rolled_*/progress)
+    const { scope, visible } = await buildKpiVisibility(req, periodId);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    if (scope.mode === 'all') {
+      for (const r of rows) r.can_manage = true;
+      const roots = rows.filter((r) => !(r.parent_kpi_id && byId.has(r.parent_kpi_id)));
+      return res.json(roots.map(serializeKpiTree));
+    }
+    // 범위 내 KPI + 그 '조상'(연결된 상위 KPI)을 읽기 전용으로 포함.
+    // 조상을 숨기고 재루팅하면 역할 전환·배분 후 "상위 KPI가 사라졌다"는 혼란이 생긴다(사용자 보고 2026-07-02).
+    const included = new Map(); // id → row
+    for (const r of rows) {
+      if (visible(r)) {
+        r.can_manage = true;
+        included.set(r.id, r);
+      }
+    }
+    for (const r of [...included.values()]) {
+      let p = r.parent_kpi_id ? byId.get(r.parent_kpi_id) : null;
+      const guard = new Set();
+      while (p && !included.has(p.id) && !guard.has(p.id)) {
+        guard.add(p.id);
+        p.can_manage = false; // 읽기 전용 — 롤업 맥락 제공용
+        included.set(p.id, p);
+        p = p.parent_kpi_id ? byId.get(p.parent_kpi_id) : null;
+      }
+    }
+    const childrenMap = new Map([...included.keys()].map((id) => [id, []]));
+    const roots = [];
+    for (const n of included.values()) {
+      if (n.parent_kpi_id && included.has(n.parent_kpi_id)) childrenMap.get(n.parent_kpi_id).push(n);
+      else roots.push(n);
+    }
+    const sortNodes = (arr) =>
+      arr.sort((a, b) => KPI_LEVEL_DEPTH[a.org_level] - KPI_LEVEL_DEPTH[b.org_level] || a.name.localeCompare(b.name, 'ko-KR'));
+    sortNodes(roots);
+    for (const arr of childrenMap.values()) sortNodes(arr);
+    const serialize = (n) => ({ ...serializeKpiBase(n), children: (childrenMap.get(n.id) || []).map(serialize) });
+    res.json(roots.map(serialize));
+  } catch (err) {
+    console.error('Error building KPI tree:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 폼 드롭다운용 — 그 기간 평가에 존재하는 조직 옵션(레벨별 distinct) + 요청자 본인 조직.
+app.get('/api/org-kpis/org-options', async (req, res) => {
+  if (!isDbAvailable) return res.json({ corporation: [], division: [], department: [], team: [], mine: {} });
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const periodId = req.query.periodId;
+  if (!periodId) return res.status(400).json({ error: 'periodId가 필요합니다.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT evaluatee_org_corporation AS c, evaluatee_org_division AS d,
+              evaluatee_org_department AS dep, evaluatee_org_team AS t
+         FROM evaluations
+        WHERE evaluation_period_id = $1 AND record_status = 'active'`,
+      [periodId],
+    );
+    const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    const meRow = (
+      await pool.query(
+        `SELECT org_corporation, org_division, org_department, org_team FROM employees WHERE employee_id::text = $1`,
+        [req.session.employeeId],
+      )
+    ).rows[0] || {};
+    // 요청자가 이 기간에 실제 평가하는 팀들(평가자 KPI 등록 범위·기본값용).
+    const myTeamsRows = await pool.query(
+      `SELECT DISTINCT ev.evaluatee_org_team AS t
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.evaluation_period_id = $1 AND ev.record_status = 'active'
+          AND ev.evaluatee_org_team IS NOT NULL
+          AND (h.new_evaluator_id::text = $2 OR e.evaluator_id::text = $2)`,
+      [periodId, req.session.employeeId],
+    );
+    const myTeams = myTeamsRows.rows.map((r) => r.t).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    // 등록 폼 드롭다운용 — 정형화 조직 선택지(경로 튜플, 레벨별)와 조직장 라벨.
+    // 조직장 산정·선택지 범위는 computeKpiLeadership/getKpiScope 가 단일 원천:
+    //   평가자 탭 = 내가 조직장인 조직 + 그 하위 전체 + 조직장이 내 하향 평가체인인 조직(겸직),
+    //   HR 관리자 탭 = 전체.
+    const scope = await getKpiScope(req, periodId);
+    const leaders = scope.leadership.leaders;
+    const labelOfTuple = (t) => [t.corporation, t.division, t.department, t.team].filter(Boolean).join(' › ');
+    const orgChoices = {};
+    const manageableOut = {};
+    for (const lvl of KPI_LEVELS) {
+      orgChoices[lvl] = [...scope.choiceTuples[lvl].entries()]
+        .map(([key, t]) => {
+          // leader_id·chain_up(조직장 상향 평가체인): 클라이언트 겸직 하위 판정용.
+          const leaderId = scope.leadership.leaderIdByKey[lvl].get(key) ?? null;
+          return {
+            ...t,
+            leader: leaders[lvl][key]?.[0] ?? null,
+            leader_id: leaderId,
+            chain_up: leaderId ? scope.leadership.upPath(leaderId) : [],
+          };
+        })
+        .sort((a, b) => labelOfTuple(a).localeCompare(labelOfTuple(b), 'ko-KR'));
+      manageableOut[lvl] = [...new Set(orgChoices[lvl].map((t) => t[lvl]).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'ko-KR'),
+      );
+    }
+    res.json({
+      corporation: uniq('c'),
+      division: uniq('d'),
+      department: uniq('dep'),
+      team: uniq('t'),
+      mine: {
+        corporation: meRow.org_corporation ?? null,
+        division: meRow.org_division ?? null,
+        department: meRow.org_department ?? null,
+        team: meRow.org_team ?? null,
+      },
+      myTeams,
+      manageable: manageableOut,
+      leaders,
+      orgChoices,
+      scopeInfo: { mode: scope.mode },
+    });
+  } catch (err) {
+    console.error('Error fetching KPI org options:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// 상위 KPI 연결 후보 — 이 KPI 조직의 '상위 경로'에 있는 같은 기간·같은 단위·상위 레벨 KPI.
+// 생성자-체인 가시성과 무관(연결 대상 조회일 뿐 관리 권한이 아님) → 팀장이 본부장 KPI 에 직접 연결 가능.
+// :id 라우트보다 먼저 등록해야 'parent-candidates' 가 :id 로 잡히지 않는다.
+app.get('/api/org-kpis/parent-candidates', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return res.json([]);
+  const periodId = req.query.periodId;
+  const orgLevel = String(req.query.orgLevel ?? '');
+  const unit = String(req.query.unit ?? '').trim();
+  // 이 KPI 조직 자체의 이름(선택) — 겸직 평가라인 상위 후보 산정에 필요(없으면 경로 후보만).
+  const orgKey = String(req.query.orgKey ?? '').trim() || null;
+  if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !unit) {
+    return res.status(400).json({ error: 'periodId·orgLevel·unit 이 필요합니다.' });
+  }
+  // 이 KPI 조직의 조상 값(정형화 드롭다운에서 온 경로). 모르는 레벨의 후보는 내지 않는다(오연결 방지).
+  const anc = {
+    corporation: String(req.query.corporation ?? '').trim() || null,
+    division: String(req.query.division ?? '').trim() || null,
+    department: String(req.query.department ?? '').trim() || null,
+  };
+  try {
+    // 요청된 조상 경로가 '요청자 스코프 조직의 실제 상위 경로'인지 검증 — 임의 조직명을 넣어
+    // 타 계열 KPI 메타(이름·목표)를 열거하는 것을 차단. 정상 폼은 드롭다운 튜플만 보내므로 영향 없음.
+    const scope = await getKpiScope(req, periodId);
+    const ancMatchesMyOrg = [...scope.choiceTuples[orgLevel].values()].some((t) =>
+      kpiAncestorLevels(orgLevel).every((l) => !anc[l] || t[l] === anc[l]),
+    );
+    if (!ancMatchesMyOrg) return res.json([]);
+    const conds = [];
+    const params = [periodId, unit];
+    for (const l of kpiAncestorLevels(orgLevel)) {
+      if (!anc[l]) continue;
+      const parts = [`org_level = '${l}'`];
+      params.push(anc[l]);
+      parts.push(`org_key = $${params.length}`);
+      for (const u of kpiAncestorLevels(l)) {
+        if (!anc[u]) continue;
+        params.push(anc[u]);
+        parts.push(`(${KPI_PATH_COLS[u]} IS NULL OR ${KPI_PATH_COLS[u]} = $${params.length})`);
+      }
+      conds.push(`(${parts.join(' AND ')})`);
+    }
+    // 겸직 평가라인 상위 후보 — 이 조직 조직장의 상향 평가체인에 조직장이 있는 '더 상위 레벨'
+    // 조직의 KPI 도 후보에 포함(예: OK 인사팀 → OKH 인사부, 법인이 달라도 연결 가능).
+    // 임의 값으로 타 계열을 열거하지 못하게, 요청 조직이 요청자 스코프의 실존 선택지일 때만.
+    if (orgKey) {
+      const childKey = kpiTupleKey({ ...anc, [orgLevel]: orgKey }, orgLevel);
+      if (scope.choiceTuples[orgLevel].has(childKey)) {
+        const childLeader = scope.leadership.leaderIdByKey[orgLevel].get(childKey) ?? null;
+        if (childLeader) {
+          const up = new Set(scope.leadership.upPath(childLeader));
+          for (const l of KPI_LEVELS) {
+            if (KPI_LEVEL_DEPTH[l] >= KPI_LEVEL_DEPTH[orgLevel]) break;
+            for (const [key, leaderId] of scope.leadership.leaderIdByKey[l]) {
+              if (!up.has(leaderId)) continue;
+              const tuple = scope.leadership.perLevel[l].get(key)?.tuple;
+              if (!tuple) continue;
+              const parts = [`org_level = '${l}'`];
+              params.push(tuple[l]);
+              parts.push(`org_key = $${params.length}`);
+              for (const u of kpiAncestorLevels(l)) {
+                if (!tuple[u]) continue;
+                params.push(tuple[u]);
+                parts.push(`(${KPI_PATH_COLS[u]} IS NULL OR ${KPI_PATH_COLS[u]} = $${params.length})`);
+              }
+              conds.push(`(${parts.join(' AND ')})`);
+            }
+          }
+        }
+      }
+    }
+    if (conds.length === 0) return res.json([]);
+    const { rows } = await pool.query(
+      `SELECT * FROM org_kpis
+        WHERE evaluation_period_id = $1 AND status = 'active' AND unit = $2
+          AND (${conds.join(' OR ')})
+        ORDER BY CASE org_level WHEN 'department' THEN 0 WHEN 'division' THEN 1 ELSE 2 END, name`,
+      params,
+    );
+    res.json(rows.map(serializeKpiBase));
+  } catch (err) {
+    console.error('Error fetching KPI parent candidates:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET 단건 + 배분 내역 + 자식 목록.
+app.get('/api/org-kpis/:id', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  try {
+    const rows = await loadKpiRowsForPeriod(
+      (await pool.query('SELECT evaluation_period_id FROM org_kpis WHERE id = $1', [req.params.id])).rows[0]
+        ?.evaluation_period_id,
+    );
+    buildKpiTree(rows);
+    const node = rows.find((r) => r.id === req.params.id);
+    if (!node) return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    const { scope, visible } = await buildKpiVisibility(req, node.evaluation_period_id);
+    // 범위 밖이어도 '범위 내 KPI 의 조상'이면 읽기 전용 조회 허용(트리에 노출되는 행이므로).
+    const nodeById = new Map(rows.map((x) => [x.id, x]));
+    const isAncestorOfVisible = () =>
+      rows.some((r) => {
+        if (!visible(r)) return false;
+        let p = r.parent_kpi_id ? nodeById.get(r.parent_kpi_id) : null;
+        const guard = new Set();
+        while (p && !guard.has(p.id)) {
+          if (p.id === node.id) return true;
+          guard.add(p.id);
+          p = p.parent_kpi_id ? nodeById.get(p.parent_kpi_id) : null;
+        }
+        return false;
+      });
+    const canManageNode = scope.mode === 'all' || visible(node);
+    if (!canManageNode && !isAncestorOfVisible()) {
+      return res.status(403).json({ error: '이 KPI에 접근할 권한이 없습니다.' });
+    }
+    node.can_manage = canManageNode;
+    // 읽기 전용(범위 밖 조상) 조회는 롤업 숫자까지만 — 범위 밖 자식 목록은 내려주지 않는다.
+    const childrenOut = canManageNode
+      ? node.children || []
+      : (node.children || []).filter((c) => visible(c));
+    res.json({
+      ...serializeKpiBase(node),
+      children: childrenOut.map(serializeKpiBase),
+    });
+  } catch (err) {
+    console.error('Error fetching KPI:', err.message);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/org-kpis', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const b = req.body || {};
+  const periodId = b.evaluation_period_id;
+  const orgLevel = b.org_level;
+  const orgKey = String(b.org_key ?? '').trim();
+  const name = String(b.name ?? '').trim();
+  const unit = String(b.unit ?? '').trim();
+  const targetValue = Number(b.target_value);
+  const direction = b.direction === 'lower' ? 'lower' : 'higher';
+  // 실적(선택) — KPI 에 직접 입력. NULL=미입력.
+  const achievedValue =
+    b.achieved_value === undefined || b.achieved_value === null || b.achieved_value === ''
+      ? null
+      : Number(b.achieved_value);
+  if (achievedValue !== null && !Number.isFinite(achievedValue)) {
+    return res.status(400).json({ error: '실적은 숫자로 입력하세요.' });
+  }
+  if (!periodId || !Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, orgLevel) || !orgKey || !name || !unit || !(targetValue > 0)) {
+    return res.status(400).json({ error: '필수 항목(기간·조직레벨·조직·이름·단위·목표>0)을 확인하세요.' });
+  }
+  const orgPath = normalizeKpiPath(orgLevel, b);
+  // 등록 조직은 정형화 드롭다운(경로 튜플) 기준으로 서버에서도 검증 —
+  //   평가자 탭: 내가 조직장인 조직과 그 하위 조직만. HR 탭: 실존 조합만(유령 KPI 차단).
+  const scope = await getKpiScope(req, periodId);
+  if (!canCreateOrgTuple(scope.choiceTuples, orgLevel, orgKey, orgPath)) {
+    return res.status(scope.mode === 'chain' ? 403 : 400).json({
+      error:
+        scope.mode === 'chain'
+          ? '내가 조직장인 조직(또는 그 하위 조직)에만 KPI를 등록할 수 있습니다.'
+          : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다. 목록에서 선택해 주세요.',
+    });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await validateKpiParent(client, {
+      id: null,
+      parentKpiId: b.parent_kpi_id ?? null,
+      periodId,
+      orgLevel,
+      orgKey,
+      unit,
+      childPath: {
+        corporation: orgPath.org_path_corporation,
+        division: orgPath.org_path_division,
+        department: orgPath.org_path_department,
+      },
+      leadership: scope.leadership,
+    });
+    const { rows } = await client.query(
+      `INSERT INTO org_kpis
+         (evaluation_period_id, parent_kpi_id, org_level, org_key,
+          org_path_corporation, org_path_division, org_path_department,
+          name, unit, target_value, direction, achieved_value, description, owner_id, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',$15) RETURNING *`,
+      [
+        periodId,
+        b.parent_kpi_id ?? null,
+        orgLevel,
+        orgKey,
+        orgPath.org_path_corporation,
+        orgPath.org_path_division,
+        orgPath.org_path_department,
+        name,
+        unit,
+        targetValue,
+        direction,
+        achievedValue,
+        b.description ?? null,
+        b.owner_id ?? null,
+        req.session.employeeId,
+      ],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_create',
+      actorId: req.session.employeeId,
+      previousValue: null,
+      newValue: rows[0],
+      reason: 'KPI 등록',
+    });
+    await client.query('COMMIT');
+    res.status(201).json(serializeKpiBase(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23503') return res.status(400).json({ error: '참조 무결성 오류(기간/상위 KPI 확인).' });
+    console.error('Error creating KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.put('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const b = req.body || {};
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: existRows } = await client.query('SELECT * FROM org_kpis WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const existing = existRows[0];
+    if (!existing) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    // 수정권 = 스코프 기준(평가자 탭: 생성자 체인, HR 관리자 탭: 전체).
+    const { scope, visible } = await buildKpiVisibility(req, existing.evaluation_period_id);
+    if (scope.mode !== 'all' && !visible(existing)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 수정할 수 있습니다.' });
+    }
+    // 조직(레벨·이름·경로) 머지 — 경로 재구성은 (a) 경로 필드가 명시로 왔거나 (b) 레벨/조직명이
+    // 실제로 바뀐 경우에만. 경로 없이 이름·레벨이 동일한 요청(경로 개념이 없는 구버전 클라이언트의
+    // 이름/목표 수정 등)이 저장된 org_path_* 를 NULL 로 덮어쓰지 않게 한다.
+    const nextLevel = b.org_level ?? existing.org_level;
+    const nextKey = b.org_key !== undefined ? String(b.org_key).trim() : existing.org_key;
+    const pathProvided =
+      b.org_path_corporation !== undefined ||
+      b.org_path_division !== undefined ||
+      b.org_path_department !== undefined;
+    const levelOrKeyChanged = nextLevel !== existing.org_level || nextKey !== existing.org_key;
+    const nextPath =
+      pathProvided || levelOrKeyChanged
+        ? normalizeKpiPath(nextLevel, b)
+        : {
+            org_path_corporation: existing.org_path_corporation,
+            org_path_division: existing.org_path_division,
+            org_path_department: existing.org_path_department,
+          };
+    const orgChanged =
+      nextLevel !== existing.org_level ||
+      nextKey !== existing.org_key ||
+      nextPath.org_path_corporation !== existing.org_path_corporation ||
+      nextPath.org_path_division !== existing.org_path_division ||
+      nextPath.org_path_department !== existing.org_path_department;
+    if (orgChanged) {
+      // 새 조직 조합은 실제 평가 데이터에 존재해야 하고, 요청자 스코프 범위여야 함.
+      if (!canCreateOrgTuple(scope.choiceTuples, nextLevel, nextKey, nextPath)) {
+        await client.query('ROLLBACK');
+        return res.status(scope.mode === 'chain' ? 403 : 400).json({
+          error:
+            scope.mode === 'chain'
+              ? '내가 조직장인 조직(또는 그 하위 조직)으로만 변경할 수 있습니다.'
+              : '해당 조직(경로 포함)이 이 평가기간의 평가 데이터에 없습니다.',
+        });
+      }
+    }
+    // 변경할 필드 머지(미지정은 기존값 유지)
+    const next = {
+      parent_kpi_id: b.parent_kpi_id !== undefined ? b.parent_kpi_id : existing.parent_kpi_id,
+      org_level: nextLevel,
+      org_key: nextKey,
+      ...nextPath,
+      name: b.name !== undefined ? String(b.name).trim() : existing.name,
+      unit: b.unit !== undefined ? String(b.unit).trim() : existing.unit,
+      target_value: b.target_value !== undefined ? Number(b.target_value) : Number(existing.target_value),
+      direction: b.direction === 'lower' ? 'lower' : b.direction === 'higher' ? 'higher' : existing.direction,
+      achieved_value:
+        b.achieved_value !== undefined
+          ? b.achieved_value === null || b.achieved_value === ''
+            ? null
+            : Number(b.achieved_value)
+          : existing.achieved_value,
+      description: b.description !== undefined ? b.description : existing.description,
+      owner_id: b.owner_id !== undefined ? b.owner_id : existing.owner_id,
+      status: b.status === 'archived' || b.status === 'active' ? b.status : existing.status,
+    };
+    const fail = (msg) => {
+      const e = new Error(msg);
+      e.statusCode = 400;
+      throw e;
+    };
+    if (!Object.prototype.hasOwnProperty.call(KPI_LEVEL_DEPTH, next.org_level)) fail('조직 레벨이 올바르지 않습니다.');
+    if (!next.org_key || !next.name || !next.unit || !(next.target_value > 0)) fail('조직·이름·단위·목표(>0)를 확인하세요.');
+    if (next.achieved_value != null && !Number.isFinite(Number(next.achieved_value))) fail('실적은 숫자로 입력하세요.');
+    await validateKpiParent(client, {
+      id: req.params.id,
+      parentKpiId: next.parent_kpi_id,
+      periodId: existing.evaluation_period_id,
+      orgLevel: next.org_level,
+      orgKey: next.org_key,
+      unit: next.unit,
+      childPath: {
+        corporation: next.org_path_corporation,
+        division: next.org_path_division,
+        department: next.org_path_department,
+      },
+      leadership: scope.leadership,
+    });
+    // 자식 일관성: 단위/레벨/조직 경로 변경 시 자식이 깨지지 않는지.
+    const { rows: kids } = await client.query(
+      `SELECT org_level, unit, org_key, org_path_corporation, org_path_division, org_path_department
+         FROM org_kpis WHERE parent_kpi_id = $1`,
+      [req.params.id],
+    );
+    for (const kid of kids) {
+      if (kid.unit !== next.unit) fail('하위 KPI와 단위가 달라집니다. 먼저 하위를 정리하세요.');
+      if (KPI_LEVEL_DEPTH[kid.org_level] <= KPI_LEVEL_DEPTH[next.org_level]) fail('하위 KPI 레벨과 충돌합니다.');
+      if (orgChanged) {
+        // 이 KPI 조직을 바꾸면 자식들의 '상위 조직' 불변식이 깨질 수 있다 — validateKpiParent 와
+        // 동일한 대조를 자식 방향으로 수행(자식 경로 NULL 은 레거시 관용, 겸직 평가라인 하위는 허용).
+        let kidPathOk = true;
+        const kidAncestorAtMyLevel = kid[KPI_PATH_COLS[next.org_level]] ?? null;
+        if (kidAncestorAtMyLevel && kidAncestorAtMyLevel !== next.org_key) kidPathOk = false;
+        if (kidPathOk) {
+          for (const l of kpiAncestorLevels(next.org_level)) {
+            const pv = next[KPI_PATH_COLS[l]];
+            const cv = kid[KPI_PATH_COLS[l]];
+            if (pv && cv && pv !== cv) {
+              kidPathOk = false;
+              break;
+            }
+          }
+        }
+        if (!kidPathOk) {
+          const kidKey = kpiTupleKey(
+            {
+              corporation: kid.org_path_corporation,
+              division: kid.org_path_division,
+              department: kid.org_path_department,
+              [kid.org_level]: kid.org_key,
+            },
+            kid.org_level,
+          );
+          const myKey = kpiTupleKey(
+            {
+              corporation: next.org_path_corporation,
+              division: next.org_path_division,
+              department: next.org_path_department,
+              [next.org_level]: next.org_key,
+            },
+            next.org_level,
+          );
+          if (!kpiChainUnder(scope.leadership, kid.org_level, kidKey, next.org_level, myKey)) {
+            fail('하위 KPI의 조직 경로(또는 평가라인)와 어긋나는 조직으로 변경할 수 없습니다. 먼저 하위 연결을 해제하세요.');
+          }
+        }
+      }
+    }
+    const { rows } = await client.query(
+      `UPDATE org_kpis SET
+         parent_kpi_id=$1, org_level=$2, org_key=$3,
+         org_path_corporation=$4, org_path_division=$5, org_path_department=$6,
+         name=$7, unit=$8, target_value=$9,
+         direction=$10, achieved_value=$11, description=$12, owner_id=$13, status=$14, updated_at=now()
+       WHERE id=$15 RETURNING *`,
+      [
+        next.parent_kpi_id,
+        next.org_level,
+        next.org_key,
+        next.org_path_corporation,
+        next.org_path_division,
+        next.org_path_department,
+        next.name,
+        next.unit,
+        next.target_value,
+        next.direction,
+        next.achieved_value,
+        next.description,
+        next.owner_id,
+        next.status,
+        req.params.id,
+      ],
+    );
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_update',
+      actorId: req.session.employeeId,
+      previousValue: existing,
+      newValue: rows[0],
+      reason: 'KPI 수정',
+    });
+    await client.query('COMMIT');
+    res.json(serializeKpiBase(rows[0]));
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error updating KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/org-kpis/:id', requireHrOrEvaluator, async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM org_kpis WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const kpi = rows[0];
+    if (!kpi) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'KPI를 찾을 수 없습니다.' });
+    }
+    // 삭제권 = 스코프 기준(평가자 탭: 생성자 체인, HR 관리자 탭: 전체). 서브트리도 함께 삭제됨.
+    const { scope: delScope, visible: delVisible } = await buildKpiVisibility(req, kpi.evaluation_period_id);
+    if (delScope.mode !== 'all' && !delVisible(kpi)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: '본인 또는 하위 평가자가 만든 KPI만 삭제할 수 있습니다.' });
+    }
+    await client.query('DELETE FROM org_kpis WHERE id = $1', [req.params.id]); // 자식·배분은 ON DELETE CASCADE
+    await insertAdminAuditLog(client, {
+      actionType: 'kpi_delete',
+      actorId: req.session.employeeId,
+      previousValue: kpi,
+      newValue: null,
+      reason: 'KPI 삭제(서브트리·배분 포함)',
+    });
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted_id: req.params.id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting KPI:', err.message);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/evaluations', requireHr, async (req, res) => {
   try {
     const filter = await resolveEvaluationPeriodFilter(req.query);
@@ -7447,6 +8896,28 @@ app.put('/api/evaluation/:id', guardEvaluationParam('id'), async (req, res) => {
       return res.status(403).json({ error: '피평가자는 평가를 제출 상태로만 변경할 수 있습니다.' });
     }
 
+    // S9: 최종제출 서버 검증 — 살아있는 과업 기준 가중치 합 100 + 과업 1건 이상.
+    // 클라이언트 검증만으로는 stale 화면·직접 API 호출로 합이 어긋난 채 제출될 수 있다.
+    if (nextStatus === 'submitted' && prior?.evaluation_status !== 'submitted') {
+      const { rows: weightRows } = await client.query(
+        `SELECT COUNT(*)::int AS task_count, COALESCE(SUM(weight), 0)::numeric AS total_weight
+           FROM tasks WHERE evaluation_id = $1 AND deleted_at IS NULL`,
+        [req.params.id]
+      );
+      const taskCount = weightRows[0]?.task_count ?? 0;
+      const totalWeight = Number(weightRows[0]?.total_weight ?? 0);
+      if (taskCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(422).json({ error: '과업이 없어 최종제출할 수 없습니다. 과업을 먼저 등록해 주세요.' });
+      }
+      if (totalWeight !== 100) {
+        await client.query('ROLLBACK');
+        return res.status(422).json({
+          error: `가중치 합계가 100%가 아니어서 최종제출할 수 없습니다. (현재 ${totalWeight}%) 과업 가중치를 조정한 뒤 다시 제출해 주세요.`,
+        });
+      }
+    }
+
     // 보안(P0): 수정 가능 컬럼 화이트리스트(임의 컬럼/식별자 인젝션·mass-assignment 차단).
     const updateEntries = Object.entries(req.body).filter(([k]) => EVALUATION_UPDATE_FIELDS.has(k));
     if (updateEntries.length === 0) {
@@ -7565,12 +9036,15 @@ app.delete('/api/evaluation/:id', requireHr, async (req, res) => {
 app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const evaluationId = req.params.id;
-  const requestedBy = normalizeOptionalText(req.body?.requestedBy ?? req.body?.requested_by);
+  // S8: 발신자 신원은 세션으로 강제(본문 requestedBy 신뢰 금지 — 요청 사칭 차단).
+  const requestedBy = req.session.employeeId;
   const reason = normalizeOptionalText(req.body?.reason);
   // origin: 발신 출처. 미지정(피평가자) 시 기존 문구 유지, 'hr' 시 HR 재검토 요청 문구로만 분기.
   // 수신자 해석·status 무변경·notification_type·priority는 출처와 무관하게 동일.
   const origin = normalizeOptionalText(req.body?.origin);
-  const isHrOrigin = origin === 'hr';
+  // 리뷰 하드닝: 'hr' 라벨은 실제 HR 역할일 때만 인정 — 비HR이 body 로 'HR 재검토 요청'
+  // 알림·감사로그 라벨을 위조하지 못하게 한다(위조 시 피평가자 문구로 강등).
+  const isHrOrigin = origin === 'hr' && (await requesterIsHr(req).catch(() => false));
   if (!requestedBy) {
     return res.status(400).json({ error: 'requestedBy is required' });
   }
@@ -7580,10 +9054,14 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
     const { rows } = await client.query(
       `
         SELECT e.id, e.evaluatee_id, e.evaluatee_name, e.evaluation_status,
-               ah.new_evaluator_id, ev_emp.name AS evaluator_name
+               COALESCE(ah.new_evaluator_id, emp.evaluator_id) AS new_evaluator_id,
+               ev_emp.name AS evaluator_name,
+               p.status AS period_status
         FROM evaluations e
         LEFT JOIN evaluator_assignment_history ah ON ah.id = e.assignment_history_id
-        LEFT JOIN employees ev_emp ON ev_emp.employee_id = ah.new_evaluator_id
+        LEFT JOIN employees emp ON emp.employee_id = e.evaluatee_id
+        LEFT JOIN employees ev_emp ON ev_emp.employee_id = COALESCE(ah.new_evaluator_id, emp.evaluator_id)
+        LEFT JOIN evaluation_periods p ON p.id = e.evaluation_period_id
         WHERE e.id = $1 AND COALESCE(e.record_status, 'active') = 'active'
         LIMIT 1
       `,
@@ -7598,14 +9076,26 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Evaluation has no assigned evaluator' });
     }
+    // S8: 마감·잠금(작성 전 포함) 기간에는 수정요청 발송 차단 — 받아도 평가자가 고칠 수 없어
+    // '매달 수정요청 루프'만 만든다. 기간을 다시 열어야 처리 가능함을 안내.
+    if (evaluation.period_status && NON_WRITABLE_PERIOD_STATUSES.has(evaluation.period_status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: '마감(잠금)된 평가기간에는 수정요청을 보낼 수 없습니다. 평가기간을 다시 연 뒤 요청해 주세요.',
+      });
+    }
     const requesterName = await resolveEmployeeName(
       client,
       requestedBy,
       isHrOrigin ? 'HR' : '피평가자',
     );
-    const title = isHrOrigin ? 'HR 재검토 요청' : '피평가자가 수정을 요청했습니다';
+    // S8: 알림에 피평가자명 명시 — 평가자는 여러 명을 담당하므로 누구 건인지 제목에서 바로 보이게.
+    const evaluateeName = evaluation.evaluatee_name ?? '피평가자';
+    const title = isHrOrigin
+      ? `HR 재검토 요청 · ${evaluateeName}`
+      : `피평가자 수정 요청 · ${evaluateeName}`;
     const baseMessage = isHrOrigin
-      ? `${requesterName}님이 평가의견 재검토를 요청했습니다.`
+      ? `${requesterName}님이 ${evaluateeName}님 평가의견 재검토를 요청했습니다.`
       : `${requesterName}님이 과업 수정을 요청했습니다.`;
     await insertNotificationRow(client, {
       notificationType: 'evaluation_return_requested',
@@ -7616,6 +9106,19 @@ app.post('/api/evaluation/:id/return-request', guardEvaluationParam('id'), async
       senderName: requesterName,
       recipientId: evaluation.new_evaluator_id,
       relatedEvaluationId: evaluationId,
+    });
+    // S8: 감사로그 — 누가 언제 어떤 사유로 수정요청을 보냈는지(HR 루프 추적).
+    await insertAdminAuditLog(client, {
+      actionType: 'evaluation_return_request',
+      actorId: req.session.employeeId,
+      targetEmployeeId: evaluation.evaluatee_id ?? null,
+      previousValue: null,
+      newValue: {
+        origin: isHrOrigin ? 'hr' : 'evaluatee',
+        reason: reason ?? null,
+        recipient_evaluator_id: evaluation.new_evaluator_id,
+      },
+      reason: `평가 수정요청(${isHrOrigin ? 'HR' : '피평가자'}) · 피평가자 ${evaluateeName} · 수신 ${evaluation.evaluator_name ?? evaluation.new_evaluator_id}`,
     });
     await client.query('COMMIT');
     res.json({ ok: true, recipient_id: evaluation.new_evaluator_id });
@@ -8169,6 +9672,300 @@ app.put('/api/task-evaluation-entry', guardTaskParam('task_uuid', 'body'), async
     client.release();
   }
 });
+// ── 평가 일괄 저장 (S3) ─────────────────────────────────────────────────────
+// 평가자 '평가 저장'이 과업당 entry upsert(N) + 피드백 히스토리(M) + 평가상태(1) + 알림(L)
+// 순차 요청이던 것을 한 트랜잭션·한 요청으로 묶는다 — 왕복 제거에 더해, 중간 실패 시 일부
+// 과업만 반영되던 비원자성도 제거(전체 롤백). 항목별 가드(삭제 과업 409·기간 잠금·취소 423
+// 등)는 단건 라우트와 동일 헬퍼를 그대로 사용한다. AI 검수는 이 요청에 포함되지 않는다 —
+// 클라이언트가 저장 응답 후 백그라운드로 수행해 ai-review 라우트로 기록한다(S3 비동기화).
+app.put('/api/task-evaluation-entries/bulk', async (req, res) => {
+  if (!isDbAvailable) return sendDbUnavailable(res);
+  if (!req.session?.employeeId) return res.status(401).json({ error: '로그인이 필요합니다.' });
+  const b = req.body || {};
+  const evaluationId = b.evaluation_id;
+  const items = Array.isArray(b.entries) ? b.entries : [];
+  const nextStatus = b.evaluation_status;
+  if (!evaluationId || items.length === 0) {
+    return res.status(400).json({ error: 'evaluation_id 와 entries 가 필요합니다.' });
+  }
+  if (items.length > 200) {
+    return res.status(400).json({ error: '한 번에 저장 가능한 과업 수(200)를 초과했습니다.' });
+  }
+  if (nextStatus !== undefined && nextStatus !== 'completed' && nextStatus !== 'evaluating') {
+    return res.status(400).json({ error: "evaluation_status 는 'completed' 또는 'evaluating' 만 허용됩니다." });
+  }
+
+  const client = await pool.connect();
+  try {
+    // 권한: 과업들이 전부 같은 평가 소속이므로 평가 단위 1회 검사(guardTaskParam 과 동일 기준).
+    const { rows: accessRows } = await pool.query(
+      `SELECT ev.evaluatee_id, ev.evaluatee_name,
+              h.new_evaluator_id AS assigned_evaluator_id,
+              e.evaluator_id AS current_evaluator_id
+         FROM evaluations ev
+         LEFT JOIN evaluator_assignment_history h ON h.id = ev.assignment_history_id
+         LEFT JOIN employees e ON e.employee_id = ev.evaluatee_id
+        WHERE ev.id = $1`,
+      [evaluationId]
+    );
+    if (accessRows.length === 0) return res.status(404).json({ error: '평가를 찾을 수 없습니다.' });
+    if (!(await canAccessEvaluation(req, accessRows[0]))) {
+      return res.status(403).json({ error: '해당 평가에 접근할 권한이 없습니다.' });
+    }
+    const evaluateeId = accessRows[0].evaluatee_id ?? null;
+
+    // 단건 라우트와 동일: 비-HR은 세션 본인을 평가자로 강제.
+    const isHr = await requesterIsHr(req).catch(() => false);
+    const evaluatorId = isHr && b.evaluator_id ? String(b.evaluator_id) : req.session.employeeId;
+    const { rows: selfRows } = await pool.query(
+      'SELECT name FROM employees WHERE employee_id::text = $1 LIMIT 1',
+      [evaluatorId]
+    );
+    const evaluatorName = selfRows[0]?.name ?? b.evaluator_name ?? evaluatorId;
+
+    await client.query('BEGIN');
+    // S7: 낙관적 잠금 — 화면이 로드했던 시점의 last_modified(expected_last_modified)와 현재
+    // DB 값이 다르면 그 사이 다른 탭/사용자가 저장한 것 → 409 로 거부해 조용한 덮어쓰기를
+    // 막는다(미제공=구 클라이언트 관용). FOR UPDATE 로 검사~저장 사이 경합도 차단.
+    const expectedLastModified = b.expected_last_modified ?? null;
+    const { rows: lockRows } = await client.query(
+      'SELECT last_modified, evaluation_status FROM evaluations WHERE id = $1 FOR UPDATE',
+      [evaluationId]
+    );
+    if (expectedLastModified && lockRows[0]?.last_modified) {
+      const expected = new Date(expectedLastModified).getTime();
+      const actual = new Date(lockRows[0].last_modified).getTime();
+      if (Number.isFinite(expected) && Number.isFinite(actual) && expected !== actual) {
+        throw Object.assign(
+          new Error(
+            '이 평가가 다른 화면(탭)에서 먼저 저장되었습니다. 화면을 새로고침해 최신 내용을 확인한 뒤 다시 저장해 주세요.',
+          ),
+          { statusCode: 409 },
+        );
+      }
+    }
+    const savedEntries = [];
+    const touchedTaskUuids = [];
+    // 편집 가능/배정이력은 평가·평가자 단위 판정이라 1회면 충분(단건 라우트에선 매 호출 반복).
+    let editableAsserted = false;
+    let assignmentHistoryId = null;
+    for (const raw of items) {
+      const payload = normalizeTaskEvaluationEntryPayload({ ...raw, evaluation_id: evaluationId });
+      payload.evaluator_id = evaluatorId;
+      payload.evaluator_name = evaluatorName;
+      if (payload.score !== null && !Number.isFinite(payload.score)) {
+        throw Object.assign(new Error('score must be a number or null'), { statusCode: 400 });
+      }
+      const task = await getTaskForEvaluationEntry(client, payload);
+      if (!editableAsserted) {
+        await assertTaskEvaluationEntryEditable(client, task, payload);
+        assignmentHistoryId = await getAssignmentHistoryIdForEvaluationEntry(client, task, payload);
+        editableAsserted = true;
+      }
+
+      const { rows: priorEntryRows } = await client.query(
+        `SELECT score, contribution_method, contribution_scope, feedback
+           FROM task_evaluation_entries
+          WHERE task_uuid = $1 AND evaluator_id = $2`,
+        [task.id, evaluatorId]
+      );
+      const priorEntry = priorEntryRows[0] ?? null;
+
+      const { rows } = await client.query(
+        `
+          INSERT INTO task_evaluation_entries (
+            task_uuid, task_id, evaluation_id, evaluator_id, evaluator_name,
+            contribution_method, contribution_scope, score, feedback, feedback_date,
+            assignment_history_id, status
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::timestamptz, NOW()),$11,'active')
+          ON CONFLICT (task_uuid, evaluator_id) DO UPDATE SET
+            evaluator_name = EXCLUDED.evaluator_name,
+            contribution_method = EXCLUDED.contribution_method,
+            contribution_scope = EXCLUDED.contribution_scope,
+            score = EXCLUDED.score,
+            feedback = EXCLUDED.feedback,
+            feedback_date = EXCLUDED.feedback_date,
+            assignment_history_id = COALESCE(EXCLUDED.assignment_history_id, task_evaluation_entries.assignment_history_id),
+            status = 'active',
+            cancelled_at = NULL,
+            cancelled_by = NULL,
+            cancel_reason = NULL,
+            updated_at = NOW()
+          RETURNING *
+        `,
+        [
+          task.id,
+          task.task_id,
+          task.evaluation_id,
+          evaluatorId,
+          evaluatorName,
+          payload.contribution_method,
+          payload.contribution_scope,
+          payload.score,
+          payload.feedback,
+          payload.feedback_date,
+          assignmentHistoryId,
+        ]
+      );
+      const savedEntry = rows[0];
+      savedEntries.push(savedEntry);
+      touchedTaskUuids.push(task.id);
+
+      // 감사로그: 단건 라우트와 동일 — 실제 변경된 경우에만 old→new 기록.
+      const entryChanged =
+        !priorEntry ||
+        priorEntry.score !== savedEntry.score ||
+        priorEntry.contribution_method !== savedEntry.contribution_method ||
+        priorEntry.contribution_scope !== savedEntry.contribution_scope ||
+        (priorEntry.feedback ?? '') !== (savedEntry.feedback ?? '');
+      if (entryChanged) {
+        await insertAdminAuditLog(client, {
+          actionType: 'evaluation_score_change',
+          actorId: req.session.employeeId,
+          targetEmployeeId: task.evaluatee_id ?? null,
+          previousValue: priorEntry
+            ? {
+                score: priorEntry.score,
+                contribution_method: priorEntry.contribution_method,
+                contribution_scope: priorEntry.contribution_scope,
+                feedback: priorEntry.feedback,
+              }
+            : null,
+          newValue: {
+            score: savedEntry.score,
+            contribution_method: savedEntry.contribution_method,
+            contribution_scope: savedEntry.contribution_scope,
+            feedback: savedEntry.feedback,
+          },
+          reason: `과업 평가 ${priorEntry ? '수정' : '입력'} · 평가자 ${evaluatorName}(${evaluatorId}) · task ${task.task_id}`,
+        });
+      }
+
+      // 피드백 히스토리 — 변경 감지는 클라이언트가 entry 비교로 이미 수행(단건 흐름과 동일 기준).
+      if (raw.create_feedback_history && (payload.feedback ?? '').trim()) {
+        await client.query(
+          `INSERT INTO feedback_history
+             (task_id, task_uuid, evaluation_id, evaluator_id, task_evaluation_entry_id, content, evaluator_name, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'active')`,
+          [task.task_id, task.id, task.evaluation_id, evaluatorId, savedEntry.id, payload.feedback, evaluatorName]
+        );
+      }
+
+      // 알림 — 클라이언트 발송(과업당 1요청)을 서버 이관. insertNotificationRow 는 SAVEPOINT 라
+      // 알림 실패가 저장을 되돌리지 않는다.
+      const changeDetails =
+        typeof raw.notify_change_details === 'string' ? raw.notify_change_details.trim() : '';
+      if (changeDetails && evaluateeId) {
+        const { rows: titleRows } = await client.query('SELECT title FROM tasks WHERE id = $1', [task.id]);
+        const taskTitle = titleRows[0]?.title ?? '과업';
+        await insertNotificationRow(client, {
+          notificationType: 'task_updated',
+          title: `평가 업데이트: ${taskTitle}`,
+          message: `"${taskTitle}" 과업이 업데이트되었습니다.\n\n변경사항: ${changeDetails}`,
+          priority: 'medium',
+          senderId: req.session.employeeId,
+          senderName: evaluatorName,
+          recipientId: evaluateeId,
+          // FK 정합: related_evaluation_id=evaluations.id(uuid), related_task_id=tasks.task_id(텍스트).
+          // (구 클라이언트 발송은 사번·과업 uuid 를 넣어 FK 불일치 시 조용히 유실되던 값 — 정정.)
+          relatedEvaluationId: evaluationId,
+          relatedTaskId: task.task_id,
+        });
+      }
+    }
+
+    // S8: 수정요청 회신 — 이 평가에 온 수정요청(evaluation_return_requested) 중 아직 회신하지
+    // 않은 요청자에게 '평가자가 저장했음'을 알린다. 회신 이후 새 요청이 오기 전까지는 같은
+    // 요청자에게 재발송하지 않는다(회신 알림 created_at 대조).
+    const { rows: openReturnRequests } = await client.query(
+      `SELECT DISTINCT n1.sender_id
+         FROM notifications n1
+        WHERE n1.notification_type = 'evaluation_return_requested'
+          AND n1.related_evaluation_id = $1
+          AND n1.sender_id IS NOT NULL
+          AND n1.sender_id <> $2
+          AND NOT EXISTS (
+            SELECT 1 FROM notifications n2
+             WHERE n2.notification_type = 'hr_message'
+               AND n2.related_evaluation_id = $1
+               AND n2.recipient_id = n1.sender_id
+               AND n2.title = '수정요청 처리됨'
+               AND n2.created_at > n1.created_at
+          )`,
+      [evaluationId, evaluatorId]
+    );
+    const evaluateeNameForReply = accessRows[0]?.evaluatee_name ?? '피평가자';
+    for (const openReq of openReturnRequests) {
+      await insertNotificationRow(client, {
+        notificationType: 'hr_message',
+        title: '수정요청 처리됨',
+        message: `${evaluatorName} 평가자가 ${evaluateeNameForReply}님 평가를 저장했습니다. 요청하신 수정이 반영됐는지 확인해 주세요.`,
+        priority: 'medium',
+        senderId: evaluatorId,
+        senderName: evaluatorName,
+        recipientId: openReq.sender_id,
+        relatedEvaluationId: evaluationId,
+      });
+    }
+
+    await rebuildTaskEvaluationSnapshot(client, touchedTaskUuids);
+    let updatedLastModified = null;
+    if (nextStatus) {
+      const priorStatus = lockRows[0]?.evaluation_status ?? null;
+      const { rows: statusRows } = await client.query(
+        'UPDATE evaluations SET evaluation_status = $2, last_modified = NOW(), updated_at = NOW() WHERE id = $1 RETURNING last_modified',
+        [evaluationId, nextStatus]
+      );
+      updatedLastModified = statusRows[0]?.last_modified ?? null;
+      // 리뷰 확정 수정: 상태 전이 부수효과를 PUT /api/evaluation/:id 와 동일하게 수행 —
+      // 벌크 저장 도입으로 완료 알림·completed_at/reverted_at 스탬프·상태변경 감사로그가
+      // 통째로 빠지던 회귀(칸반 완료시점 오표기·피평가자 완료 알림 미발송·추적 불가).
+      if (priorStatus !== nextStatus) {
+        const stamps = [];
+        if (nextStatus === 'completed' && priorStatus !== 'completed') stamps.push('completed_at = NOW()');
+        if (nextStatus === 'evaluating' && priorStatus === 'completed') stamps.push('reverted_at = NOW()');
+        if (stamps.length) {
+          await client.query(`UPDATE evaluations SET ${stamps.join(', ')} WHERE id = $1`, [evaluationId]);
+        }
+        if (nextStatus === 'completed' && priorStatus !== 'completed' && evaluateeId) {
+          await insertNotificationRow(client, {
+            notificationType: 'evaluation_completed',
+            title: '평가자가 평가를 완료했습니다',
+            message: `${evaluatorName}님이 평가를 완료했습니다.`,
+            priority: 'medium',
+            senderId: evaluatorId,
+            senderName: evaluatorName,
+            recipientId: evaluateeId,
+            relatedEvaluationId: evaluationId,
+          });
+        }
+        await insertAdminAuditLog(client, {
+          actionType: 'evaluation_update',
+          actorId: req.session.employeeId,
+          targetEmployeeId: evaluateeId ?? null,
+          previousValue: { evaluation_status: priorStatus },
+          newValue: { evaluation_status: nextStatus },
+          reason: `평가 필드 변경(evaluation_status) · 피평가자 ${accessRows[0]?.evaluatee_name ?? evaluateeId ?? ''} · 일괄 저장 경유`,
+        });
+      }
+    }
+    await client.query('COMMIT');
+    res.json({
+      entries: savedEntries.map((r) => ({ id: r.id, task_uuid: r.task_uuid })),
+      evaluation_status: nextStatus ?? null,
+      // S7: 클라이언트가 다음 저장의 낙관적 잠금 기준으로 쓸 새 last_modified.
+      last_modified: updatedLastModified,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error bulk-saving task evaluation entries:', err);
+    res.status(err.statusCode ?? 500).json({ error: err.statusCode ? err.message : 'Database error' });
+  } finally {
+    client.release();
+  }
+});
+
 // Phase 3: 평가 저장 시 그 항목의 AI 검수 결과(플래그·요약·해시)를 기록. 매 저장 덮어쓰기 →
 // 경고 없이 통과하면 flagged=false 로 '이상없음' 갱신.
 app.patch('/api/task-evaluation-entry/:id/ai-review', async (req, res) => {

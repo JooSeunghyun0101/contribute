@@ -32,4 +32,6 @@ export const queryKeys = {
     evaluatorId: string | null,
     bulk: boolean,
   ) => ['prior-year-records', employeesKey, priorPeriodId, evaluatorId, bulk] as const,
+  // 배정이력 벌크(S5) — 보드 현재/이전 담당 분류용. idsKey = 정렬된 사번 목록 join(',').
+  assignmentHistoryBulk: (idsKey: string) => ['assignment-history-bulk', idsKey] as const,
 } as const;

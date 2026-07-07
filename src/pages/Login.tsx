@@ -1,7 +1,8 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/lib/services/authService';
+import { SESSION_EXPIRED_STORAGE_KEY } from '@/lib/api';
 import { IconArrowRight } from '@/components/brand';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -21,6 +22,14 @@ const Login = () => {
   const [resetOpen, setResetOpen] = useState(false);
   const [resetReason, setResetReason] = useState('');
   const [info, setInfo] = useState('');
+
+  // 세션 만료(401)로 튕겨온 경우 1회성 안내 — 플래그는 읽은 즉시 제거해 새로고침 시 재노출을 막는다.
+  useEffect(() => {
+    if (sessionStorage.getItem(SESSION_EXPIRED_STORAGE_KEY) === '1') {
+      sessionStorage.removeItem(SESSION_EXPIRED_STORAGE_KEY);
+      setInfo('세션이 만료되어 다시 로그인해 주세요.');
+    }
+  }, []);
 
   // 로그인됐지만 비밀번호 변경이 강제된 상태(새로고침 포함)면 변경 폼을 보여준다.
   const showChangeForm = Boolean(user) && mustChangePassword;
@@ -261,8 +270,10 @@ const Login = () => {
             style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
           >
             <div className="sd-field">
-              <label style={{ color: textSoft }}>사번</label>
+              {/* P3-12: label-input 연결(htmlFor/id) — 스크린리더가 필드명을 읽도록 */}
+              <label htmlFor="login-employee-id" style={{ color: textSoft }}>사번</label>
               <input
+                id="login-employee-id"
                 className="sd-input"
                 style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={employeeId}
@@ -273,8 +284,9 @@ const Login = () => {
               />
             </div>
             <div className="sd-field">
-              <label style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
+              <label htmlFor="login-password" style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
               <input
+                id="login-password"
                 className="sd-input"
                 type="password"
                 style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}

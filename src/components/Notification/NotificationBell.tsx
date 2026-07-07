@@ -48,6 +48,12 @@ const NotificationBell: React.FC = () => {
     navigate('/notifications');
   };
 
+  // 알림 클릭 딥링크 — 팝오버를 닫고 이동. 벨은 현재 역할 알림만 보여주므로 역할 전환은 불필요.
+  const handleItemNavigate = (path: string) => {
+    setOpen(false);
+    navigate(path);
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {/* 알림창 열렸을 때 나머지 화면 어둡게 (백드롭) */}
@@ -136,7 +142,13 @@ const NotificationBell: React.FC = () => {
             ) : (
               <>
                 {filtered.map((n) => (
-                  <NotificationItem key={n.id} notification={n} onMarkAsRead={markAsRead} />
+                  <NotificationItem
+                    key={n.id}
+                    notification={n}
+                    onMarkAsRead={markAsRead}
+                    currentRole={user.role}
+                    onNavigate={handleItemNavigate}
+                  />
                 ))}
                 {tab === 'read' && (
                   <div

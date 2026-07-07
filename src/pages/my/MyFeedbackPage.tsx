@@ -22,7 +22,11 @@ const MyFeedbackPage = () => {
   const tasks = evaluationData?.tasks ?? [];
 
   const taskCards = useMemo<PastTaskCard[]>(() => {
-    return tasks.map((task, taskIndex) => {
+    // 발령자: 이전 평가 과업(isHistoricalEvaluation)도 병합되어 온다(S1) — T번호는 현재 평가
+    // 과업에만 이어 붙이고, 이전 평가 과업은 '이전 평가 · 평가자명' 배지로 구분한다.
+    let currentIndex = 0;
+    return tasks.map((task) => {
+      const isHistorical = Boolean(task.isHistoricalEvaluation);
       const entries = (task.feedbackHistory ?? [])
         .map((fb) => ({
           id: fb.id,
@@ -33,12 +37,15 @@ const MyFeedbackPage = () => {
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       return {
         taskId: task.id,
-        taskIndex,
+        taskIndex: isHistorical ? undefined : currentIndex++,
         taskTitle: task.title,
         isAiTask: task.isAiTask,
         contributionMethod: task.contributionMethod ?? null,
         contributionScope: task.contributionScope ?? null,
         score: task.score ?? null,
+        historicalLabel: isHistorical
+          ? `이전 평가${task.sourceEvaluatorName ? ` · ${task.sourceEvaluatorName}` : ''}`
+          : null,
         entries,
       };
     });
@@ -136,6 +143,7 @@ const MyFeedbackPage = () => {
                 contributionScope={card.contributionScope}
                 score={card.score}
                 tint
+                historicalLabel={card.historicalLabel}
                 entries={card.entries}
               />
             ))
@@ -244,7 +252,10 @@ const MyFeedbackPage = () => {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      T{String((card.taskIndex ?? 0) + 1).padStart(2, '0')} {card.taskTitle}
+                      {card.taskIndex != null
+                        ? `T${String(card.taskIndex + 1).padStart(2, '0')} `
+                        : '(이전 평가) '}
+                      {card.taskTitle}
                     </div>
                   </div>
                   <span
