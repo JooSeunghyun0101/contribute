@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import { ChevronDown, CircleHelp, Clock3 } from 'lucide-react';
+import { ChevronDown, CircleHelp } from 'lucide-react';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
@@ -230,14 +230,16 @@ export const EvaluatorAccordion = ({
       overflow: 'hidden',
     }}
   >
+    {/* 헤더 슬림화(2026-07-07 사용자: 불필요 글자 제거·영역 구분) — 부제 문장 삭제,
+        점수 블록 축소, 높이 116→60 으로 얇은 타이틀 바가 되게 한다. */}
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={isExpanded}
       style={{
         width: '100%',
-        minHeight: 116,
-        padding: '24px 32px',
+        minHeight: 60,
+        padding: '12px 20px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -249,61 +251,40 @@ export const EvaluatorAccordion = ({
         textAlign: 'left',
       }}
     >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 'var(--fs-h1)',
-              fontWeight: 900,
-              color: group.accent,
-              lineHeight: 1.15,
-            }}
+      <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h2
+          style={{
+            margin: 0,
+            fontSize: 'var(--fs-h3)',
+            fontWeight: 900,
+            color: group.accent,
+            lineHeight: 1.15,
+          }}
+        >
+          평가자 {group.evaluatorName}
+        </h2>
+        <Pill tone={group.canEdit ? 'orange' : 'neutral'}>{group.label}</Pill>
+        {!group.canEdit && <Pill tone="neutral">읽기 전용</Pill>}
+        {periodLabel && (
+          <span
+            className="tnum"
+            style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}
+            title="평가자 근무기간"
           >
-            평가자 {group.evaluatorName}
-          </h2>
-          <Pill tone={group.canEdit ? 'orange' : group.isOwnedByCurrentUser ? 'success' : 'neutral'}>
-            {group.label}
-          </Pill>
-          {!group.canEdit && <Pill tone="neutral">읽기 전용</Pill>}
-          {periodLabel && (
-            <span
-              className="tnum"
-              style={{
-                fontSize: 'var(--fs-sm)',
-                fontWeight: 700,
-                color: 'var(--fg-muted)',
-                background: 'var(--bg-muted)',
-                padding: '3px 10px',
-                borderRadius: 999,
-              }}
-              title="평가자 근무기간"
-            >
-              {periodLabel}
-            </span>
-          )}
-        </div>
-        <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-          {group.description}
-        </p>
+            {periodLabel}
+          </span>
+        )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
-        <div style={{ textAlign: 'right' }}>
-          <div className="sd-label-mini">반영 점수</div>
-          <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
-            {formatScore(group.exactScore)}
-            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-              {' '}
-              / {growthLevel}
-            </span>
-          </div>
-          <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
-            {group.completedCount}/{group.tasks.length} 과업
-          </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+        <div className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: group.accent }}>
+          {formatScore(group.exactScore)}
+          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+            {' '}/ {growthLevel} · {group.completedCount}/{group.tasks.length} 과업
+          </span>
         </div>
         <ChevronDown
-          size={24}
+          size={20}
           color={group.accent}
           aria-hidden="true"
           className={chevronRotateClass(isExpanded)}
@@ -378,13 +359,16 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
           key={item.task.id}
           type="button"
           onClick={() => onSelectTask(item.task.id)}
+          // 선택 항목 = 흰 배경 + 왼쪽 액센트 바 — 리스트(muted)와 본문(card)이 같은 톤이라
+          // 구분이 안 가던 문제(2026-07-07 사용자). 선택 탭이 본문과 이어져 보인다.
           style={{
             width: '100%',
             minHeight: 72,
-            padding: '12px 12px 12px 18px',
+            padding: '12px 12px 12px 15px',
             border: 'none',
             borderBottom: '1px solid var(--border)',
-            background: active ? group.mutedAccent : 'transparent',
+            borderLeft: active ? `3px solid ${group.accent}` : '3px solid transparent',
+            background: active ? 'var(--bg-card)' : 'transparent',
             color: active ? 'var(--fg)' : 'var(--fg-muted)',
             display: 'grid',
             gridTemplateColumns: '52px minmax(0, 1fr)',
@@ -416,13 +400,15 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
             </div>
             <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--fs-xs)', alignItems: 'center' }}>
               {item.task.isAiTask && (
+                // 색 절감(2026-07-07): 목록 배지는 무채색 — 화면의 파랑은 AI 의견 버튼 1곳만.
                 <span
                   style={{
                     padding: '0 6px',
                     borderRadius: 999,
                     fontWeight: 800,
-                    color: 'var(--ai-accent)',
-                    background: 'var(--ai-accent-bg)',
+                    color: 'var(--fg-muted)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-card)',
                   }}
                 >
                   AI
@@ -500,19 +486,6 @@ const AiReviewResultCard = ({ entry }: { entry?: TaskEvaluationEntry | null }) =
           이상 없음 — 검수 통과
         </p>
       )}
-
-      <p
-        style={{
-          marginTop: 10,
-          paddingTop: 10,
-          borderTop: '1px solid var(--border)',
-          fontSize: 'var(--fs-xs)',
-          color: 'var(--fg-muted)',
-          lineHeight: 1.6,
-        }}
-      >
-        구체적 행동 → 성과 → 영향 → 개선 방향 순으로 작성하면 품질 검수를 통과하기 쉽습니다.
-      </p>
     </div>
   );
 };
@@ -606,11 +579,9 @@ const TaskDetail = ({
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <Clock3 size={14} color="var(--fg-muted)" aria-hidden="true" />
-          <span style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
+          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
             {formatDate(task.startDate)}~{formatDate(task.endDate)}
           </span>
-          <Pill tone="neutral">가중치 {task.weight}%</Pill>
           {item.hasDraft && <Pill tone="orange">임시저장</Pill>}
         </div>
 
@@ -623,12 +594,10 @@ const TaskDetail = ({
 
         <div style={{ marginTop: 26 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div>
-              <div className="sd-label-mini">스코어링 매트릭스</div>
-              <h3 style={{ margin: '2px 0 0', fontSize: 'var(--fs-body)', fontWeight: 900 }}>
-                {group.canEdit ? '셀을 클릭해 점수 선택' : '평가자가 선택한 점수'}
-              </h3>
-            </div>
+            {/* 이중 라벨(스코어링 매트릭스 + 평가자가 선택한 점수) → 단일(2026-07-07 사용자) */}
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-body)', fontWeight: 900 }}>
+              {group.canEdit ? '점수 선택' : '선택한 점수'}
+            </h3>
             <button
               type="button"
               onClick={() => onNoContributionClick(task)}
@@ -800,33 +769,10 @@ const TaskDetail = ({
         </div>
       </div>
 
+      {/* 우측 레일 다이어트(2026-07-07 사용자): '점수·기여방식×범위' 카드는 매트릭스 선택 셀과
+          중복이라 제거. 점수는 아래 가중치 반영 카드 한 곳에만. 읽기 전용 안내문(헤더 '읽기 전용'
+          배지와 중복)도 제거. 가중치 반영 + AI 검수 결과만 남긴다. */}
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg-muted)',
-            textAlign: 'center',
-          }}
-        >
-          <div className="sd-label-mini">{group.canEdit ? '현재 선택 점수' : '평가 점수'}</div>
-          {item.score != null ? (
-            <>
-              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center' }}>
-                <NumBadge score={item.score} size={78} />
-              </div>
-              <div style={{ marginTop: 10, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-                {displayTask.contributionMethod || '미정'} × {displayTask.contributionScope || '미정'}
-              </div>
-            </>
-          ) : (
-            <div style={{ marginTop: 18, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-              아직 평가되지 않았습니다.
-            </div>
-          )}
-        </div>
-
         <div
           style={{
             padding: 18,
@@ -836,29 +782,23 @@ const TaskDetail = ({
           }}
         >
           <div className="sd-label-mini">가중치 반영</div>
-          <div className="tnum" style={{ marginTop: 8, fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
-            {item.score != null ? ((item.score * task.weight) / 100).toFixed(2) : '–'}
-          </div>
-          <div style={{ marginTop: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-            점수 {item.score ?? '–'} × 가중치 {task.weight}%
-          </div>
+          {item.score != null ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
+                <span className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
+                  {((item.score * task.weight) / 100).toFixed(2)}
+                </span>
+              </div>
+              <div style={{ marginTop: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+                점수 {item.score} × 가중치 {task.weight}%
+              </div>
+            </>
+          ) : (
+            <div style={{ marginTop: 10, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+              아직 평가되지 않았습니다.
+            </div>
+          )}
         </div>
-
-        {!group.canEdit && (
-          <div
-            style={{
-              padding: 14,
-              borderRadius: 8,
-              background: 'var(--bg-muted)',
-              border: '1px solid var(--border)',
-              color: 'var(--fg-muted)',
-              fontSize: 'var(--fs-sm)',
-              lineHeight: 1.6,
-            }}
-          >
-            이 평가는 {group.evaluatorName} 평가자의 기록입니다. 해당 평가자만 수정할 수 있습니다.
-          </div>
-        )}
 
         <AiReviewResultCard entry={item.entry} />
       </aside>

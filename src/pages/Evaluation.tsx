@@ -34,7 +34,7 @@ const getEvaluatorStatusMessage = (status?: string) => {
     case 'evaluating':
       return '';
     case 'completed':
-      return '평가가 완료된 건입니다. 수정이 필요하면 피평가자에게 돌려보내 다시 작성하도록 할 수 있습니다.';
+      return "완료된 평가입니다 · 수정하려면 '피평가자에게 돌려보내기'를 사용하세요.";
     case 'locked':
       return '평가가 잠겨 있어 수정할 수 없습니다.';
     case 'not-started':
@@ -649,12 +649,7 @@ const Evaluation = () => {
             )}
           </span>
         }
-        subtitle={[
-          evaluationData.evaluateePosition,
-          evaluationData.evaluateeDepartment,
-          evaluationData.evaluateeId ? `ID ${evaluationData.evaluateeId}` : null,
-          `과업 ${currentEvaluationTasks.length}건`,
-        ]
+        subtitle={[evaluationData.evaluateePosition, evaluationData.evaluateeDepartment]
           .filter(Boolean)
           .join(' · ')}
         actions={

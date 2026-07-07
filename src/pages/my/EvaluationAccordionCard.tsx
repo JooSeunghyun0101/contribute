@@ -32,7 +32,6 @@ import {
 import {
   EMPTY_DRAFT,
   EVALUATEE_TASK_LOCKED_STATUSES,
-  formatDate,
   formatDateTime,
   getEvaluationStatusMeta,
   getWeightStatus,
@@ -236,7 +235,7 @@ const EvaluationAccordionCard = ({
   // 수정이 필요하면 평가자/HR 단에서 단계를 되돌려야 한다.
   const isTaskEditingLocked = EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
   const taskEditMessage = isTaskEditingLocked
-    ? '최종제출 이후에는 과업을 수정할 수 없습니다. 수정이 필요하면 평가자에게 수정을 요청하세요.'
+    ? '제출이 완료되어 잠겨 있습니다.'
     : periodEditMessage;
   const canEditTasks = isPeriodEditable && !isTaskEditingLocked;
   const hasTitle = draft.title.trim().length > 0;
@@ -672,23 +671,14 @@ const EvaluationAccordionCard = ({
               {periodLabel && (
                 <span
                   className="tnum"
-                  style={{
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 700,
-                    color: 'var(--fg-muted)',
-                    background: 'var(--bg-muted)',
-                    padding: '3px 10px',
-                    borderRadius: 999,
-                  }}
+                  style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}
                   title="평가자 근무기간"
                 >
                   {periodLabel}
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginTop: 6, lineHeight: 1.5 }}>
-              과업 {tasks.length}개 · 총 가중치 {draftTotalWeight}% (AI {draftAiWeight}%)
-            </div>
+            {/* 부제(과업 N개·총 가중치·AI) 제거(2026-07-07 사용자) — 좌측 가중치 카드와 중복 */}
           </div>
         </div>
 
@@ -718,11 +708,13 @@ const EvaluationAccordionCard = ({
             height: 720,
           }}
         >
+          {/* 좌측 과업 목록 — muted 배경으로 '목차' 영역임을 명확히(2026-07-07 사용자:
+              상단바·좌측바·중앙 메인 색이 비슷해 구분이 안 감). 선택 항목만 흰색으로 떠오름. */}
           <section
             style={{
               width: 360,
               borderRight: '1px solid var(--border)',
-              background: 'var(--bg-card)',
+              background: 'var(--bg-muted)',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
@@ -796,9 +788,7 @@ const EvaluationAccordionCard = ({
                       ? ' · 50% 충족'
                       : ' · 50% 이상 필요'}
                 </div>
-                <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-                  {weightStatus.guide}
-                </div>
+                {/* 안내 문장(weightStatus.guide) 제거(2026-07-07 사용자) — 위 수치로 충분 */}
               </div>
               {(isTaskEditingLocked || !isPeriodEditable) && (
                 <div
@@ -864,7 +854,8 @@ const EvaluationAccordionCard = ({
                         padding: '14px 20px',
                         borderBottom: '1px solid var(--border)',
                         cursor: 'pointer',
-                        background: active ? 'var(--ok-orange-50)' : 'transparent',
+                        // 선택 항목 = 흰색(중앙 본문과 이어짐) + 왼쪽 액센트 바. 비선택은 muted 위 투명.
+                        background: active ? 'var(--bg-card)' : 'transparent',
                         borderLeft: active ? '3px solid var(--ok-orange)' : '3px solid transparent',
                         textAlign: 'left',
                       }}
@@ -875,14 +866,16 @@ const EvaluationAccordionCard = ({
                             T{String(index + 1).padStart(2, '0')}
                           </Pill>
                           {task.isAiTask && (
+                            // 색 절감(2026-07-07): AI 배지 무채색 — 화면의 파랑은 AI 의견 버튼만.
                             <span
                               style={{
                                 padding: '1px 7px',
                                 borderRadius: 999,
                                 fontSize: 'var(--fs-2xs)',
                                 fontWeight: 800,
-                                color: 'var(--ai-accent)',
-                                background: 'var(--ai-accent-bg)',
+                                color: 'var(--fg-muted)',
+                                border: '1px solid var(--border)',
+                                background: 'var(--bg-card)',
                               }}
                             >
                               AI
@@ -927,6 +920,8 @@ const EvaluationAccordionCard = ({
             ) : (
               <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <div>
+                  {/* 칩 줄 다이어트(2026-07-07 사용자): 가중치/총가중치/상태 칩은 좌측 카드·헤더와
+                      중복이라 제거. 과업 번호 + 평가 상태만 남긴다. */}
                   <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
                     {mode === 'create' ? (
                       <Pill tone="orange">신규 과업</Pill>
@@ -935,14 +930,11 @@ const EvaluationAccordionCard = ({
                         <Pill tone="orange">
                           T{String(tasks.findIndex((task) => task.id === selectedTask!.id) + 1).padStart(2, '0')}
                         </Pill>
-                        <Pill tone="neutral">가중치 {draft.weight}%</Pill>
                         <Pill tone={selectedTask!.score == null ? 'warning' : 'success'}>
                           {selectedTask!.score == null ? '평가 대기' : '평가 완료'}
                         </Pill>
                       </>
                     )}
-                    <Pill tone={weightStatus.tone}>총 가중치 {draftTotalWeight}% · AI {draftAiWeight}%</Pill>
-                    <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
                     <span style={{ flex: 1 }} />
                     {mode === 'create' && (
                       <button
@@ -1045,9 +1037,6 @@ const EvaluationAccordionCard = ({
                       disabled={!canEditTasks}
                     />
                     AI 과업
-                    <span style={{ fontWeight: 500, color: 'var(--fg-subtle)', fontSize: 'var(--fs-xs)' }}>
-                      (AI 과업 가중치 합이 전체의 50% 이상이어야 최종제출 가능)
-                    </span>
                   </label>
                 </div>
 
@@ -1128,11 +1117,13 @@ const EvaluationAccordionCard = ({
                           )}
                         </div>
                       </div>
+                      {/* 기여 방식·범위 타일 제거(2026-07-07 사용자) — 우측 '현재 점수' 매트릭스
+                          카드가 방식×범위→점수를 이미 보여줘 중복. 여기선 입력값(가중치·기간)만. */}
                       <div
                         style={{
                           marginTop: 18,
                           display: 'grid',
-                          gridTemplateColumns: '0.85fr 1.55fr 1fr 1fr',
+                          gridTemplateColumns: '150px minmax(0, 1fr)',
                           gap: 10,
                         }}
                       >
@@ -1178,18 +1169,6 @@ const EvaluationAccordionCard = ({
                             className="mt-1"
                             style={lockedInputStyle}
                           />
-                        </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0, textAlign: 'center' }}>
-                          <div className="sd-label-mini">기여 방식</div>
-                          <div style={{ marginTop: 4, fontWeight: 800, fontSize: 'var(--fs-h3)' }}>
-                            {mode === 'create' ? '평가자 지정' : selectedTask?.contributionMethod || '미정'}
-                          </div>
-                        </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0, textAlign: 'center' }}>
-                          <div className="sd-label-mini">기여 범위</div>
-                          <div style={{ marginTop: 4, fontWeight: 800, fontSize: 'var(--fs-h3)' }}>
-                            {mode === 'create' ? '평가자 지정' : selectedTask?.contributionScope || '미정'}
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -1386,28 +1365,7 @@ const EvaluationAccordionCard = ({
                       </div>
                     )}
 
-                    {mode === 'view' && selectedTask && (
-                      <div className="sd-card">
-                        <div className="sd-label-mini">일정</div>
-                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 'var(--fs-body)' }}>
-                          <div className="flex items-center justify-between">
-                            <span style={{ color: 'var(--fg-muted)' }}>시작</span>
-                            <b className="tnum">{formatDate(selectedTask.startDate)}</b>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span style={{ color: 'var(--fg-muted)' }}>종료</span>
-                            <b className="tnum">{formatDate(selectedTask.endDate)}</b>
-                          </div>
-                          <div style={{ marginTop: 4 }} className="sd-bar">
-                            <div
-                              className="sd-bar-fill"
-                              style={{ width: selectedScore == null ? '62%' : '100%' }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
+                    {/* '일정' 카드 제거(2026-07-07 사용자) — 본문 기간 필드와 중복 */}
                   </div>
                 </div>
               </div>

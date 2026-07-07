@@ -91,7 +91,6 @@ const MyTasksPage = () => {
     <>
       <PageHeader
         title="내 과업"
-        subtitle={`${user?.name ?? ''}님의 등록 과업과 평가 이력`}
         actions={
           <button
             className="sd-btn sd-btn-outline sd-btn-sm"
