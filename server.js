@@ -4987,6 +4987,45 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
       }
     }
 
+    // 성장레벨(목표 레벨) 수정도 org 와 동일 규칙으로 '현재 조직 기간'(is_default) 평가행에
+    // 동기화한다(2026-07-07 사용자 보고: 박판근 레벨을 3으로 저장해도 화면이 계속 4 —
+    // 모든 화면이 평가행 growth_level 을 읽는데 마스터만 갱신돼 반영이 안 됐다. K20 과 동일 원인).
+    // 발령자의 이전 평가행은 이력이라 보존, '현재 평가자 행'만 갱신 — 없으면 최신 행 폴백.
+    const levelTouched = updateEntries.some(([k]) => k === 'growth_level');
+    if (levelTouched) {
+      const { rows: defPeriodRows } = await client.query(
+        'SELECT id FROM evaluation_periods WHERE is_default = true LIMIT 1'
+      );
+      const defaultPeriodId = defPeriodRows[0]?.id ?? null;
+      if (defaultPeriodId) {
+        const nextLevel = updatedEmployee.growth_level ?? null;
+        const masterEvaluatorId =
+          updatedEmployee.evaluator_id == null ? null : String(updatedEmployee.evaluator_id);
+        const { rowCount: syncedLevelRows } = await client.query(
+          `UPDATE evaluations SET growth_level = $3, updated_at = NOW()
+            WHERE evaluatee_id = $1 AND evaluation_period_id = $2 AND record_status = 'active'
+              AND id IN (
+                SELECT ev2.id FROM evaluations ev2
+                LEFT JOIN evaluator_assignment_history h ON h.id = ev2.assignment_history_id
+                WHERE ev2.evaluatee_id = $1 AND ev2.evaluation_period_id = $2
+                  AND ev2.record_status = 'active'
+                  AND COALESCE(h.new_evaluator_id::text, $4::text) IS NOT DISTINCT FROM $4::text
+              )`,
+          [req.params.id, defaultPeriodId, nextLevel, masterEvaluatorId]
+        );
+        if (syncedLevelRows === 0) {
+          await client.query(
+            `UPDATE evaluations SET growth_level = $3, updated_at = NOW()
+              WHERE id = (SELECT id FROM evaluations
+                           WHERE evaluatee_id = $1 AND evaluation_period_id = $2
+                             AND record_status = 'active'
+                           ORDER BY created_at DESC LIMIT 1)`,
+            [req.params.id, defaultPeriodId, nextLevel]
+          );
+        }
+      }
+    }
+
     // 감사로그: 바뀐 화이트리스트 필드만 old→new. 평가자 변경이면 별도 action_type.
     const employeeAuditKeys = updateEntries
       .map(([k]) => k)

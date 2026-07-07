@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties } from 'react';
 import { kpiService } from '@/lib/services';
 import { ORG_KPI_ENABLED } from '@/lib/featureFlags';
 import type { KpiNode, KpiOrgLevel } from '@/types/kpi';
@@ -25,13 +25,17 @@ const fullOrgPath = (n: KpiNode): string => {
   return parts.filter(Boolean).join(' › ');
 };
 
-const KpiTile = ({ node }: { node: KpiNode }) => {
+// 하위 KPI 는 ↳ 접두 + 왼쪽 오렌지 마커로 상위와의 연결을 표시(세로 중첩은 카드가 길어져 금지).
+const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
   const pct = Math.round(Math.min(1, Math.max(0, node.progress ?? 0)) * 100);
   const path = fullOrgPath(node);
   return (
     <div
       style={{
+        flexShrink: 0,
+        width: 300,
         border: '1px solid var(--border)',
+        borderLeft: depth > 0 ? '3px solid var(--ok-orange-100)' : '1px solid var(--border)',
         borderRadius: 10,
         background: 'var(--bg-subtle)',
         padding: '9px 12px',
@@ -50,8 +54,9 @@ const KpiTile = ({ node }: { node: KpiNode }) => {
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}
-        title={path}
+        title={depth > 0 ? `상위 KPI 의 하위 — ${path}` : path}
       >
+        {depth > 0 && <span style={{ marginRight: 4 }}>{'↳'.repeat(depth)}</span>}
         {path}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
@@ -90,60 +95,46 @@ const KpiTile = ({ node }: { node: KpiNode }) => {
   );
 };
 
-// 하위 KPI — 연결선(왼쪽 세로선 + 들여쓰기)으로 상위와의 관계를 드러낸다.
-const KpiChildren = ({ nodes }: { nodes: KpiNode[] }) => {
-  if (!nodes.length) return null;
-  return (
-    <div
-      style={{
-        marginLeft: 11,
-        paddingLeft: 11,
-        borderLeft: '2px solid var(--ok-orange-100)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      {nodes.map((c) => (
-        <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <KpiTile node={c} />
-          <KpiChildren nodes={c.children ?? []} />
-        </div>
-      ))}
-    </div>
-  );
-};
+type FlatRow = { node: KpiNode; depth: number };
 
 /**
  * 내 대시보드용 조직 KPI 현황 요약(읽기 전용) — 피평가자는 전용 메뉴 없이 여기서만 본다
  * (2026-07-07 사용자 결정). 서버가 이미 '체인 최상단 조직장 관할 + 내 소속 경로'로
  * 스코프를 잘라 내려주므로 그대로 그리기만 한다. 플래그 OFF·KPI 없음·로드 실패면
  * 카드 자체를 렌더하지 않는다(대시보드 보조 위젯 — 에러로 소란 떨지 않음).
- * 최상위 KPI 1개 = 세로 그룹 1개(하위는 연결선으로 중첩), 그룹이 많으면 가로 스크롤.
+ * 전체를 가로 한 줄로(카드 높이 고정) — 상위→하위 순서(DFS)로 잇고 하위는 ↳ 표시,
+ * 최상위가 바뀌는 지점엔 세로 구분선. 넘치면 가로 스크롤.
  */
 export const OrgKpiSummaryCard = ({ periodId, style }: { periodId: string | null; style?: CSSProperties }) => {
-  const [tree, setTree] = useState<KpiNode[] | null>(null);
+  const [rows, setRows] = useState<FlatRow[] | null>(null);
 
   useEffect(() => {
     if (!ORG_KPI_ENABLED || !periodId) {
-      setTree(null);
+      setRows(null);
       return;
     }
     let cancelled = false;
     kpiService
       .tree(periodId)
-      .then((t) => {
-        if (!cancelled) setTree(t ?? []);
+      .then((tree) => {
+        if (cancelled) return;
+        const flat: FlatRow[] = [];
+        const walk = (n: KpiNode, d: number) => {
+          flat.push({ node: n, depth: d });
+          (n.children ?? []).forEach((c) => walk(c, d + 1));
+        };
+        (tree ?? []).forEach((n) => walk(n, 0));
+        setRows(flat);
       })
       .catch(() => {
-        if (!cancelled) setTree(null);
+        if (!cancelled) setRows(null);
       });
     return () => {
       cancelled = true;
     };
   }, [periodId]);
 
-  if (!ORG_KPI_ENABLED || !tree || tree.length === 0) return null;
+  if (!ORG_KPI_ENABLED || !rows || rows.length === 0) return null;
 
   return (
     <div className="sd-card" style={{ padding: '14px 18px', ...style }}>
@@ -153,16 +144,14 @@ export const OrgKpiSummaryCard = ({ periodId, style }: { periodId: string | null
           소속 조직 목표 달성 현황 · 읽기 전용
         </span>
       </div>
-      {/* 최상위 그룹들을 가로로 — 많으면 가로 스크롤(2026-07-07 사용자). */}
-      <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
-        {tree.map((root) => (
-          <div
-            key={root.id}
-            style={{ flexShrink: 0, width: 340, display: 'flex', flexDirection: 'column', gap: 6 }}
-          >
-            <KpiTile node={root} />
-            <KpiChildren nodes={root.children ?? []} />
-          </div>
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, alignItems: 'stretch' }}>
+        {rows.map(({ node, depth }, i) => (
+          <Fragment key={node.id}>
+            {depth === 0 && i > 0 && (
+              <div style={{ flexShrink: 0, width: 1, background: 'var(--border)', margin: '2px 5px' }} />
+            )}
+            <KpiTile node={node} depth={depth} />
+          </Fragment>
         ))}
       </div>
     </div>
