@@ -624,9 +624,12 @@ const HrDepartmentsPage = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead>조직</TableHead>
-                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>인원</TableHead>
-                          <TableHead style={{ minWidth: 200 }}>완료 (완료/전체)</TableHead>
-                          <TableHead style={{ minWidth: 220 }}>달성 현황 (달성·미달성·미평가)</TableHead>
+                          {/* 완료율 바 컬럼은 제거 — 달성 스택바의 회색(미평가)이 미완료를 이미
+                              표현해 중복이었다. 완료 인원 수치만 인원 컬럼에 흡수(마감 관리용). */}
+                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            완료/인원
+                          </TableHead>
+                          <TableHead style={{ minWidth: 260 }}>달성 현황 (달성·미달성·미평가)</TableHead>
                           <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>평균 점수</TableHead>
                           <TableHead>평가자</TableHead>
                         </TableRow>
@@ -689,24 +692,12 @@ const HrDepartmentsPage = () => {
                                   </div>
                                 )}
                               </TableCell>
-                              <TableCell className="tnum" style={{ textAlign: 'right', fontWeight: 700 }}>
-                                {department.totalMembers}
-                              </TableCell>
-                              <TableCell>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <div className="sd-bar" style={{ flex: 1, height: 8, minWidth: 80 }}>
-                                    <div
-                                      className="sd-bar-fill"
-                                      style={{ width: `${department.completionRate}%` }}
-                                    />
-                                  </div>
-                                  <span
-                                    className="tnum"
-                                    style={{ fontWeight: 800, whiteSpace: 'nowrap', fontSize: 'var(--fs-sm)' }}
-                                  >
-                                    {department.finalizedMembers}/{department.totalMembers} · {department.completionRate}%
-                                  </span>
-                                </div>
+                              <TableCell
+                                className="tnum"
+                                style={{ textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                title={`평가 완료 ${department.finalizedMembers}명 / 전체 ${department.totalMembers}명 (완료율 ${department.completionRate}%)`}
+                              >
+                                {department.finalizedMembers}/{department.totalMembers}
                               </TableCell>
                               <TableCell>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
