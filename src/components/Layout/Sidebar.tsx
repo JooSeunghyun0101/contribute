@@ -41,7 +41,7 @@ const menus: Record<UserRole, MenuItem[]> = {
   evaluatee: [
     { to: '/my', label: '내 대시보드', icon: IconHome, end: true },
     { to: '/my/tasks', label: '내 과업', icon: IconTarget, badgeKey: 'myPendingSubmit' },
-    { to: '/kpi', label: '조직 KPI', icon: IconTarget },
+    // 조직 KPI 는 피평가자 전용 메뉴 없이 내 대시보드 상단 요약 카드로만(2026-07-07 사용자 결정).
     { to: '/my/feedback', label: '피드백 이력', icon: IconMsg },
     { to: '/my/evaluator-request', label: '평가자 변경요청', icon: IconArrowRight },
     { to: '/my/ai', label: 'AI 도움말', icon: IconSparkle },

@@ -11,6 +11,7 @@ import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { aiContentService } from '@/lib/services';
+import { OrgKpiSummaryCard } from '@/components/Dashboard/OrgKpiSummaryCard';
 import { AiContentText } from '@/components/ui/AiContentText';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import {
@@ -170,25 +171,7 @@ const MyHome = () => {
     };
   }, [growthScopeId]);
 
-  /* 최근 피드백 — 이전 평가(발령 전) 피드백도 포함해 최신순. */
-  const recentFeedbacks = useMemo(
-    () =>
-      allTasks
-        .flatMap((task, i) =>
-          (task.feedbackHistory ?? []).map((fb) => ({
-            ...fb,
-            taskTitle: task.title,
-            taskIndex: i,
-            taskScore:
-              getMatrixScore(task.contributionMethod, task.contributionScope, matrix) ??
-              task.score ??
-              null,
-          })),
-        )
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 2),
-    [matrix, allTasks],
-  );
+  // 최근 피드백 섹션은 제거(2026-07-07 사용자 결정) — 피드백은 '피드백 이력' 메뉴로 일원화.
 
   // 최상단 한 줄 알림 — 성과보고(=최종제출) 주기. 매월 최소 1회 제출을 안내한다.
   // P3-15 정합: ① 마감/잠금/작성 전 기간 조회 중에는 재촉하지 않는다(할 수 있는 행동이 없음)
@@ -395,6 +378,10 @@ const MyHome = () => {
               </Link>
             )}
           </div>
+
+          {/* 조직 KPI 현황 — 알림 바로 아래(같은 order, DOM 순서로 뒤). 피평가자는 전용 메뉴
+              없이 여기서만 열람(2026-07-07 사용자 결정). KPI 없거나 플래그 OFF 면 자동 숨김. */}
+          <OrgKpiSummaryCard periodId={selectedPeriod?.id ?? null} style={{ order: -3 }} />
 
           {/* ── 2-컬럼 (기여 분포 + 간트) ── 화면상 '두 번째' 줄(order 로 과업비율 줄과 자리 바꿈) ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16, order: -1 }}>
@@ -867,8 +854,8 @@ const MyHome = () => {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 24, alignItems: 'center' }}>
-              {/* Donut */}
-              <div style={{ position: 'relative', height: 240 }}>
+              {/* Donut — 240→190px 로 축소(2026-07-07 사용자: 줄 높이 줄이기) */}
+              <div style={{ position: 'relative', height: 190 }}>
                 {weightDonutData.length === 0 ? (
                   <div
                     style={{
@@ -894,11 +881,14 @@ const MyHome = () => {
                           nameKey="shortName"
                           cx="50%"
                           cy="50%"
-                          innerRadius={68}
-                          outerRadius={96}
+                          innerRadius={52}
+                          outerRadius={74}
                           paddingAngle={2}
                           startAngle={90}
                           endAngle={-270}
+                          // 마운트 애니메이션이 첫 프레임에서 멈춰 링이 안 보이는 경우가 있어
+                          // HR 대시보드 도넛과 동일하게 끈다(데이터 리렌더에도 안정적).
+                          isAnimationActive={false}
                           stroke="var(--bg-card)"
                           strokeWidth={2}
                           labelLine={{ stroke: 'var(--fg-subtle)', strokeWidth: 1 }}
@@ -995,13 +985,13 @@ const MyHome = () => {
                 )}
               </div>
 
-              {/* Legend / breakdown — 높이 고정 + 스크롤 */}
+              {/* Legend / breakdown — 높이 고정 + 스크롤 (도넛과 함께 190px 로 축소) */}
               <div
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 5,
-                  height: 240,
+                  height: 190,
                   overflowY: 'auto',
                   paddingRight: 4,
                 }}
@@ -1115,7 +1105,9 @@ const MyHome = () => {
               }
               style={{ marginBottom: 14 }}
             />
-            <div style={{ flex: 1, minHeight: 220 }}>
+            {/* 최근 피드백 하단 섹션은 제거(2026-07-07 사용자 결정) — '피드백 이력' 메뉴로 일원화.
+                minHeight 도 220→120 으로 축소(줄 높이 절감). */}
+            <div style={{ flex: 1, minHeight: 120 }}>
               {growthSuggestion ? (
                 <AiContentText text={growthSuggestion} accent="var(--ai-accent)" fontSize="var(--fs-body)" />
               ) : (
@@ -1125,50 +1117,6 @@ const MyHome = () => {
                 </p>
               )}
             </div>
-            {/* 최근 피드백 — 로그인 직후 '평가자가 뭐라고 했는지'를 첫 화면에서 바로 볼 수 있게. */}
-            {recentFeedbacks.length > 0 && (
-              <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: 'var(--fg-muted)' }}>
-                    최근 피드백
-                  </span>
-                  <Link
-                    to="/my/feedback"
-                    style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--ok-orange)' }}
-                  >
-                    피드백 이력 전체 보기 →
-                  </Link>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {recentFeedbacks.map((fb) => (
-                    <div key={fb.id} style={{ fontSize: 'var(--fs-sm)', lineHeight: 1.6 }}>
-                      <span style={{ fontWeight: 700 }}>{fb.taskTitle}</span>
-                      <span style={{ color: 'var(--fg-subtle)', fontSize: 'var(--fs-xs)', marginLeft: 6 }}>
-                        {new Date(fb.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
-                      </span>
-                      <div
-                        style={{
-                          color: 'var(--fg-muted)',
-                          overflow: 'hidden',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                        }}
-                      >
-                        {fb.content}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
           </div>
         </>

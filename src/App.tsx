@@ -111,13 +111,13 @@ const App = () => (
 
               <Route element={<AppShell />}>
                 <Route path="/notifications" element={<NotificationsPage />} />
-                {/* 조직 KPI — HR·평가자는 관리, 피평가자는 소속 조직 경로 읽기 전용 열람.
-                    플래그 OFF(기본)면 라우트 자체가 없어 404. */}
+                {/* 조직 KPI — HR·평가자 관리 페이지. 피평가자는 전용 페이지 없이 내 대시보드의
+                    조직 KPI 요약 카드로만 열람(2026-07-07). 플래그 OFF(기본)면 라우트 자체가 없어 404. */}
                 {ORG_KPI_ENABLED && (
                   <Route
                     path="/kpi"
                     element={
-                      <ProtectedRoute allowedRoles={["hr", "evaluator", "evaluatee"]}>
+                      <ProtectedRoute allowedRoles={["hr", "evaluator"]}>
                         <KpiManagePage />
                       </ProtectedRoute>
                     }
