@@ -227,6 +227,11 @@ const TeamHome = () => {
     [formerRecords],
   );
 
+  // 감사 finding(evaluator-board): 이전 담당 0명인 대다수 평가자에게 4번째 컬럼이
+  // '이전 담당 없음'만 띄운 채 보드 폭 25%를 차지 — 있을 때만 렌더하고 없으면 3컬럼.
+  // 로딩 중엔 숨겨 두면 흔한 케이스(0명)에서 레이아웃 점프가 없고, 에러는 숨기지 않는다(P3-9).
+  const showFormerColumn = !isFormerLoading && (formerError != null || formerCards.length > 0);
+
   const grouped = useMemo(() => {
     const out: Record<ColumnId, CardModel[]> = {
       unsubmitted: [],
@@ -430,7 +435,7 @@ const TeamHome = () => {
             <section
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gridTemplateColumns: `repeat(${showFormerColumn ? 4 : 3}, minmax(0, 1fr))`,
                 gap: 14,
                 minHeight: 480,
               }}
@@ -546,7 +551,8 @@ const TeamHome = () => {
               })}
 
               {/* 4번째 열 — 이전 담당(기간 중 이관된 피평가자). 진행 프로세스(--bg-muted)와 구분되도록
-                  더 연한 --bg-subtle 배경으로 부차/보관 느낌을 준다. */}
+                  더 연한 --bg-subtle 배경으로 부차/보관 느낌을 준다. 0명이면 컬럼 자체를 생략(3컬럼). */}
+              {showFormerColumn && (
               <div
                 style={{
                   display: 'flex',
@@ -604,18 +610,7 @@ const TeamHome = () => {
                     paddingLeft: 6,
                   }}
                 >
-                  {isFormerLoading ? (
-                    <div
-                      style={{
-                        color: 'var(--fg-subtle)',
-                        fontSize: 'var(--fs-body)',
-                        textAlign: 'center',
-                        padding: '24px 0',
-                      }}
-                    >
-                      불러오는 중…
-                    </div>
-                  ) : formerError ? (
+                  {formerError ? (
                     <div
                       style={{
                         color: 'var(--danger)',
@@ -625,17 +620,6 @@ const TeamHome = () => {
                       }}
                     >
                       {formerError}
-                    </div>
-                  ) : formerCards.length === 0 ? (
-                    <div
-                      style={{
-                        color: 'var(--fg-subtle)',
-                        fontSize: 'var(--fs-body)',
-                        textAlign: 'center',
-                        padding: '24px 0',
-                      }}
-                    >
-                      이전 담당 없음
                     </div>
                   ) : (
                     formerCards.map((card) => (
@@ -648,6 +632,7 @@ const TeamHome = () => {
                   )}
                 </div>
               </div>
+              )}
             </section>
           </>
         )}
