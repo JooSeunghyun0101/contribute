@@ -8060,6 +8060,26 @@ const getKpiScope = async (req, periodId) => {
       memberTuples[lvl].set(kpiTupleKey(r, lvl), r);
     }
   }
+  // 평가트리 최상단 공유(2026-07-07 사용자 요구): 내 상향 평가체인의 최상단(T) 조직장이 보는
+  // 관할(T가 조직장인 조직 + 그 하위 전체)을 체인 아래 전원이 읽기 전용으로 공유한다.
+  // 예) 인사기획팀원의 체인 최상단이 인사부장이면 옆 팀(인사팀) KPI 도 보인다.
+  // 관리권(choiceTuples)은 그대로 — 공유분은 memberTuples(읽기 전용)로만 들어간다.
+  const myUp = leadership.upPath(me);
+  const chainTop = myUp[myUp.length - 1];
+  if (chainTop && chainTop !== me) {
+    const topKeys = [];
+    for (const lvl of KPI_LEVELS) {
+      for (const [key, leaderId] of leadership.leaderIdByKey[lvl]) {
+        if (leadership.upPath(leaderId).includes(chainTop)) topKeys.push(key);
+      }
+    }
+    const underTop = (key) => topKeys.some((tk) => key === tk || key.startsWith(tk + '|'));
+    for (const lvl of KPI_LEVELS) {
+      for (const [key, o] of leadership.perLevel[lvl]) {
+        if (underTop(key) && !memberTuples[lvl].has(key)) memberTuples[lvl].set(key, o.tuple);
+      }
+    }
+  }
   return { mode: 'chain', leadership, choiceTuples, memberTuples };
 };
 
