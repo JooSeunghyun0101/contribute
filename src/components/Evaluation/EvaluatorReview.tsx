@@ -193,6 +193,52 @@ export const StatTile = ({ label, value, valueColor, tooltipContent, onValueClic
   );
 };
 
+// 아코디언 헤더 우측 통일 스탯(2026-07-07 사용자): 반영 점수 / 성장 레벨 / 달성 여부만.
+// 과업수는 제거. 성과평가·내 과업 두 화면이 이 컴포넌트를 공유해 헤더를 동일하게 맞춘다.
+const HeaderStat = ({ label, value, color }: { label: string; value: string; color: string }) => (
+  <div style={{ textAlign: 'center' }}>
+    <div
+      style={{
+        fontSize: 'var(--fs-micro)',
+        fontWeight: 700,
+        color: 'var(--fg-subtle)',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </div>
+    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, lineHeight: 1, marginTop: 3, color, whiteSpace: 'nowrap' }}>
+      {value}
+    </div>
+  </div>
+);
+
+export const AccordionStats = ({
+  exactScore,
+  growthLevel,
+  achieved,
+  hasScore,
+  accent,
+}: {
+  exactScore: number;
+  growthLevel: number;
+  achieved: boolean;
+  hasScore: boolean;
+  accent: string;
+}) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+    <HeaderStat label="반영 점수" value={hasScore ? formatScore(exactScore) : '–'} color={accent} />
+    <HeaderStat label="성장 레벨" value={`Lv.${growthLevel}`} color="var(--fg)" />
+    <HeaderStat
+      label="달성 여부"
+      value={hasScore ? (achieved ? '달성' : '미달성') : '–'}
+      color={hasScore && achieved ? accent : 'var(--fg-muted)'}
+    />
+  </div>
+);
+
 type EvaluatorAccordionProps = {
   group: EvaluatorGroup;
   isExpanded: boolean;
@@ -232,14 +278,16 @@ export const EvaluatorAccordion = ({
   >
     {/* 헤더 슬림화(2026-07-07 사용자: 불필요 글자 제거·영역 구분) — 부제 문장 삭제,
         점수 블록 축소, 높이 116→60 으로 얇은 타이틀 바가 되게 한다. */}
+    {/* 헤더 통일 기준(2026-07-07 사용자): minHeight 72·padding 14px 24px·제목 fs-h3.
+        내 과업 아코디언(EvaluationAccordionCard)도 이 규격에 맞춘다. */}
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={isExpanded}
       style={{
         width: '100%',
-        minHeight: 60,
-        padding: '12px 20px',
+        minHeight: 72,
+        padding: '14px 24px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -276,15 +324,16 @@ export const EvaluatorAccordion = ({
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-        <div className="tnum" style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: group.accent }}>
-          {formatScore(group.exactScore)}
-          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-            {' '}/ {growthLevel} · {group.completedCount}/{group.tasks.length} 과업
-          </span>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
+        <AccordionStats
+          exactScore={group.exactScore}
+          growthLevel={growthLevel}
+          achieved={group.flooredScore >= growthLevel}
+          hasScore={group.completedCount > 0}
+          accent={group.accent}
+        />
         <ChevronDown
-          size={20}
+          size={22}
           color={group.accent}
           aria-hidden="true"
           className={chevronRotateClass(isExpanded)}
@@ -578,11 +627,11 @@ const TaskDetail = ({
       }}
     >
       <div style={{ minWidth: 0 }}>
+        {/* 임시저장 배지는 좌측 과업 탭에만(2026-07-07 리뷰) — 상세 헤더 중복 제거 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
             {formatDate(task.startDate)}~{formatDate(task.endDate)}
           </span>
-          {item.hasDraft && <Pill tone="orange">임시저장</Pill>}
         </div>
 
         <h1 style={{ margin: 0, fontSize: 'var(--fs-h1)', fontWeight: 900, lineHeight: 1.25 }}>{task.title}</h1>

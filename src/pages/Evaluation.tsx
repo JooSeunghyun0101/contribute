@@ -17,7 +17,6 @@ import { Task, TaskEvaluationEntry } from '@/types/evaluation';
 import { EvaluationMatrixScores, getMatrixScore } from '@/lib/evaluationMatrix';
 import {
   EvaluatorAccordion,
-  EvaluateeStatHero,
   METHODS,
   SCOPES,
   resolveTaskScore,
@@ -181,9 +180,6 @@ const Evaluation = () => {
     [committedTasks],
   );
   const evaluationStatus = evaluationData?.evaluationStatus;
-  // 평가 저장 후 AI 검토중(evaluating)·제출 대기(submitted) 단계에서는 점수가 확정되지 않은 상태다.
-  // 최종 완료(completed)·잠금(locked)일 때만 "내 반영 점수"를 상단에 반영한다.
-  const isEvaluationFinalized = evaluationStatus === 'completed' || evaluationStatus === 'locked';
   const isSubmittedForReview = EVALUATOR_EDITABLE_STATUSES.has(evaluationStatus ?? '');
   const canEditEvaluation = evaluationData?.evaluatorAccess?.canEdit ?? true;
   const evaluatorAccessMessage = evaluationData?.evaluatorAccess?.message;
@@ -653,17 +649,8 @@ const Evaluation = () => {
           .filter(Boolean)
           .join(' · ')}
         actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <EvaluateeStatHero
-              growthLevel={evaluationData.growthLevel}
-              currentScore={currentEvaluatorGroup?.exactScore ?? null}
-              achieved={
-                currentEvaluatorGroup != null &&
-                currentEvaluatorGroup.flooredScore >= evaluationData.growthLevel
-              }
-              isFinalized={isEvaluationFinalized}
-            />
-            <div style={{ display: 'flex', gap: 8 }}>
+          // 성장레벨/달성여부/반영점수는 아코디언 헤더 스탯으로 이동(2026-07-07 사용자) — 상단은 액션 버튼만.
+          <div style={{ display: 'flex', gap: 8 }}>
               <button
                 className="sd-btn sd-btn-outline sd-btn-sm"
                 onClick={onReopenEvaluationClick}
@@ -717,7 +704,6 @@ const Evaluation = () => {
                 </button>
               )}
             </div>
-          </div>
         }
       />
 

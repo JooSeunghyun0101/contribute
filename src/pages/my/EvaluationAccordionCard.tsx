@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plus, Save, Trash2 } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Plus, Save, Trash2 } from 'lucide-react';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
-import { AccordionMotion } from '@/components/ui/accordion-motion';
+import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
+import { AccordionStats } from '@/components/Evaluation/EvaluatorReview';
 import { SpiralLoader } from '@/components/ui/loader';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTooltipContent';
@@ -20,7 +21,6 @@ import { generatePerformanceReportDraft } from '@/lib/gptOss';
 import { AiContentText } from '@/components/ui/AiContentText';
 import type { FeedbackHistoryItem, Task } from '@/types/evaluation';
 import {
-  formatScore,
   getMatrixScore,
   getMatrixMethodIndex,
   getMatrixScopeIndex,
@@ -249,8 +249,6 @@ const EvaluationAccordionCard = ({
     : isCurrent
       ? '평가자'
       : '이전 평가자';
-  // 아바타 이니셜은 평가자 이름 기준 (헤더 prefix "평가자" 제외)
-  const headerInitial = (evaluatorDisplayName ?? headerTitle).charAt(0);
   const accentColor = isCurrent ? 'var(--ok-orange)' : 'var(--fg-muted)';
   const isCompleted = evaluationStatus === 'completed';
   const [isRequestingReturn, setIsRequestingReturn] = useState(false);
@@ -627,75 +625,51 @@ const EvaluationAccordionCard = ({
         overflow: 'hidden',
       }}
     >
+      {/* 헤더 통일(2026-07-07 사용자): 성과평가 아코디언과 동일 규격 — minHeight 72·padding 14px 24px·
+          제목 fs-h3·아바타 없음·우측 AccordionStats(반영점수/성장레벨/달성여부, 과업수 제거)·ChevronDown. */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         style={{
           width: '100%',
-          padding: '18px 24px',
+          minHeight: 72,
+          padding: '14px 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 16,
+          gap: 20,
           border: 'none',
           background: 'transparent',
           cursor: 'pointer',
           textAlign: 'left',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: '50%',
-              background: accentColor,
-              color: '#fff',
-              fontSize: 'var(--fs-h4)',
-              fontWeight: 800,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {headerInitial}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, fontSize: 'var(--fs-h2)', fontWeight: 900, color: accentColor, lineHeight: 1.15 }}>
-                {headerTitle}
-              </h2>
-              <Pill tone={isCurrent ? 'orange' : 'neutral'}>{headerLabel}</Pill>
-              <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
-              {periodLabel && (
-                <span
-                  className="tnum"
-                  style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}
-                  title="평가자 근무기간"
-                >
-                  {periodLabel}
-                </span>
-              )}
-            </div>
-            {/* 부제(과업 N개·총 가중치·AI) 제거(2026-07-07 사용자) — 좌측 가중치 카드와 중복 */}
-          </div>
+        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: 'var(--fs-h3)', fontWeight: 900, color: accentColor, lineHeight: 1.15 }}>
+            {headerTitle}
+          </h2>
+          <Pill tone={isCurrent ? 'orange' : 'neutral'}>{headerLabel}</Pill>
+          <Pill tone={statusMeta.tone}>{statusMeta.label}</Pill>
+          {periodLabel && (
+            <span
+              className="tnum"
+              style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}
+              title="평가자 근무기간"
+            >
+              {periodLabel}
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div className="sd-label-mini">반영 점수</div>
-            <div className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: accentColor }}>
-              {formatScore(summary.exactScore)}
-              <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-                {' '} / {evaluationData?.growthLevel ?? 1}
-              </span>
-            </div>
-            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 3 }}>
-              {summary.completedCount}/{tasks.length} 과업
-            </div>
-          </div>
-          <span style={{ fontSize: 'var(--fs-h3)', color: accentColor }}>{expanded ? '▲' : '▼'}</span>
+          <AccordionStats
+            exactScore={summary.exactScore}
+            growthLevel={evaluationData?.growthLevel ?? 1}
+            achieved={summary.flooredScore >= (evaluationData?.growthLevel ?? 1)}
+            hasScore={summary.completedCount > 0}
+            accent={accentColor}
+          />
+          <ChevronDown size={22} color={accentColor} aria-hidden="true" className={chevronRotateClass(expanded)} />
         </div>
       </button>
 
@@ -890,6 +864,7 @@ const EvaluationAccordionCard = ({
                       <div
                         style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 6, display: 'flex', gap: 8 }}
                       >
+                        {/* 가중치 N% 제거(2026-07-07 리뷰) — 본문 가중치 입력과 중복. 방식·범위·임시저장만. */}
                         <span>
                           {task.contributionMethod || '방식 미정'} · {task.contributionScope || '범위 미정'}
                         </span>
@@ -898,8 +873,6 @@ const EvaluationAccordionCard = ({
                             임시저장
                           </span>
                         )}
-                        <span style={{ color: 'var(--fg-subtle)' }}>·</span>
-                        <span>가중치 {task.weight}%</span>
                       </div>
                     </button>
                   );

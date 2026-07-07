@@ -179,7 +179,9 @@
   --card: #292524;
   --ring: #F97316;
   --input: #44403C;
-  --muted: #292524;
+  /* 리스트/목차 영역(--bg-muted)을 카드보다 한 단계 가라앉혀 3영역 구분 유지 —
+     라이트는 이미 card>subtle>muted 로 구분되지만 다크는 muted=card 였다(리뷰 지적). */
+  --muted: #201C1A;
   --accent: #3A2A1E;
   --border: #44403C;
   --radius: 0.3rem;
