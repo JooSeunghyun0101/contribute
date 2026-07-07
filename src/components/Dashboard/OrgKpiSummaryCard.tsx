@@ -152,10 +152,10 @@ export const OrgKpiSummaryCard = ({ periodId, style }: { periodId: string | null
               <div
                 style={{
                   flexShrink: 0,
-                  width: 2,
-                  background: 'var(--fg-subtle)',
-                  opacity: 0.45,
-                  borderRadius: 1,
+                  width: 3,
+                  background: 'var(--fg-muted)',
+                  opacity: 0.85,
+                  borderRadius: 2,
                   margin: '0 8px',
                 }}
               />
