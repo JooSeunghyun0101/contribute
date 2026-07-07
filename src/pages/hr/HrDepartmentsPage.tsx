@@ -616,265 +616,157 @@ const HrDepartmentsPage = () => {
                     </span>
                   </div>
                 )}
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-                  {depts.map((department) => (
-              <button
-                key={department.groupKey}
-                type="button"
-                onClick={() => setOpenDepartment(department.groupKey)}
-                className="sd-card sd-card-lg"
-                style={{
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'transform 120ms ease, box-shadow 120ms ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(245,80,0,0.12)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = '';
-                  e.currentTarget.style.transform = '';
-                }}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div style={{ minWidth: 0 }}>
-                    {!groupBySection && department.parentPath && (
-                      <div
-                        style={{
-                          fontSize: 'var(--fs-xs)',
-                          color: 'var(--fg-muted)',
-                          fontWeight: 700,
-                          marginBottom: 2,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                        title={department.parentPath}
-                      >
-                        {department.parentPath}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                    <h3 style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {department.name}
-                    </h3>
-                    {department.level && department.level !== groupLevel && (
-                      <span
-                        style={{
-                          flexShrink: 0,
-                          fontSize: 'var(--fs-xs)',
-                          fontWeight: 800,
-                          color: 'var(--ok-orange-700)',
-                          background: 'var(--ok-orange-50)',
-                          border: '1px solid var(--ok-orange-100)',
-                          borderRadius: 6,
-                          padding: '1px 6px',
-                        }}
-                      >
-                        {ORG_LEVEL_LABELS[department.level]}
-                      </span>
-                    )}
-                    </div>
+                {/* 사용자 요구(2026-07-07): 카드 그리드 → 비교형 테이블. 한 화면에서 조직 간
+                    수치를 열 단위로 훑을 수 있게 하고, 행 클릭으로 기존 부서원 상세를 유지한다. */}
+                <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>조직</TableHead>
+                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>인원</TableHead>
+                          <TableHead style={{ minWidth: 200 }}>완료 (완료/전체)</TableHead>
+                          <TableHead style={{ minWidth: 220 }}>달성 현황 (달성·미달성·미평가)</TableHead>
+                          <TableHead style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>평균 점수</TableHead>
+                          <TableHead>평가자</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {depts.map((department) => {
+                          const missedMembers = Math.max(
+                            0,
+                            department.finalizedMembers - department.achievedMembers,
+                          );
+                          const pendingMembers = Math.max(
+                            0,
+                            department.totalMembers - department.finalizedMembers,
+                          );
+                          const denom = department.totalMembers || 1;
+                          const segments = [
+                            { key: 'achieved', count: department.achievedMembers, color: 'var(--ok-orange)', label: '달성' },
+                            { key: 'missed', count: missedMembers, color: 'var(--warning)', label: '미달성' },
+                            { key: 'pending', count: pendingMembers, color: 'var(--border)', label: '미평가' },
+                          ];
+                          return (
+                            <TableRow
+                              key={department.groupKey}
+                              onClick={() => setOpenDepartment(department.groupKey)}
+                              style={{ cursor: 'pointer' }}
+                              title="클릭하면 부서원 상세를 봅니다."
+                            >
+                              <TableCell>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                  <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{department.name}</span>
+                                  {department.level && department.level !== groupLevel && (
+                                    <span
+                                      style={{
+                                        flexShrink: 0,
+                                        fontSize: 'var(--fs-xs)',
+                                        fontWeight: 800,
+                                        color: 'var(--ok-orange-700)',
+                                        background: 'var(--ok-orange-50)',
+                                        border: '1px solid var(--ok-orange-100)',
+                                        borderRadius: 6,
+                                        padding: '1px 6px',
+                                      }}
+                                    >
+                                      {ORG_LEVEL_LABELS[department.level]}
+                                    </span>
+                                  )}
+                                </div>
+                                {!groupBySection && department.parentPath && (
+                                  <div
+                                    style={{
+                                      fontSize: 'var(--fs-xs)',
+                                      color: 'var(--fg-muted)',
+                                      fontWeight: 700,
+                                      marginTop: 2,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    title={department.parentPath}
+                                  >
+                                    {department.parentPath}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="tnum" style={{ textAlign: 'right', fontWeight: 700 }}>
+                                {department.totalMembers}
+                              </TableCell>
+                              <TableCell>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div className="sd-bar" style={{ flex: 1, height: 8, minWidth: 80 }}>
+                                    <div
+                                      className="sd-bar-fill"
+                                      style={{ width: `${department.completionRate}%` }}
+                                    />
+                                  </div>
+                                  <span
+                                    className="tnum"
+                                    style={{ fontWeight: 800, whiteSpace: 'nowrap', fontSize: 'var(--fs-sm)' }}
+                                  >
+                                    {department.finalizedMembers}/{department.totalMembers} · {department.completionRate}%
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div
+                                    style={{
+                                      flex: 1,
+                                      display: 'flex',
+                                      height: 10,
+                                      borderRadius: 5,
+                                      overflow: 'hidden',
+                                      background: 'var(--bg-muted)',
+                                      minWidth: 90,
+                                    }}
+                                  >
+                                    {segments.map((seg) =>
+                                      seg.count > 0 ? (
+                                        <div
+                                          key={seg.key}
+                                          style={{
+                                            width: `${(seg.count / denom) * 100}%`,
+                                            background: seg.color,
+                                          }}
+                                          title={`${seg.label} ${seg.count}명`}
+                                        />
+                                      ) : null,
+                                    )}
+                                  </div>
+                                  <span
+                                    className="tnum"
+                                    style={{ fontWeight: 800, whiteSpace: 'nowrap', fontSize: 'var(--fs-sm)' }}
+                                    title={segments.map((seg) => `${seg.label} ${seg.count}명`).join(' · ')}
+                                  >
+                                    {department.achievementRate}%
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="tnum" style={{ textAlign: 'right', fontWeight: 800 }}>
+                                {department.averageScore}
+                              </TableCell>
+                              <TableCell style={{ maxWidth: 240 }}>
+                                <span
+                                  style={{
+                                    display: 'block',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    color: 'var(--ok-brown)',
+                                    fontWeight: 700,
+                                  }}
+                                  title={department.evaluatorNames.join(', ')}
+                                >
+                                  {department.evaluatorNames.join(', ') || '-'}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
-                  <Pill
-                    tone={
-                      department.completionRate >= 80
-                        ? 'success'
-                        : department.completionRate >= 60
-                        ? 'orange'
-                        : 'warning'
-                    }
-                  >
-                    {department.completionRate}%
-                  </Pill>
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 16,
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      <span
-                        className="tnum"
-                        style={{ fontSize: 'var(--fs-display)', fontWeight: 900, color: 'var(--ok-orange)', lineHeight: 1 }}
-                      >
-                        {department.finalizedMembers}
-                      </span>
-                      <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-h4)' }}>
-                        / {department.totalMembers}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 4, color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>평가 완료 인원</div>
-                  </div>
-                  {department.evaluatorNames.length > 0 && (
-                    <div style={{ textAlign: 'right', minWidth: 0, maxWidth: '62%' }}>
-                      <div className="sd-label-mini">
-                        평가자{department.evaluatorNames.length > 1 ? ` ${department.evaluatorNames.length}명` : ''}
-                      </div>
-                      <div
-                        style={{
-                          marginTop: 2,
-                          fontSize: department.evaluatorNames.length > 1 ? 'var(--fs-sm)' : 'var(--fs-h3)',
-                          fontWeight: department.evaluatorNames.length > 1 ? 800 : 900,
-                          color: 'var(--ok-brown)',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          lineHeight: 1.3,
-                        }}
-                        title={department.evaluatorNames.join(', ')}
-                      >
-                        {department.evaluatorNames.join(', ')}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="sd-bar" style={{ marginTop: 12, height: 8 }}>
-                  <div className="sd-bar-fill" style={{ width: `${department.completionRate}%` }} />
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 14,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                    gap: 8,
-                  }}
-                >
-                  {[
-                    { label: '완료율', value: `${department.completionRate}%` },
-                    { label: '목표 달성', value: `${department.achievementRate}%` },
-                    { label: '평균 점수', value: department.averageScore },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      style={{ padding: 12, borderRadius: 10, background: 'var(--bg-muted)', textAlign: 'center' }}
-                    >
-                      <div className="sd-label-mini">{item.label}</div>
-                      <div
-                        className="tnum"
-                        style={{ marginTop: 4, fontWeight: 900, fontSize: 'var(--fs-h3)' }}
-                      >
-                        {item.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {(() => {
-                  const missedMembers = Math.max(
-                    0,
-                    department.finalizedMembers - department.achievedMembers,
-                  );
-                  const pendingMembers = Math.max(
-                    0,
-                    department.totalMembers - department.finalizedMembers,
-                  );
-                  const denom = department.totalMembers || 1;
-                  const achievedRatio = (department.achievedMembers / denom) * 100;
-                  const missedRatio = (missedMembers / denom) * 100;
-                  const pendingRatio = (pendingMembers / denom) * 100;
-
-                  const segments: { key: string; ratio: number; color: string; label: string; count: number }[] = [
-                    {
-                      key: 'achieved',
-                      ratio: achievedRatio,
-                      color: 'var(--ok-orange)',
-                      label: '달성',
-                      count: department.achievedMembers,
-                    },
-                    {
-                      key: 'missed',
-                      ratio: missedRatio,
-                      color: 'var(--warning)',
-                      label: '미달성',
-                      count: missedMembers,
-                    },
-                    {
-                      key: 'pending',
-                      ratio: pendingRatio,
-                      color: 'var(--border)',
-                      label: '미평가',
-                      count: pendingMembers,
-                    },
-                  ];
-
-                  return (
-                    <div style={{ marginTop: 16 }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span className="sd-label-mini">달성 현황</span>
-                        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
-                          {department.achievementRate}% 달성
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          height: 12,
-                          borderRadius: 6,
-                          overflow: 'hidden',
-                          background: 'var(--bg-muted)',
-                        }}
-                      >
-                        {segments.map((seg) =>
-                          seg.ratio > 0 ? (
-                            <div
-                              key={seg.key}
-                              style={{ width: `${seg.ratio}%`, background: seg.color }}
-                              title={`${seg.label} ${seg.count}명`}
-                            />
-                          ) : null,
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          marginTop: 8,
-                          fontSize: 'var(--fs-xs)',
-                        }}
-                      >
-                        {segments.map((seg) => (
-                          <div
-                            key={seg.key}
-                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-                          >
-                            <span
-                              style={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: 2,
-                                background: seg.color,
-                                display: 'inline-block',
-                              }}
-                            />
-                            <span style={{ color: 'var(--fg-muted)' }}>
-                              {seg.label} {seg.count}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </button>
-                  ))}
                 </div>
               </section>
             ))}

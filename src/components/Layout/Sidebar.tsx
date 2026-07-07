@@ -358,6 +358,9 @@ export const Sidebar = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: 2,
+        // 메뉴(그룹 전부 펼침)가 화면 높이를 넘으면 사이드바 자체를 스크롤 —
+        // HR처럼 항목이 많으면 하단 메뉴가 잘린 채 접근 불가였던 문제.
+        overflowY: 'auto',
       }}
     >
       {/* P3-14: 전체 접기 토글 — 작은 화면(1366px)에서 본문 폭 확보 */}

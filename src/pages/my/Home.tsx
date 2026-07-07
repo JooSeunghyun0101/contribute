@@ -644,7 +644,7 @@ const MyHome = () => {
             </div>
 
             {/* 과업 일정 (간트) */}
-            <div className="sd-card" style={{ padding: 18 }}>
+            <div className="sd-card" style={{ padding: 18, display: 'flex', flexDirection: 'column' }}>
               <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 12 }}>
                 과업 일정 (간트)
               </h3>
@@ -676,10 +676,12 @@ const MyHome = () => {
                 <div />
               </div>
 
-              {/* Task rows — 영역 고정. 과업이 많으면 안에서 세로 스크롤 */}
+              {/* Task rows — 카드의 남는 높이를 전부 사용(고정 176px 이던 것을 확장).
+                  실제로 넘칠 때만 안에서 세로 스크롤 — 아래가 비는데도 스크롤되던 문제 해소. */}
               <div
                 style={{
-                  height: 176,
+                  flex: 1,
+                  minHeight: 176,
                   overflowY: 'auto',
                   paddingRight: 4,
                 }}

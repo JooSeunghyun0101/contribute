@@ -223,9 +223,16 @@ const EvaluatorRequestPage = () => {
     [visibleSegments, selectedHistoryId],
   );
 
-  // 희망 평가자 후보 = 본인/대상자 제외 전체 직원
+  // 희망 평가자 후보 = '평가자 권한' 보유자만(대상자 본인·admin·영문 사번 제외) —
+  // 사용자관리(HrUsersPage)의 평가자 후보 규칙과 동일. 전 직원이 나오면 평가 권한이
+  // 없는 사람이 지정돼 승인 후 평가 진행이 막힌다.
   const evaluatorOptions = useMemo(
-    () => allEmployees.filter((e) => e.employee_id !== evaluateeId),
+    () =>
+      allEmployees
+        .filter((e) => e.employee_id !== evaluateeId)
+        .filter((e) => e.employee_id !== 'admin')
+        .filter((e) => !/^[A-Za-z]/.test(e.employee_id))
+        .filter((e) => e.available_roles?.includes('evaluator')),
     [allEmployees, evaluateeId],
   );
 
