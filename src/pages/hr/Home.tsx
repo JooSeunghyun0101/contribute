@@ -419,9 +419,27 @@ const HrHome = () => {
         >
           <KpiStat label="전체 직원" value={`${summary.totalMembers}명`} />
           <KpiDivider />
-          <KpiStat label="평가 완료" value={`${summary.completedMembers}명`} accent />
+          {/* 완료율 도넛 제거(2026-07-07 사용자 결정)로 완료율·전월 증감은 여기로 흡수 */}
+          <KpiStat
+            label="평가 완료"
+            value={`${summary.completedMembers}명 · ${summary.completionRate}%`}
+            accent
+            sub={
+              summary.completionDelta > 0
+                ? `전월 대비 ▲ +${summary.completionDelta}%p`
+                : summary.completionDelta < 0
+                  ? `전월 대비 ▼ ${summary.completionDelta}%p`
+                  : '전월 대비 변동 없음'
+            }
+          />
           <KpiDivider />
           <KpiStat label="진행 중" value={`${summary.inProgress}명`} />
+          {summary.statusCounts.notStarted > 0 && (
+            <>
+              <KpiDivider />
+              <KpiStat label="미시작" value={`${summary.statusCounts.notStarted}명`} emphasize />
+            </>
+          )}
           <KpiDivider />
           <KpiStat label="마감" value={deadlineInfo.label} emphasize={deadlineInfo.emphasize} />
           {/* 완료 판정 기준 각주 — evaluationStatus.ts 단일 기준과 동일 문구 유지 */}
@@ -434,29 +452,10 @@ const HrHome = () => {
           <LoadingState message="전사 평가 데이터를 불러오는 중입니다." />
         ) : (
           <>
-            {/* Row 1: 핵심 도넛 — 평가 진행(완료율) · 목표 달성 */}
-            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
-              <ChartCard
-                title="평가 진행"
-                subtitle={
-                  summary.completionDelta > 0
-                    ? `완료율 ▲ +${summary.completionDelta}% vs 전월`
-                    : summary.completionDelta < 0
-                      ? `완료율 ▼ ${summary.completionDelta}% vs 전월`
-                      : '완료율 · 전월 대비 변동 없음'
-                }
-              >
-                <Donut
-                  centerValue={`${summary.completionRate}%`}
-                  centerLabel="완료율"
-                  segments={[
-                    { key: 'c', name: '완료', value: summary.statusCounts.completed, color: HR_COLOR.orange },
-                    { key: 'i', name: '진행 중', value: summary.statusCounts.inProgress, color: HR_COLOR.amber },
-                    { key: 'n', name: '미시작', value: summary.statusCounts.notStarted, color: HR_COLOR.pending },
-                  ]}
-                />
-              </ChartCard>
-
+            {/* Row 1: 목표 달성 도넛 + 성장레벨 분포 + 점수 분포 — 한 행.
+                '평가 진행' 완료율 도넛은 제거(2026-07-07 사용자 결정): 상단 스트립의
+                완료·진행중·미시작 수치와 완전 중복이라 완료율%·전월 증감만 스트립으로 흡수. */}
+            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
               <ChartCard title="목표 달성" subtitle="완료자 기준 성장레벨 달성">
                 <Donut
                   centerValue={`${summary.achievement.rate}%`}
@@ -469,10 +468,6 @@ const HrHome = () => {
                   ]}
                 />
               </ChartCard>
-            </section>
-
-            {/* Row 2: 성장레벨 분포 + 점수 분포 */}
-            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
               <ChartCard title="성장레벨별 인원 · 달성" subtitle="Lv.1~4 · 달성/미달성/미평가 · 막대 클릭 시 명단">
                 <LevelDistChart
                   data={summary.levelDist}
@@ -605,11 +600,13 @@ const KpiStat = ({
   value,
   accent,
   emphasize,
+  sub,
 }: {
   label: string;
   value: string;
   accent?: boolean;
   emphasize?: boolean;
+  sub?: string;
 }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
     <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>{label}</span>
@@ -624,6 +621,9 @@ const KpiStat = ({
     >
       {value}
     </span>
+    {sub && (
+      <span className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{sub}</span>
+    )}
   </div>
 );
 
