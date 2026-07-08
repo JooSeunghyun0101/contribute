@@ -28,6 +28,7 @@ import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
 import OrgChecklist from '@/components/hr/OrgChecklist';
 import { getOrgValue, matchesOrgNodes, orgPathLabel, orgFieldsFromEvaluation, type OrgFields } from '@/lib/orgHierarchy';
 import { isOnLeave } from '@/lib/employeeStatus';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { diffProfileRows, type DiffResult } from '@/lib/uploadDiff';
 import type {
   Employee,
@@ -340,6 +341,8 @@ const HrUsersPage = () => {
   const [bulkChangeDate, setBulkChangeDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [bulkActionRunning, setBulkActionRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  // 일괄작업 중단 플래그 — 루프 상단에서 검사해 남은 처리를 멈춘다(이미 처리된 건은 유지).
+  const bulkAbortRef = useRef(false);
   const [bulkResult, setBulkResult] = useState<BulkActionResult | null>(null);
   const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
@@ -511,6 +514,10 @@ const HrUsersPage = () => {
       return next;
     });
   const clearSelection = () => setSelectedIds(new Set());
+
+  // 행 인라인 편집 중 새로고침·탭 닫기 시 유실 경고(과업 카드 편집과 동일 안전장치).
+  // 앱 내 사이드바 이동은 BrowserRouter라 useBlocker 미지원 — 브라우저 레벨 이탈만 방어.
+  useUnsavedChangesWarning(editingEmployeeId !== null);
 
   const getEvaluatorLabel = (evaluatorId?: string | null, evaluatorName?: string | null) => {
     if (evaluatorName) return evaluatorName;
@@ -1018,12 +1025,18 @@ const HrUsersPage = () => {
       confirmText: `${ids.length}명 삭제`,
     });
     if (!ok) return;
+    bulkAbortRef.current = false;
     setBulkActionRunning(true);
     setBulkProgress({ done: 0, total: ids.length });
     let success = 0;
     let processed = 0;
+    let aborted = false;
     const failed: BulkActionResult['failed'] = [];
     for (const id of ids) {
+      if (bulkAbortRef.current) {
+        aborted = true;
+        break;
+      }
       setBulkProgress({ done: ++processed, total: ids.length });
       try {
         await employeeService.deleteEmployee(id);
@@ -1038,8 +1051,10 @@ const HrUsersPage = () => {
     setBulkActionRunning(false);
     setBulkProgress(null);
     toast({
-      title: '일괄 삭제 완료',
-      description: `${success}명 삭제${failed.length ? ` · 실패 ${failed.length}명` : ''}`,
+      title: aborted ? '일괄 삭제 중단됨' : '일괄 삭제 완료',
+      description: `${success}명 삭제${failed.length ? ` · 실패 ${failed.length}명` : ''}${
+        aborted ? ` · 중단(${ids.length - processed}건 미처리)` : ''
+      }`,
       variant: failed.length ? 'destructive' : undefined,
     });
     if (failed.length) setBulkResult({ action: '선택 삭제', total: ids.length, success, failed });
@@ -1083,13 +1098,19 @@ const HrUsersPage = () => {
       confirmText: `${ids.length}명 변경`,
     });
     if (!ok) return;
+    bulkAbortRef.current = false;
     setBulkActionRunning(true);
     setBulkProgress({ done: 0, total: ids.length });
     let success = 0;
     let skipped = 0;
     let processed = 0;
+    let aborted = false;
     const failed: BulkActionResult['failed'] = [];
     for (const id of ids) {
+      if (bulkAbortRef.current) {
+        aborted = true;
+        break;
+      }
       setBulkProgress({ done: ++processed, total: ids.length });
       const emp = employeeMap.get(id);
       if (!emp) {
@@ -1120,8 +1141,10 @@ const HrUsersPage = () => {
     setBulkActionRunning(false);
     setBulkProgress(null);
     toast({
-      title: '평가자 일괄 변경 완료',
-      description: `${success}명 변경${skipped ? ` · 동일 ${skipped}명` : ''}${failed.length ? ` · 실패 ${failed.length}명` : ''}`,
+      title: aborted ? '평가자 일괄 변경 중단됨' : '평가자 일괄 변경 완료',
+      description: `${success}명 변경${skipped ? ` · 동일 ${skipped}명` : ''}${failed.length ? ` · 실패 ${failed.length}명` : ''}${
+        aborted ? ` · 중단(${ids.length - processed}건 미처리)` : ''
+      }`,
       variant: failed.length ? 'destructive' : undefined,
     });
     if (failed.length) setBulkResult({ action: '평가자 일괄 변경', total: ids.length, success, skipped, failed });
@@ -1846,13 +1869,22 @@ const HrUsersPage = () => {
                 >
                   {bulkActionRunning ? (bulkProgress ? `처리 중 ${bulkProgress.done}/${bulkProgress.total}` : '처리 중') : '선택 삭제'}
                 </button>
-                <button
-                  className="sd-btn sd-btn-ghost sd-btn-sm"
-                  onClick={clearSelection}
-                  disabled={bulkActionRunning}
-                >
-                  선택 해제
-                </button>
+                {bulkActionRunning ? (
+                  <button
+                    className="sd-btn sd-btn-outline sd-btn-sm"
+                    onClick={() => {
+                      bulkAbortRef.current = true;
+                    }}
+                    title="남은 처리를 멈춥니다. 이미 처리된 건은 유지됩니다."
+                    style={{ color: 'var(--danger, #B91C1C)' }}
+                  >
+                    중단
+                  </button>
+                ) : (
+                  <button className="sd-btn sd-btn-ghost sd-btn-sm" onClick={clearSelection}>
+                    선택 해제
+                  </button>
+                )}
               </div>
             </div>
           )}

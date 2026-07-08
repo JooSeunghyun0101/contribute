@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { ErrorState } from '@/components/ui/state-views';
@@ -73,6 +73,16 @@ interface FaqCatalog {
 const FAQ_SETTING_USER = 'system';
 const FAQ_SETTING_TYPE = 'faq_catalog';
 
+// 동시편집 감지용 정규화 — id 는 무시하고 질문/답변 내용을 순서대로 비교(공백 정리).
+// 재정렬·수정·추가·삭제를 모두 '변경'으로 감지한다.
+const normalizeFaqCatalog = (list: ReadonlyArray<{ question?: unknown; answer?: unknown }>): string =>
+  JSON.stringify(
+    (Array.isArray(list) ? list : []).map((f) => ({
+      q: typeof f.question === 'string' ? f.question.trim() : '',
+      a: typeof f.answer === 'string' ? f.answer.trim() : '',
+    })),
+  );
+
 /** 한 명의 발송 후보(수신자). */
 interface RecipientRow {
   /** employee_id (실제 직원 식별자). 발송 recipient_id 로 사용. */
@@ -131,6 +141,8 @@ const HrNoticesFaqPage = () => {
 
   /* ── FAQ 상태 ───────────────────────────────────────────────────── */
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
+  // 로드 시점의 서버 FAQ 스냅샷(정규화) — 저장 직전 재조회본과 비교해 동시편집을 감지한다.
+  const baselineFaqRef = useRef<string>('');
   const [faqLoading, setFaqLoading] = useState(true);
   const [faqError, setFaqError] = useState(false);
   const [faqSaving, setFaqSaving] = useState(false);
@@ -172,6 +184,7 @@ const HrNoticesFaqPage = () => {
       const setting = await settingService.getUserSetting(FAQ_SETTING_USER, FAQ_SETTING_TYPE);
       const data = setting?.setting_data as Partial<FaqCatalog> | null | undefined;
       const list = Array.isArray(data?.faqs) ? data.faqs : [];
+      baselineFaqRef.current = normalizeFaqCatalog(list);
       setFaqs(
         list.map((f) => ({
           id: typeof f.id === 'string' && f.id ? f.id : newId(),
@@ -447,10 +460,25 @@ const HrNoticesFaqPage = () => {
         }))
         .filter((f) => f.question.length > 0 && f.answer.length > 0);
 
+      // 동시편집 보호(낙관적 잠금·스키마 변경 0): 로드 이후 다른 사용자가 저장했는지 확인한다.
+      // 서버 최신본이 내가 불러온 스냅샷과 다르면 저장을 막아 남의 변경이 통째로 덮여 사라지는 것을 방지.
+      const latest = await settingService.getUserSetting(FAQ_SETTING_USER, FAQ_SETTING_TYPE);
+      const latestData = latest?.setting_data as Partial<FaqCatalog> | null | undefined;
+      const latestNorm = normalizeFaqCatalog(Array.isArray(latestData?.faqs) ? latestData.faqs : []);
+      if (latestNorm !== baselineFaqRef.current) {
+        toast({
+          title: '다른 사용자가 FAQ를 변경했습니다',
+          description: '최신 내용을 불러온 뒤 다시 편집해 주세요. 이번 편집분은 저장되지 않았습니다.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       await settingService.saveSetting(FAQ_SETTING_USER, FAQ_SETTING_TYPE, {
         faqs: cleaned,
       } satisfies FaqCatalog);
 
+      baselineFaqRef.current = normalizeFaqCatalog(cleaned);
       setFaqs(cleaned);
       toast({
         title: 'FAQ 저장 완료',
@@ -780,8 +808,8 @@ const HrNoticesFaqPage = () => {
               fontWeight: 600,
             }}
           >
-            FAQ는 전사 공통 카탈로그입니다. 여러 HR이 동시에 편집하면 마지막으로 저장한 내용이 우선
-            적용됩니다(이전 변경 덮어쓰기).
+            FAQ는 전사 공통 카탈로그입니다. 편집을 시작한 뒤 다른 HR이 먼저 저장했다면, 저장 시 그
+            변경을 덮어쓰지 않도록 자동으로 막고 알려드립니다 — 최신 내용을 다시 불러와 편집하세요.
           </div>
 
           <div className="sd-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
