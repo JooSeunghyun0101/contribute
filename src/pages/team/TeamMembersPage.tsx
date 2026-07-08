@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/state-views';
+import { evaluationStatusLabel } from '@/lib/evaluationStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import {
@@ -58,8 +59,12 @@ const statusOf = (r: EmployeeEvaluationRecord): StatusInfo => {
       ? { label: '달성', color: 'var(--score-4-bg)' }
       : { label: '미달성', color: 'var(--score-2-bg)' };
   }
-  const map: Record<string, string> = { submitted: '검토 대기', evaluating: '평가 중' };
-  return { label: map[r.reviewStatus] ?? '미제출', color: 'var(--fg-muted)' };
+  // '검토 대기'·'평가 중' 라벨은 SSOT 에서(드리프트 방지). 그 외는 이 화면 관점의 '미제출'.
+  const label =
+    r.reviewStatus === 'submitted' || r.reviewStatus === 'evaluating'
+      ? evaluationStatusLabel(r.reviewStatus)
+      : '미제출';
+  return { label, color: 'var(--fg-muted)' };
 };
 
 const th: CSSProperties = {

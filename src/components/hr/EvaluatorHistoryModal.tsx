@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
+import { evaluationStatusLabel as statusLabel } from '@/lib/evaluationStatus';
 import type {
   Employee,
   Evaluation,
@@ -88,31 +89,15 @@ const periodLabel = (history: EvaluatorAssignmentHistory) => {
   return '-';
 };
 
-const EVALUATION_STATUS_OPTIONS: { id: EvaluationStatus; label: string }[] = [
-  { id: 'in-progress', label: '작성 중' },
-  { id: 'submitted', label: '검토 대기' },
-  { id: 'evaluating', label: '평가 중' },
-  { id: 'completed', label: '완료' },
-  { id: 'locked', label: '잠금' },
-];
+// 상태 라벨은 SSOT(evaluationStatus.ts)에서 가져와 화면 간 드리프트를 막는다.
+const EVALUATION_STATUS_OPTIONS: { id: EvaluationStatus; label: string }[] = (
+  ['in-progress', 'submitted', 'evaluating', 'completed', 'locked'] as EvaluationStatus[]
+).map((id) => ({ id, label: statusLabel(id) }));
 
-const evaluationStatusLabel = (status?: EvaluationStatus | null) => {
-  switch (status) {
-    case 'submitted':
-      return '검토 대기';
-    case 'evaluating':
-      return '평가 중';
-    case 'completed':
-      return '완료';
-    case 'locked':
-      return '잠금';
-    case 'draft':
-    case 'in-progress':
-      return '작성 중';
-    default:
-      return '평가 없음';
-  }
-};
+// SSOT 라벨을 쓰되, 이 화면 관점에서 상태가 없거나 미시작이면 '평가 없음'(기존 동작 보존).
+const STATUS_WITH_LABEL = new Set(['submitted', 'evaluating', 'completed', 'locked', 'draft', 'in-progress']);
+const evaluationStatusLabel = (status?: EvaluationStatus | null) =>
+  status && STATUS_WITH_LABEL.has(status) ? statusLabel(status) : '평가 없음';
 
 const evaluationStatusTone = (status?: EvaluationStatus | null) => {
   switch (status) {
