@@ -393,7 +393,7 @@ const TeamHome = () => {
   return (
     <>
       <PageHeader
-        title="평가 진행 보드"
+        title="평가 보드"
         subtitle={`최종제출된 피평가자를 중심으로 평가를 진행합니다${
           stats.departmentName ? ` - ${stats.departmentName} ${stats.totalMembers}명` : ''
         }`}

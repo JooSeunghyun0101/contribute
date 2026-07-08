@@ -724,7 +724,7 @@ const Evaluation = () => {
               {isSaving || isAiReviewing ? (
                 // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시
                 // 끝나 검수가 도는 걸 알 수 없던 문제 — 검수 완료 시 통과/경고 토스트로 마무리).
-                <AiOpinionButton loading label="AI 검토 중…" />
+                <AiOpinionButton loading label="AI 검수 중…" />
               ) : (
                 <button
                   className="sd-btn sd-btn-primary sd-btn-sm"

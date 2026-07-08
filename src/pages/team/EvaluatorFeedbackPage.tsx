@@ -216,16 +216,16 @@ const EvaluatorFeedbackPage = () => {
 
       <div style={{ padding: '24px 32px 32px' }}>
         {isLoading ? (
-          <LoadingState message="피드백 이력을 불러오는 중입니다." />
+          <LoadingState message="피드백 내역을 불러오는 중입니다." />
         ) : error ? (
-          <ErrorState message="피드백 이력을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
+          <ErrorState message="피드백 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
             {/* ── Left: task-grouped cards (per employee section) ── */}
             <div className="flex flex-col gap-5">
               {visibleBundles.length === 0 ? (
                 <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                  표시할 피드백 이력이 없습니다.
+                  표시할 피드백 내역이 없습니다.
                 </div>
               ) : (
                 visibleBundles.map((bundle) => {

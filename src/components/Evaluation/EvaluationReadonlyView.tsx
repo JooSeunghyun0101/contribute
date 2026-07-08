@@ -9,6 +9,7 @@ import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { evaluationService, feedbackService, taskService, taskEvaluationEntryService } from '@/lib/services';
 import { formatScore, getScoreGapBucket } from '@/lib/evaluationMatrix';
+import { evaluationStatusLabel } from '@/lib/evaluationStatus';
 import {
   downloadIndividualReportWorkbook,
   type IndividualReportData,
@@ -24,16 +25,7 @@ import {
 import type { Task as DbTask, TaskEvaluationEntry as DbEntry } from '@/types';
 import type { Task, TaskEvaluationEntry } from '@/types/evaluation';
 
-const STATUS_LABEL: Record<string, string> = {
-  'not-started': '시작 전',
-  draft: '작성 중',
-  'in-progress': '작성 중',
-  submitted: '검토 대기',
-  evaluating: '평가 중',
-  completed: '완료',
-  locked: '잠금',
-};
-const statusTone = (status?: string): 'success' | 'orange' | 'warning' | 'info' | 'neutral' => {
+const statusTone =(status?: string): 'success' | 'orange' | 'warning' | 'info' | 'neutral' => {
   switch (status) {
     case 'completed':
       return 'success';
@@ -263,7 +255,7 @@ export const EvaluationReadonlyView = ({
         growthLevel,
         growthLevelTitle: '',
         currentEvaluatorName: group.evaluatorName || null,
-        evaluationStatusLabel: STATUS_LABEL[target.status] ?? target.status,
+        evaluationStatusLabel: evaluationStatusLabel(target.status),
         displayScore: formatScore(group.exactScore),
         flooredScore: group.flooredScore,
         achieved: group.flooredScore >= growthLevel,
@@ -372,7 +364,7 @@ export const EvaluationReadonlyView = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 800 }}>평가자 {group.evaluatorName}</span>
-                <Pill tone={statusTone(status)}>{STATUS_LABEL[status] ?? status}</Pill>
+                <Pill tone={statusTone(status)}>{evaluationStatusLabel(status)}</Pill>
                 {group.isCurrentAssignment ? (
                   <Pill tone="orange">현재</Pill>
                 ) : (
