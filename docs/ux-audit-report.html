@@ -1,0 +1,615 @@
+<title>기여도평가시스템 UX·제품 감사 리포트</title>
+<style>
+  :root {
+    --paper: #FBFAF8;
+    --card: #FFFFFF;
+    --ink: #1E1A16;
+    --muted: #6B635B;
+    --subtle: #9A9088;
+    --line: #E8E2DA;
+    --line-strong: #D8D0C6;
+    --ok: #F55000;
+    --ok-ink: #C43F00;
+    --ok-tint: #FCEDE4;
+    --sev-high: #CB3A2C;
+    --sev-high-bg: #FBEAE7;
+    --sev-med: #B26A0B;
+    --sev-med-bg: #FBF0DE;
+    --sev-low: #5B7186;
+    --sev-low-bg: #EDF1F5;
+    --good: #2E7D57;
+    --shadow: 0 1px 2px rgba(30,26,22,.04), 0 6px 20px rgba(30,26,22,.05);
+    --sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    --mono: 'SFMono-Regular', 'JetBrains Mono', 'Cascadia Code', Consolas, 'D2Coding', ui-monospace, monospace;
+    --maxw: 880px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #16120E;
+      --card: #1F1913;
+      --ink: #F3EEE7;
+      --muted: #ADA396;
+      --subtle: #7C7264;
+      --line: #322A22;
+      --line-strong: #3F362C;
+      --ok: #FF6A2E;
+      --ok-ink: #FF7E48;
+      --ok-tint: #2C1B10;
+      --sev-high: #F0897C;
+      --sev-high-bg: #331915;
+      --sev-med: #E0A94E;
+      --sev-med-bg: #2E220F;
+      --sev-low: #9FB4C6;
+      --sev-low-bg: #1B2530;
+      --good: #6FBF95;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #FBFAF8; --card: #FFFFFF; --ink: #1E1A16; --muted: #6B635B; --subtle: #9A9088;
+    --line: #E8E2DA; --line-strong: #D8D0C6; --ok: #F55000; --ok-ink: #C43F00; --ok-tint: #FCEDE4;
+    --sev-high: #CB3A2C; --sev-high-bg: #FBEAE7; --sev-med: #B26A0B; --sev-med-bg: #FBF0DE;
+    --sev-low: #5B7186; --sev-low-bg: #EDF1F5; --good: #2E7D57;
+    --shadow: 0 1px 2px rgba(30,26,22,.04), 0 6px 20px rgba(30,26,22,.05);
+  }
+  :root[data-theme="dark"] {
+    --paper: #16120E; --card: #1F1913; --ink: #F3EEE7; --muted: #ADA396; --subtle: #7C7264;
+    --line: #322A22; --line-strong: #3F362C; --ok: #FF6A2E; --ok-ink: #FF7E48; --ok-tint: #2C1B10;
+    --sev-high: #F0897C; --sev-high-bg: #331915; --sev-med: #E0A94E; --sev-med-bg: #2E220F;
+    --sev-low: #9FB4C6; --sev-low-bg: #1B2530; --good: #6FBF95;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---------- Masthead ---------- */
+  .mast { padding: 64px 0 34px; border-bottom: 2px solid var(--ink); }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    font-weight: 700; color: var(--ok); margin: 0 0 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--ok); display: inline-block; }
+  h1 {
+    font-size: clamp(30px, 5.2vw, 46px); line-height: 1.08; letter-spacing: -.02em;
+    font-weight: 800; margin: 0 0 16px; text-wrap: balance;
+  }
+  .lede { font-size: 17px; color: var(--muted); max-width: 60ch; margin: 0 0 30px; line-height: 1.6; }
+  .metarow {
+    display: flex; flex-wrap: wrap; gap: 26px 40px; align-items: flex-end;
+  }
+  .meta { display: flex; flex-direction: column; gap: 3px; }
+  .meta .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--subtle); font-weight: 700; }
+  .meta .v { font-size: 14.5px; color: var(--ink); font-weight: 600; }
+
+  /* ---------- Funnel ---------- */
+  .funnel {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch;
+    margin: 30px 0 4px;
+  }
+  .fstat {
+    flex: 1 1 0; min-width: 116px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 4px;
+    box-shadow: var(--shadow);
+  }
+  .fstat .num { font-size: 30px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .fstat .lbl { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .fstat.accent { border-color: var(--ok); }
+  .fstat.accent .num { color: var(--ok); }
+  .farrow { align-self: center; color: var(--subtle); font-size: 20px; padding: 0 2px; }
+
+  /* ---------- Section ---------- */
+  section { margin-top: 54px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ok);
+    border: 1.5px solid var(--ok); border-radius: 6px; padding: 3px 8px; line-height: 1;
+    flex-shrink: 0; letter-spacing: .02em;
+  }
+  .sec-head h2 { font-size: 23px; font-weight: 800; letter-spacing: -.01em; margin: 0; }
+  .sec-sub { color: var(--muted); font-size: 15px; margin: 8px 0 22px; max-width: 66ch; line-height: 1.6; }
+  .sec-rule { height: 1px; background: var(--line-strong); border: 0; margin: 0 0 22px; }
+
+  /* ---------- Callout (executive) ---------- */
+  .callout {
+    background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 8px; padding: 26px 28px; box-shadow: var(--shadow); margin-top: 26px;
+  }
+  .callout p { margin: 0 0 14px; line-height: 1.68; color: var(--ink); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--ok-ink); font-weight: 700; }
+  .axes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+  .axis { background: var(--paper); border: 1px solid var(--line); border-radius: 7px; padding: 14px 16px; }
+  .axis .an { font-weight: 700; font-size: 14.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .axis .an i { font-family: var(--mono); font-style: normal; font-size: 12px; color: var(--ok); }
+  .axis .ad { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+
+  /* ---------- Legend ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin: 22px 0 0; font-size: 13px; color: var(--muted); }
+  .legend .grp { display: flex; align-items: center; gap: 8px; }
+
+  /* ---------- Finding cards ---------- */
+  .finds { display: flex; flex-direction: column; gap: 14px; }
+  .find {
+    position: relative; background: var(--card); border: 1px solid var(--line);
+    border-radius: 9px; padding: 20px 22px 20px 26px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .find::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sev-low); }
+  .find.high::before { background: var(--sev-high); }
+  .find.med::before { background: var(--sev-med); }
+  .find.low::before { background: var(--sev-low); }
+  .find-top { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .find-top h3 { font-size: 16.5px; font-weight: 700; margin: 0; flex: 1 1 340px; line-height: 1.4; letter-spacing: -.01em; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+  .chip {
+    font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 3px 9px; border-radius: 999px;
+    line-height: 1.5; white-space: nowrap;
+  }
+  .chip.sev-high { background: var(--sev-high-bg); color: var(--sev-high); }
+  .chip.sev-med { background: var(--sev-med-bg); color: var(--sev-med); }
+  .chip.sev-low { background: var(--sev-low-bg); color: var(--sev-low); }
+  .chip.eff { background: transparent; color: var(--muted); border: 1px solid var(--line-strong); }
+  .chip.persona { background: var(--ok-tint); color: var(--ok-ink); }
+  .loc {
+    font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 12px 0 0;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
+    overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
+  }
+  .find .body { margin-top: 13px; display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: baseline; }
+  .find .tag { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--subtle); padding-top: 2px; white-space: nowrap; }
+  .find .txt { font-size: 14.5px; line-height: 1.6; color: var(--ink); margin: 0; }
+  .find .txt.prob { color: var(--muted); }
+  .find .txt.rec strong { color: var(--ok-ink); font-weight: 700; }
+  .find code { font-family: var(--mono); font-size: 12.5px; background: var(--ok-tint); color: var(--ok-ink); padding: 1px 5px; border-radius: 4px; }
+
+  .note {
+    background: var(--sev-low-bg); border: 1px dashed var(--line-strong); border-radius: 8px;
+    padding: 16px 20px; margin-top: 14px; font-size: 14px; color: var(--muted); line-height: 1.6;
+  }
+  .note strong { color: var(--good); }
+
+  .scope-list { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+  .scope-item { display: flex; gap: 14px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .scope-item:last-child { border-bottom: 0; }
+  .scope-item .sn { font-family: var(--mono); font-size: 13px; color: var(--ok); font-weight: 700; flex-shrink: 0; width: 22px; }
+  .scope-item .st { font-size: 14.5px; line-height: 1.55; }
+  .scope-item .st b { font-weight: 700; }
+
+  footer { margin-top: 64px; padding-top: 22px; border-top: 2px solid var(--ink); color: var(--subtle); font-size: 13px; line-height: 1.7; }
+  footer .fmono { font-family: var(--mono); font-size: 12px; }
+
+  a { color: var(--ok-ink); text-decoration-color: color-mix(in srgb, var(--ok) 40%, transparent); text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible { outline: 2.5px solid var(--ok); outline-offset: 3px; border-radius: 3px; }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 0 16px 64px; }
+    .mast { padding: 40px 0 28px; }
+    .axes { grid-template-columns: 1fr; }
+    .find .body { grid-template-columns: 1fr; gap: 4px; }
+    .find .tag { padding-top: 8px; }
+    .fstat .num { font-size: 25px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .find { transition: box-shadow .2s ease, transform .2s ease; }
+    .find:hover { box-shadow: 0 2px 4px rgba(30,26,22,.06), 0 14px 34px rgba(30,26,22,.09); }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">UX · 제품 감사 리포트</p>
+    <h1>기여도평가시스템<br>사용자 관점 개선 진단</h1>
+    <p class="lede">피평가자 · 평가자 · HR 세 역할의 화면을 처음부터 끝까지 따라가며 찾은, 불필요·중복·사용성 마찰과 추가·고도화 항목 정리.</p>
+
+    <div class="metarow">
+      <div class="meta"><span class="k">일자</span><span class="v">2026 · 07 · 08</span></div>
+      <div class="meta"><span class="k">대상</span><span class="v">Elevate Growth System</span></div>
+      <div class="meta"><span class="k">방법</span><span class="v">코드 기반 멀티에이전트 감사</span></div>
+      <div class="meta"><span class="k">범위</span><span class="v">3 역할 · 24 화면</span></div>
+    </div>
+
+    <div class="funnel">
+      <div class="fstat"><span class="num">71</span><span class="lbl">원시 발견</span></div>
+      <span class="farrow">→</span>
+      <div class="fstat"><span class="num">40</span><span class="lbl">중복 병합 후</span></div>
+      <span class="farrow">→</span>
+      <div class="fstat accent"><span class="num">40</span><span class="lbl">검증 통과 (거짓·기해결 제외)</span></div>
+      <div class="fstat"><span class="num">51</span><span class="lbl">리뷰 에이전트</span></div>
+      <div class="fstat"><span class="num">9</span><span class="lbl">감사 관점</span></div>
+    </div>
+  </header>
+
+  <!-- 총평 -->
+  <section id="summary">
+    <div class="sec-head">
+      <span class="sec-num">총평</span>
+      <h2>이미 탄탄하다. 남은 건 가장자리 다듬기다</h2>
+    </div>
+    <div class="callout">
+      <p>이 앱은 여러 차례 통합·하드닝을 거쳐 <strong>기본기가 탄탄하다.</strong> 상태 라벨 SSOT, 자동저장·이탈경고, 감사로그, 인쇄용 CSS, 사이드바 배지, "재촉↔잠금" 단일 액션 처리 등 핵심 마찰 다수가 이미 해소돼 있어, 감사 과정에서 여러 지적이 "이미 처리됨 / 과장"으로 하향됐다.</p>
+      <p>즉 지금은 <strong>"기능 부재"가 아니라 "안전장치·자동화·정리 추가"</strong> 단계다. 남은 개선은 네 축으로 수렴한다.</p>
+      <div class="axes">
+        <div class="axis"><div class="an"><i>01</i> 용어 · 라벨 드리프트</div><div class="ad">같은 상태·지표·기능이 화면마다 다른 단어로 보여 역할을 오가는 사용자가 헷갈린다. 공용 상수로 수렴.</div></div>
+        <div class="axis"><div class="an"><i>02</i> HR 대량작업 안전성</div><div class="ad">오코호트 일괄변경·이름 미대조 초기화 등 되돌리기 어려운 실수를 저비용으로 막을 수 있다.</div></div>
+        <div class="axis"><div class="an"><i>03</i> 운영 자동화 · 컴플라이언스</div><div class="ad">자동 리마인드·이메일 도달성, 편향 조치 루프, 감사로그·인사이트 내보내기가 없어 운영이 수동에 묶인다.</div></div>
+        <div class="axis"><div class="an"><i>04</i> 일관성 위생</div><div class="ad">화면별 raw 에러 표시, 설정 화면 이중 디자인시스템, 키보드 조작·포커스 표준화.</div></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="grp"><span class="chip sev-high">High</span> 우선 처리</span>
+      <span class="grp"><span class="chip sev-med">Med</span> 계획 반영</span>
+      <span class="grp"><span class="chip sev-low">Low</span> 여유 시</span>
+      <span class="grp"><span class="chip eff">S / M / L</span> 작업 규모</span>
+      <span class="grp"><span class="chip persona">역할</span> 영향 대상</span>
+    </div>
+  </section>
+
+  <!-- Tier 1 -->
+  <section id="t1">
+    <div class="sec-head"><span class="sec-num">T1</span><h2>지금 바로 — 노력 작음 · 효과 큼</h2></div>
+    <p class="sec-sub">대부분 S 규모의 실수 방지·정합성 수정. 1~4번은 "잘못 눌렀다가 되돌리기 어려운" 종류라 값어치가 가장 크다.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find med">
+        <div class="find-top"><h3>완료된 평가의 '임시저장' 버튼이 실제로는 완료를 취소한다</h3>
+          <div class="chips"><span class="chip persona">평가자</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/Evaluation.tsx : 482–523, 690</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">라벨이 상태와 무관하게 항상 '임시저장'인데, 완료 상태에서 누르면 확인창 없이 <code>reopenForEvaluator</code>가 즉시 실행돼 확정 평가가 풀린다(점수는 보존). "잠깐 저장"인 줄 알고 눌렀다가 완료 해제.</p>
+          <span class="tag">개선</span><p class="txt rec">완료 상태에서는 라벨을 <strong>'평가 중으로 되돌리기'</strong>로 분기하고, 되돌리기 전 confirm('완료 해제·점수 보존')을 추가. 가장 버그성이 강한 항목.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>사용자관리 다중선택이 기간·필터 변경 후에도 유지돼 안 보이는 코호트까지 일괄 변경</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/hr/HrUsersPage.tsx : 464–470, 982, 1030, 1051</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">30명 체크 후 기간/필터를 바꾸면 화면엔 사라져도 <code>selectedIds</code>는 유지된다(초기화 effect가 pageIndex·orgNodeKeys만 리셋). '평가자 일괄 변경' 시 안 보이는 코호트가 통째로 바뀌고 확인창은 개수만 표시.</p>
+          <span class="tag">개선</span><p class="txt rec">초기화 effect에 기간·역할·검색어 변경 시 <strong>selectedIds 초기화</strong>를 추가하고, 실행 대상을 <code>filteredEmployees</code> 교집합으로 스코프. 확인창에도 삭제창처럼 <strong>이름 목록</strong> 표시.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>HR 직접 비밀번호 초기화 확인창이 사번만 보여주고 이름을 대조 안 함</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/components/hr/PasswordResetManager.tsx : 78–102</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">사번을 자유 입력해 즉시 초기화하는데 확인창·성공 토스트가 사번만 표시. 실재하지만 잘못된 사번을 오타내면 이름 확인 없이 엉뚱한 직원 계정이 초기화된다(같은 파일 승인 경로만 '이름(사번)' 사용).</p>
+          <span class="tag">개선</span><p class="txt rec">입력 시 <code>getEmployeeById</code>로 <strong>'홍길동(1234567)' 미리보기</strong>, 확인창·토스트를 이름 형식으로 통일, 미존재 사번이면 버튼 비활성.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>감사로그 '초기화' 버튼이 필터만 비우고 목록을 재조회하지 않는다</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/hr/HrAuditLogPage.tsx : 162–168</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">'조회'는 적용되는데 '초기화'는 재조회를 안 해, 전체 목록을 기대한 사용자가 옛 필터 결과를 보고 '조회'를 또 눌러야 한다.</p>
+          <span class="tag">개선</span><p class="txt rec"><code>load</code>를 인자화해 <strong>빈 필터로 즉시 전체 재조회</strong>. setter 배치 타이밍과 무관하게 '초기화 = 전체 즉시 표시' 보장.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>죽은 로그인 셰이더 3파일 삭제 → 미해결 라이선스 리스크(P0-11) 종결</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/components/ui/{hero-v4, hero-v5, open-ai-codex-animated-background}.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">참조 0건으로 확인된 죽은 코드이며, 여기에만 남은 WebGL 라이선스 위반 코드가 재배선 시 리스크(DEPLOY_CHECKLIST P0-11 미해결). 참조 0건 shadcn 프리미티브 16종·고아 훅·미사용 <code>ui/pagination.tsx</code>도 함께 잔존.</p>
+          <span class="tag">개선</span><p class="txt rec">3파일 삭제로 <strong>컴플라이언스 P0-11 실제 종결</strong>. 반면 <code>ai-opinion-button</code>·<code>hero</code>(로그인)·<code>lottie-celebration-overlay</code>는 실사용 중이니 삭제 금지.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>상태 → 라벨 매핑을 공용 상수로 통합 (화면별 중복 정의 8곳)</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-med">Med</span><span class="chip eff">S</span></div></div>
+        <div class="loc">Home.tsx · EvaluatorReview.tsx · team/Home.tsx · Evaluation.tsx : 695 · Sidebar.tsx · EvaluatorFeedbackPage.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">같은 개념이 화면마다 다른 단어다. submitted가 보드엔 '검토 필요'·나머진 '검토 대기', 저장 로딩만 'AI 검토 중'·나머진 'AI 검수', 메뉴 '평가 보드' vs 제목 '평가 진행 보드'. 심지어 한 화면에서 제목 '피드백 내역' vs 본문 '피드백 이력'.</p>
+          <span class="tag">개선</span><p class="txt rec">상태→라벨 매핑을 <code>evaluationStatus.ts</code>로 모아 <strong>중복 정의를 import로 대체</strong>. 피드백 제목은 방향 명시('받은/작성한 피드백')로 통일.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>평가 가이드 모달이 폐기된 용어와 없는 메뉴를 안내한다</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/components/Dashboard/EvaluationGuide.tsx : 47, 91, 101</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">표준어 '기대수준' 대신 '요구수준'을 쓰고, 실재하지 않는 '과업 관리'에서 수정하라 지칭하며, 실제 흐름(가중치는 피평가자 수정, 평가자는 돌려보내기)과 어긋난다.</p>
+          <span class="tag">개선</span><p class="txt rec"><strong>'요구수준'→'기대수준'</strong>, <strong>'과업 관리'→'내 과업'</strong>, 평가자 단계 설명을 '「피평가자에게 돌려보내기」로 요청'으로 재작성.</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- Tier 2 -->
+  <section id="t2">
+    <div class="sec-head"><span class="sec-num">T2</span><h2>HR 대량작업 안전장치</h2></div>
+    <p class="sec-sub">되돌리기 어려운 HR 작업을 막을 저비용 안전장치가 비어 있다. 대부분 S~M 규모.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find low">
+        <div class="find-top"><h3>인라인 행 편집 중 라우트 이동·새로고침 시 경고 없이 유실</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/hr/HrUsersPage.tsx : 459–470</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">과업 카드 편집엔 이탈경고가 있는데 이 표엔 없다. 페이지네이션·기간전환은 편집상태가 부모에 보존되나, 사이드바 이동·새로고침 때만 유실.</p>
+          <span class="tag">개선</span><p class="txt rec">편집 중일 때 기존 <code>useUnsavedChangesWarning</code> 훅 재사용. '편집 중' 배지로 가시화.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>일괄 삭제/평가자 변경이 건당 순차 await라 대량 시 화면이 묶이고 중단 불가</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/hr/HrUsersPage.tsx : 1007–1085 · ChangeRequestsPage.tsx : 141–148</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">for 루프가 건당 HTTP 왕복을 await하고 중단 버튼이 없어, 실수로 시작해도 끝까지 묶인다(100건 ≈ 5–10초).</p>
+          <span class="tag">개선</span><p class="txt rec">우선 <strong>'중단' 버튼</strong>(처리분 커밋 유지 + '중단됨: N건' 토스트). 부차적으로 동시 5건 제한 풀.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>공통 FAQ가 단일 JSONB blob이라 동시 편집 시 마지막 저장이 남의 변경을 덮어쓴다</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/hr/HrNoticesFaqPage.tsx : 442–454 · settingService.ts : 16–26</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob"><code>saveSetting</code>이 faqs 배열 전체를 upsert 교체하며 잠금·병합·버전이 없어 last-write-wins 유실(HR 소수·저빈도라 확률은 낮음).</p>
+          <span class="tag">개선</span><p class="txt rec">저비용안: 저장 직전 서버 최신본 재조회해 로드시점 스냅샷과 비교, 불일치 시 <strong>'다른 사용자가 변경했습니다'로 저장 차단</strong>(스키마 변경 0).</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- Tier 3 -->
+  <section id="t3">
+    <div class="sec-head"><span class="sec-num">T3</span><h2>평가자 점수입력 UX</h2></div>
+    <p class="sec-sub">저장 규칙의 비대칭과 딥링크 복귀 끊김 — 반복 채점자가 지치는 지점.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find med">
+        <div class="find-top"><h3>부분 채점은 저장되나 피드백은 전건 필수라 진행 저장이 막힌다 + 탭에 상태 미표시</h3>
+          <div class="chips"><span class="chip persona">평가자</span><span class="chip sev-med">Med</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/Evaluation.tsx : 437–467 · EvaluatorReview.tsx : 394–480</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">미채점은 '평가 중'으로 저장되나, 빈 피드백 과업이 하나라도 있으면 저장 자체가 거부되는 비대칭. 좌측 탭은 점수 배지만 있고 미채점·피드백 유무 표시가 없어 에러 시 탭을 하나씩 열어 찾아야 한다.</p>
+          <span class="tag">개선</span><p class="txt rec">저장 차단을 <strong>'완료 시도(willComplete)'일 때만</strong> 적용해 진행분은 피드백 부분 허용. 탭에 '미채점'·'피드백 없음' 칩과 '채점 X/Y · 피드백 Z/Y' 요약 상시 노출.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>평가 상세 '뒤로'가 navigate(-1)이라 딥링크 진입 시 앱 이탈, 채점 중 가이드·AI 진입점 없음</h3>
+          <div class="chips"><span class="chip persona">평가자</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/Evaluation.tsx : 592–708</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">사이드바 진입점이 없는 유일한 상세인데 북마크·새로고침 직접 진입 시 <code>navigate(-1)</code>이 앱 밖으로 나가거나 무동작. 매트릭스·피드백 기준을 질의하려면 <code>/team/ai</code>로 떠나야 하고 EvaluationGuide 모달도 미배선.</p>
+          <span class="tag">개선</span><p class="txt rec">뒤로를 history 기반 안전화(앱 내 이전 없으면 <code>/team</code>). 기존 <strong>EvaluationGuide를 PageHeader에 재배선</strong>(우선순위: 가이드 &gt; 뒤로 폴백).</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- Tier 4 -->
+  <section id="t4">
+    <div class="sec-head"><span class="sec-num">T4</span><h2>용어 · 문구 통일</h2></div>
+    <p class="sec-sub">같은 개념의 표시명이 화면마다 갈린다. 역할을 오가는 사용자가 라벨에서 즉시 구분하지 못한다.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find low">
+        <div class="find-top"><h3>'평가자 변경요청'이 두 역할에게 정반대 의미인데 라벨이 동일하다</h3>
+          <div class="chips"><span class="chip persona">평가자</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/components/Layout/Sidebar.tsx : 46, 54 · EvaluatorRequestPage.tsx : 308–313</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">피평가자에겐 '내 평가자 변경', 평가자에겐 '팀원 재배정'인데 사이드바 라벨·PageHeader 제목이 동일. 두 역할을 다 가진 사용자가 같은 메뉴명의 반대 동작에 혼란.</p>
+          <span class="tag">개선</span><p class="txt rec">평가자 측을 <strong>'팀원 평가자 재배정'</strong>, 피평가자를 <strong>'내 평가자 변경요청'</strong>으로 분리하고 PageHeader 제목도 역할별 분기.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>'성과보고' 재촉과 실제 버튼 '최종제출' 사이 다리가 직접진입 경로에만 비어 있다</h3>
+          <div class="chips"><span class="chip persona">피평가자</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/my/EvaluationAccordionCard.tsx : 490, 492, 956</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">대시보드 배너는 이미 '성과보고(최종제출)'로 등치돼 있다. 다만 대시보드를 거치지 않고 '내 과업'에 직접 들어온 사용자는 최종제출 버튼·확인창에 '성과보고' 단어가 없어 연결을 못 본다.</p>
+          <span class="tag">개선</span><p class="txt rec"><strong>배너는 손대지 말 것.</strong> 최종제출 버튼/확인창 라벨을 '성과보고(최종제출)'로 하거나 툴팁에 '이 제출이 이번 달 성과보고로 기록됩니다' 한 줄만 추가.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>도메인 표기·말줄임표 미세 드리프트</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">Evaluation.tsx · EvaluationReadonlyView.tsx : 298, 309, 389</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">같은 화면 인접 버튼에서도 '처리 중...' vs '처리 중…'이 갈리고, 동일 액션이 '수정요청' / '수정 요청'으로 표기가 갈린다.</p>
+          <span class="tag">개선</span><p class="txt rec">로딩 말줄임표를 <strong>'…' 하나로 통일</strong>, '수정 요청' 표준형으로 통일. 색 폴백 hex는 별도 스프린트로.</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- Tier 5 -->
+  <section id="t5">
+    <div class="sec-head"><span class="sec-num">T5</span><h2>고도화 — 임팩트 큰 축</h2></div>
+    <p class="sec-sub">운영 자동화·분석·컴플라이언스 공백. 노력은 L/M이지만 HR을 수동 작업에서 해방시키는 지렛대.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find med">
+        <div class="find-top"><h3>리마인드/공지가 수동·인앱 전용이라 미로그인 평가자에게 도달 못 하고, 자동 예약이 없다</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">L</span></div></div>
+        <div class="loc">src/pages/hr/RemindersPage.tsx · dispatch.ts : 93–106 · server.js · NotificationSettings.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">채널이 inApp 하드코딩, emailAdapter는 항상 skip stub, <code>ends_on</code> 기반 자동 독려 잡이 전무. 앱에 로그인 안 하는 평가자에게 독촉이 안 닿아, HR은 '보냈다' 믿지만 대상자는 못 받고 내내 수동 발송한다.</p>
+          <span class="tag">개선</span><p class="txt rec">순서대로: (1) <code>ends_on</code> 기준 <strong>D-7/D-3/D-1 서버 스케줄러</strong>가 미완료자에게 인앱 자동 발송, HR엔 ON/OFF·주기 토글. (2) '읽지 않은 대상 N명' 도달성 추적. (3) 이메일은 내부망 이관 후 확장점으로.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>평가 편향을 '보여주기'만 하고 조치 루프가 없다 — 캘리브레이션·자가진단 부재</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-med">Med</span><span class="chip eff">L</span></div></div>
+        <div class="loc">src/pages/hr/HrInsightsPage.tsx : 141–212 · team/Home.tsx · InsightScatter.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">인사이트 드로어는 편향·변별력·쏠림을 진단하나 이상치에 '평가 열람' 이동뿐. 캘리브레이션 대상 표시·조정 메모는 없고, 평가자는 자기 채점 편향을 채점 중 볼 수단이 전무하다.</p>
+          <span class="tag">개선</span><p class="txt rec">인사이트에 <strong>캘리브레이션 대상 표시·조정 메모</strong>를 넣어 진단→조치를 한 화면에 통합. 평가 보드에 <strong>'내 채점 요약'</strong>(분포·편차·쏠림)을 넣어 최종제출 전 자가 교정.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>결과 확정 후 피평가자가 동의/이의를 남길 채널이 없고, 수정요청은 잠금 시 서버가 차단한다</h3>
+          <div class="chips"><span class="chip persona">피평가자</span><span class="chip sev-med">Med</span><span class="chip eff">L</span></div></div>
+        <div class="loc">src/pages/my/EvaluationAccordionCard.tsx : 786–806 · server.js : 9174–9194 · MyFeedbackPage.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">이견 시 유일 통로가 '평가자에게 수정 요청'(과업 수정용)뿐이고 이마저 마감·잠금 시 409 차단. 결과 확정 후 '수용' 기록도 '이의 제기' 창구도 없다.</p>
+          <span class="tag">개선</span><p class="txt rec">완료·잠금 평가에 <strong>'결과 확인(동의)' / '이의 제기'</strong> 추가. 동의는 <code>acknowledged_at</code>(감사로그 연동), 이의는 잠금 예외로 사유와 함께 HR에 라우팅.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>감사 로그·평가 인사이트에 엑셀 내보내기가 없어 컴플라이언스 반출·공유가 불가</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/hr/HrAuditLogPage.tsx : 180–184 · HrInsightsPage.tsx : 67 · utils/hrDataExport.ts</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">감사 로그는 필터·페이지네이션만 있고 파일 반출 불가라 감사 대응 시 화면을 눈으로 옮겨야 한다. 인사이트 수치도 내려받을 수 없어 캘리브레이션 회의에서 화면 캡처 외 방법이 없다.</p>
+          <span class="tag">개선</span><p class="txt rec">우선순위 감사로그 &gt; 인사이트. 필터 <strong>전체 서버 재조회</strong> 후 xlsx. 기존 <code>hrDataExport</code> 헬퍼(appendObjectSheet/writeWorkbook) 재사용.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>에러·로딩을 공용 state-views 대신 화면마다 raw 에러·제각각 로더로 표시</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-med">Med</span><span class="chip eff">M</span></div></div>
+        <div class="loc">state-views.tsx · EvaluatorFeedbackPage · team/Home · HrDepartmentsPage · HrUsersPage · AiReviewRollup ( +11곳 )</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">공용 ErrorState('서버 원문 금지·다시 시도 제공')가 있는데도 목록/조회 <strong>11곳이 raw 에러를 빨간 글씨로만</strong> 렌더(재시도 없음, 서버 원문 노출). 로딩도 4종이 공존.</p>
+          <span class="tag">개선</span><p class="txt rec">raw 에러 11곳을 <code>ErrorState(message + onRetry)</code>로 교체, 서버 원문은 콘솔로만. 로딩 표준화: <strong>표=Skeleton, 그 외=LoadingState</strong>.</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- Tier 6 -->
+  <section id="t6">
+    <div class="sec-head"><span class="sec-num">T6</span><h2>접근성 · 정보구조 · 중복</h2></div>
+    <p class="sec-sub">마우스를 못 쓰는 사용자가 막히는 지점, HR 내비게이션 정리, 그리고 통합보다 공용화가 안전한 중복.</p>
+    <hr class="sec-rule">
+    <div class="finds">
+
+      <article class="find med">
+        <div class="find-top"><h3>대시보드·인사이트의 클릭 하이라이트(매트릭스 셀·간트·도넛·산점도)가 키보드 조작 불가</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-med">Med</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/my/Home.tsx : 454, 537, 710, 1013 · InsightScatter.tsx : 365–409</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">과업 상호 하이라이트와 산점도 점이 전부 role/tabIndex 없는 div·circle onClick이라 포커스가 안 가고 Enter 실행 불가. WCAG 2.1.1 실패.</p>
+          <span class="tag">개선</span><p class="txt rec">각 div에 <code>role=button · tabIndex=0 · onKeyDown(Enter/Space)</code> + focus-visible. SVG 점은 우측 목록 행을 키보드 경로로 삼고 마우스 enhancement 유지.</p>
+        </div>
+      </article>
+
+      <article class="find med">
+        <div class="find-top"><h3>사용자 관리 헤더에 업로드/다운로드 버튼 8개가 한 줄로 몰려 과밀 · 좁은 화면 오버플로</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-med">Med</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/pages/hr/HrUsersPage.tsx : 1601–1685 · PageHeader.tsx : 31</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">대상자·매칭·조직정보·기여도 업로드/다운로드/이력 8개가 flexWrap 없는 한 줄에 몰려, actions가 flexShrink:0이라 1366px에서 제목을 밀어내고 넘친다. '다운로드'가 내보내기인지 양식인지 모호.</p>
+          <span class="tag">개선</span><p class="txt rec">'+사용자 추가'만 인라인 유지, 나머지를 <strong>'데이터 관리' 드롭다운</strong>으로. '대상자 다운로드'→'대상자 내보내기'. 즉시 완화책으로 actions에 flexWrap 허용.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>평가자 검색 콤보박스가 화살표 이동 미지원 — Enter가 항상 첫 결과만 선택</h3>
+          <div class="chips"><span class="chip persona">전체</span><span class="chip sev-low">Low</span><span class="chip eff">M</span></div></div>
+        <div class="loc">src/components/hr/EvaluatorPicker.tsx : 138–146, 217–233</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">5개 사용처(변경요청·사용자추가·일괄변경·이력)의 공용 검색 셀렉트인데 위/아래로 후보를 못 옮기고 Enter는 무조건 filtered[0] 선택. 다건 시 2번째 이후 선택 불가.</p>
+          <span class="tag">개선</span><p class="txt rec"><code>activeIndex</code>로 Arrow 이동 + Enter는 활성 항목 선택, <code>role=combobox/listbox/option</code>. <strong>단일 공용 컴포넌트라 한 곳 수정으로 5곳 개선.</strong></p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>공지 발송과 리마인드 발송이 사실상 동일한 대상선택 UI를 두 메뉴에 중복 구현</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">L</span></div></div>
+        <div class="loc">src/pages/hr/RemindersPage.tsx · HrNoticesFaqPage.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">두 페이지가 수신자 테이블·검색·24h 중복가드·대량경고·확인 다이얼로그·dispatch를 각각 재구현하고 차이는 notification_type뿐(목적은 자동 넛지 vs 작성형 공지로 다름).</p>
+          <span class="tag">개선</span><p class="txt rec">메뉴 통합이 아니라 <strong>공용 컴포넌트 추출</strong>: <code>RecipientPicker</code> + <code>useDispatchGuard</code> 훅을 추출해 두 페이지가 type·payload만 주입. 목적 다른 두 화면은 유지.</p>
+        </div>
+      </article>
+
+      <article class="find low">
+        <div class="find-top"><h3>HR 내비게이션 소소한 정리 — 승인 큐 분산 · 기간 선택기 상시 노출 · 아이콘 중복</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">M</span></div></div>
+        <div class="loc">Sidebar.tsx : 57–71 · TopBar.tsx : 183 · ChangeRequestsPage.tsx · HrAuditLogPage.tsx</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob">같은 '승인 대기'인데 변경요청은 1클릭, 비번초기화 승인은 설정 탭 2클릭. 전역 기간 선택기가 비스코프 화면(감사로그·설정 등)에도 항상 노출돼 '고장인가?' 혼란. '부서별 진행'·'평가 인사이트'가 같은 아이콘.</p>
+          <span class="tag">개선</span><p class="txt rec">비번초기화 승인을 '운영' 그룹 독립 메뉴로 승격. 라우트→기간스코프 매핑으로 <strong>비스코프 화면에선 선택기 숨김/비활성</strong>. '평가 인사이트' 아이콘 교체.</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- 정리 -->
+  <section id="cleanup">
+    <div class="sec-head"><span class="sec-num">정리</span><h2>죽은 코드 정리 · 무조치 기록</h2></div>
+    <hr class="sec-rule">
+    <div class="finds">
+      <article class="find low">
+        <div class="find-top"><h3>전사 현황의 AI 요약 보고서 모달·상태·계산이 진입점 없이 도달 불가 상태로 잔존</h3>
+          <div class="chips"><span class="chip persona">HR</span><span class="chip sev-low">Low</span><span class="chip eff">S</span></div></div>
+        <div class="loc">src/pages/hr/Home.tsx : 126, 137–148, 623–629</div>
+        <div class="body">
+          <span class="tag">증상</span><p class="txt prob"><code>setShowAiReport(true)</code> 호출이 0건이라 모달 렌더 블록·useMemo·import가 정적 도달 불가. 단 383행에 '임시 제거(나중에 추가개발)' 주석이 있는 의도적 파킹(C-3b 백로그).</p>
+          <span class="tag">개선</span><p class="txt rec">파킹이 명시적 결정이므로 <strong>자기설명 마커 추가</strong>, 재도입 계획 없으면 블록/상태/memo/import 삭제(컴포넌트 파일은 보존이라 재배선 용이).</p>
+        </div>
+      </article>
+      <div class="note">
+        <strong>무조치 권고 (검증에서 "손대지 말 것"으로 확인).</strong> &nbsp;AI Q&amp;A 3파일(<code>QnaAssistant</code> + 얇은 래퍼 2개)은 역할별 프롬프트만 주입하는 이미 올바른 DRY 구조 — <b>통합 리팩터 금지</b>(분기 소실 위험). &nbsp;'평가 보드' / '담당 팀원'은 워크플로 액션 vs 명부 열람으로 역할이 부제에 분리돼 있어 <b>구조 개편 불필요</b>(툴팁 보강 정도).
+      </div>
+      <div class="note">
+        <strong>초안에서 철회한 오탐.</strong> &nbsp;초기 감사는 '결과서 인쇄·PDF 버튼 추가'(인쇄 CSS는 이미 존재)를 제안했으나, <b>인쇄·PDF 콘텐츠 구현이 아직 완성되지 않아 버튼을 의도적으로 뺀 상태</b>임이 확인됐다. 버튼 노출은 <b>인쇄 레이아웃 완성 이후</b>의 후속 과제로 보류한다.
+      </div>
+    </div>
+  </section>
+
+  <!-- 범위 밖 -->
+  <section id="scope">
+    <div class="sec-head"><span class="sec-num">범위</span><h2>이번 감사가 못 본 것</h2></div>
+    <p class="sec-sub">정적 코드 읽기 기반이라 다음은 확인하지 못했다. 배포 전 실기기·실데이터 세션을 별도 권장한다.</p>
+    <hr class="sec-rule">
+    <div class="scope-list">
+      <div class="scope-item"><span class="sn">01</span><span class="st"><b>런타임 성능</b> — 771명 · 1,689 평가 · 9,550 과업에서 전사현황/인사이트/매트릭스 초기 로드·리렌더 체감, React Query 부분 이관 캐시 일관성.</span></div>
+      <div class="scope-item"><span class="sn">02</span><span class="st"><b>모바일 · 좁은 뷰포트 반응형</b> — 사이드바 접힘, 표·차트 가로 스크롤, 터치 타겟 크기.</span></div>
+      <div class="scope-item"><span class="sn">03</span><span class="st"><b>AI 품질</b> — 프롬프트 응답 정확도, 인물검색 정합성.</span></div>
+      <div class="scope-item"><span class="sn">04</span><span class="st"><b>스크린리더 실측 · 색대비</b> — WCAG AA 수치 측정.</span></div>
+      <div class="scope-item"><span class="sn">05</span><span class="st"><b>온보딩 · 최초 사용자 경험</b>, 알림 실사용 흐름, 이메일 미구현의 누적 영향.</span></div>
+      <div class="scope-item"><span class="sn">06</span><span class="st"><b>서버측 검증 · 동시성 · 권한 경계</b> — 발령/전보 점수 보존, 평가기간 격리(이번 UI 감사 범위 밖).</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>기여도평가시스템 (Elevate Growth System) · UX·제품 감사 리포트</b></p>
+    <p class="fmono">방법: 9개 관점 리뷰어 → 중복 병합 → 항목별 코드 대조 적대적 검증 → 우선순위 종합 · 51 에이전트 · 원시 71건 → 검증 40건</p>
+    <p class="fmono">생성 2026-07-08 · Claude Code multi-agent audit</p>
+  </footer>
+
+</div>
