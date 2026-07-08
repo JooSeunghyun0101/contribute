@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Employee } from '@/types';
 
@@ -29,6 +29,9 @@ const EvaluatorPicker = ({
 }: Props) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // 키보드 화살표로 이동하는 활성 항목의 인덱스(allowEmpty 시 0=빈 값 옵션).
+  const [activeIndex, setActiveIndex] = useState(0);
+  const baseId = useId();
   // 드롭다운을 포털(position:fixed)로 띄워 모달의 overflow 클리핑/스크롤바를 피하고,
   // 뷰포트 기준으로 위/아래 펼침 방향과 높이를 정한다.
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
@@ -58,6 +61,21 @@ const EvaluatorPicker = ({
         o.employee_id.toLowerCase().includes(q),
     );
   }, [options, query]);
+
+  const emptyOffset = allowEmpty ? 1 : 0;
+  const navCount = filtered.length + emptyOffset;
+
+  // 검색어가 바뀌거나 새로 열릴 때 키보드 활성 항목을 첫 항목으로 리셋.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, open]);
+
+  // 키보드 활성 항목이 보이도록 스크롤.
+  useEffect(() => {
+    if (!open) return;
+    const el = menuRef.current?.querySelector<HTMLElement>(`[data-idx="${activeIndex}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
 
   // 외부 클릭 시 닫기
   useEffect(() => {
@@ -135,13 +153,28 @@ const EvaluatorPicker = ({
           placeholder={placeholder}
           disabled={disabled}
           onChange={(e) => setQuery(e.target.value)}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={`${baseId}-listbox`}
+          aria-activedescendant={navCount > 0 ? `${baseId}-opt-${activeIndex}` : undefined}
+          aria-autocomplete="list"
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               setOpen(false);
               setQuery('');
-            } else if (e.key === 'Enter' && filtered.length > 0) {
+            } else if (e.key === 'ArrowDown') {
               e.preventDefault();
-              pick(filtered[0].employee_id);
+              setActiveIndex((i) => Math.min(navCount - 1, i + 1));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActiveIndex((i) => Math.max(0, i - 1));
+            } else if (e.key === 'Enter' && navCount > 0) {
+              e.preventDefault();
+              if (allowEmpty && activeIndex === 0) pick('');
+              else {
+                const opt = filtered[activeIndex - emptyOffset];
+                if (opt) pick(opt.employee_id);
+              }
             }
           }}
           style={{ width: '100%' }}
@@ -181,6 +214,8 @@ const EvaluatorPicker = ({
       {open && menuStyle && createPortal(
         <div
           ref={menuRef}
+          id={`${baseId}-listbox`}
+          role="listbox"
           style={{
             ...menuStyle,
             zIndex: 1000,
@@ -194,11 +229,15 @@ const EvaluatorPicker = ({
           {allowEmpty && (
             <button
               type="button"
+              id={`${baseId}-opt-0`}
+              data-idx={0}
+              role="option"
+              aria-selected={value === ''}
               onMouseDown={(e) => {
                 e.preventDefault();
                 pick('');
               }}
-              style={optionStyle(value === '')}
+              style={optionStyle(value === '', activeIndex === 0)}
             >
               <span style={{ color: 'var(--fg-muted)' }}>{emptyLabel}</span>
             </button>
@@ -214,22 +253,29 @@ const EvaluatorPicker = ({
               검색 결과가 없습니다.
             </div>
           ) : (
-            filtered.map((opt) => (
-              <button
-                key={opt.employee_id}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(opt.employee_id);
-                }}
-                style={optionStyle(opt.employee_id === value)}
-              >
-                <span style={{ fontWeight: 700 }}>{opt.name}</span>
-                <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-                  {opt.department} · {opt.employee_id}
-                </span>
-              </button>
-            ))
+            filtered.map((opt, i) => {
+              const idx = i + emptyOffset;
+              return (
+                <button
+                  key={opt.employee_id}
+                  type="button"
+                  id={`${baseId}-opt-${idx}`}
+                  data-idx={idx}
+                  role="option"
+                  aria-selected={opt.employee_id === value}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(opt.employee_id);
+                  }}
+                  style={optionStyle(opt.employee_id === value, idx === activeIndex)}
+                >
+                  <span style={{ fontWeight: 700 }}>{opt.name}</span>
+                  <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
+                    {opt.department} · {opt.employee_id}
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>,
         document.body,
@@ -238,13 +284,16 @@ const EvaluatorPicker = ({
   );
 };
 
-const optionStyle = (active: boolean): React.CSSProperties => ({
+const optionStyle = (selected: boolean, keyboardActive: boolean): React.CSSProperties => ({
   width: '100%',
   textAlign: 'left',
   padding: '8px 12px',
   border: 'none',
   borderBottom: '1px solid var(--border)',
-  background: active ? 'var(--ok-orange-50)' : 'transparent',
+  background: selected ? 'var(--ok-orange-50)' : keyboardActive ? 'var(--bg-muted)' : 'transparent',
+  // 키보드 화살표로 이동 중인 항목을 선택(주황 배경)과 구분되게 외곽선으로 강조.
+  outline: keyboardActive ? '2px solid var(--ok-orange)' : 'none',
+  outlineOffset: '-2px',
   cursor: 'pointer',
   display: 'flex',
   flexDirection: 'column',
