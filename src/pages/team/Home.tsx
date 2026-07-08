@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3, HelpCircle } from 'lucide-react';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
@@ -206,6 +206,7 @@ const TeamHome = () => {
     error,
     isFormerLoading,
     formerError,
+    reload,
   // includeFeedbackHistory=false — 보드는 피드백 이력을 표시하지 않는데 true 면 과업당 이력 HTTP 호출이
   // 추가돼(팀원 20명·과업 100건 ≈ 요청 100+개) 보드 로딩을 크게 늦춘다.
   } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, false);
@@ -424,9 +425,7 @@ const TeamHome = () => {
         {isLoading ? (
           <LoadingState message="평가 보드를 불러오는 중입니다." />
         ) : error ? (
-          <div className="sd-card" style={{ color: 'var(--danger)' }}>
-            {error}
-          </div>
+          <ErrorState message="평가 보드를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : (
           <>
             {/* 최상단 한 줄 요약 — 지금 해야 할 일/업데이트. (조직 KPI 현황은 '조직 KPI' 메뉴로 일원화) */}

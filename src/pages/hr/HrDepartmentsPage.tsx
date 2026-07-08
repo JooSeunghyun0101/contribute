@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { ErrorState, LoadingState } from '@/components/ui/state-views';
 import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
@@ -91,7 +91,7 @@ const groupEvaluatorNames = (
 };
 
 const HrDepartmentsPage = () => {
-  const { records, isLoading, error } = useCompanyDashboardRecords();
+  const { records, isLoading, error, reload } = useCompanyDashboardRecords();
   const { selectedPeriodId, selectedPeriod } = useEvaluationPeriod();
   const { toast } = useToast();
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
@@ -582,9 +582,7 @@ const HrDepartmentsPage = () => {
         {isLoading ? (
           <LoadingState message="부서 데이터를 불러오는 중입니다." />
         ) : error ? (
-          <div className="sd-card" style={{ color: 'var(--danger)' }}>
-            {error}
-          </div>
+          <ErrorState message="부서 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : (
           <>
             {/* 사용자 요구(2026-07-07): 상위조직마다 별도 테이블이라 컬럼 폭이 제각각이고,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { ErrorState, LoadingState } from '@/components/ui/state-views';
 import { FilterChip } from '@/components/brand';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { AiKeywordChips } from '@/components/ui/AiKeywordChips';
@@ -90,6 +90,7 @@ const EvaluatorFeedbackPage = () => {
     current: combinedRecords,
     isLoading,
     error,
+    reload,
   } = useEvaluatorPeriodRoster(user?.employeeId || '', selectedPeriod?.id ?? null, true);
 
   const employeeBundles = useMemo(
@@ -217,7 +218,7 @@ const EvaluatorFeedbackPage = () => {
         {isLoading ? (
           <LoadingState message="피드백 이력을 불러오는 중입니다." />
         ) : error ? (
-          <div style={{ color: 'var(--danger)', fontSize: 'var(--fs-body)' }}>{error}</div>
+          <ErrorState message="피드백 이력을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
             {/* ── Left: task-grouped cards (per employee section) ── */}

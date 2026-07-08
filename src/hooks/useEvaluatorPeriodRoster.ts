@@ -19,6 +19,8 @@ export interface EvaluatorPeriodRoster {
   error: string | null;
   isFormerLoading: boolean;
   formerError: string | null;
+  /** 현재 담당 로스터 재조회(오류 시 '다시 시도'용). */
+  reload: () => Promise<void>;
 }
 
 /**
@@ -103,6 +105,7 @@ export const useEvaluatorPeriodRoster = (
       error: cur.error,
       isFormerLoading: former.isLoading || classifying,
       formerError: former.error,
+      reload: cur.reload,
     };
-  }, [combined, historyById, idsKey, periodId, evaluatorId, cur.isLoading, cur.error, former.isLoading, former.error]);
+  }, [combined, historyById, idsKey, periodId, evaluatorId, cur.isLoading, cur.error, cur.reload, former.isLoading, former.error]);
 };

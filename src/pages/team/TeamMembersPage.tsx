@@ -12,7 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import {
@@ -106,7 +106,7 @@ const TeamMembersPage = () => {
   const periodId = selectedPeriod?.id ?? null;
   const periodYear = selectedPeriod?.evaluation_year ?? null;
 
-  const { records: allRecords, isLoading, error } = useTeamDashboardRecords(evaluatorId);
+  const { records: allRecords, isLoading, error, reload } = useTeamDashboardRecords(evaluatorId);
   const { records: formerRecords } = useFormerTeamDashboardRecords(evaluatorId);
   const { records: lineRecords, isLoading: lineLoading } = useEvaluationLineRecords(evaluatorId);
 
@@ -229,9 +229,7 @@ const TeamMembersPage = () => {
         {isLoading ? (
           <LoadingState message="팀원 정보를 불러오는 중입니다." />
         ) : error ? (
-          <div className="sd-card" style={{ color: 'var(--danger)' }}>
-            {error}
-          </div>
+          <ErrorState message="팀원 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : rows.length === 0 ? (
           <div className="sd-card">표시할 팀원이 없습니다.</div>
         ) : (
