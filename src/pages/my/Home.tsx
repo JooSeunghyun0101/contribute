@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
@@ -48,6 +48,21 @@ const formatDate = (value?: string) => {
   if (isNaN(d.getTime())) return value;
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 };
+
+// 클릭으로 과업을 상호 강조하는 차트 요소(매트릭스 셀·범례·간트·도넛)에 키보드 접근성 부여.
+// role=button·tabIndex·Enter/Space + aria-pressed. 마우스 onClick 도 이 onClick 하나로 통일한다(WCAG 2.1.1).
+const taskHighlightA11y = (onActivate: () => void, active: boolean) => ({
+  role: 'button' as const,
+  tabIndex: 0,
+  'aria-pressed': active,
+  onClick: onActivate,
+  onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onActivate();
+    }
+  },
+});
 
 /* ════════════════════════════════════════════════════════ */
 const MyHome = () => {
@@ -452,7 +467,9 @@ const MyHome = () => {
                     const cellActive = cellTask?.id != null && cellTask.id === activeTaskId;
                     return (
                       <div
-                        onClick={() => cellTask?.id && toggleActiveTask(cellTask.id)}
+                        {...taskHighlightA11y(() => {
+                          if (cellTask?.id) toggleActiveTask(cellTask.id);
+                        }, cellActive)}
                         style={{
                           height: 48,
                           borderRadius: 8,
@@ -534,7 +551,9 @@ const MyHome = () => {
                         return (
                           <div
                             key={`chip-${c.taskIndex}`}
-                            onClick={() => chipTask?.id && toggleActiveTask(chipTask.id)}
+                            {...taskHighlightA11y(() => {
+                              if (chipTask?.id) toggleActiveTask(chipTask.id);
+                            }, chipActive)}
                             style={{
                               flex: 1,
                               minHeight: 18,
@@ -709,7 +728,7 @@ const MyHome = () => {
                   return (
                     <div
                       key={task.id}
-                      onClick={() => toggleActiveTask(task.id)}
+                      {...taskHighlightA11y(() => toggleActiveTask(task.id), ganttActive)}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 64px',
@@ -1010,7 +1029,7 @@ const MyHome = () => {
                   return (
                     <div
                       key={item.shortName}
-                      onClick={() => toggleActiveTask(item.id)}
+                      {...taskHighlightA11y(() => toggleActiveTask(item.id), item.id === activeTaskId)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
