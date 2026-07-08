@@ -44,7 +44,7 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
                 <h4 className="font-medium text-sm sm:text-base mb-3 text-primary">평가점수의 의미</h4>
                 <div className="space-y-2">
                   <p className="text-xs sm:text-sm text-foreground font-medium">
-                    평가점수는 성장레벨별 요구수준을 뜻합니다.
+                    평가점수는 성장레벨별 기대수준을 뜻합니다.
                   </p>
                   <p className="text-xs sm:text-sm text-muted-foreground">
                     각 피평가자의 성장레벨에 따라 기대되는 역할과 성과 수준이 다르며, 이를 기준으로 평가점수가 산정됩니다.
@@ -88,7 +88,7 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
                 </div>
                 <div className="flex-1">
                   <h4 className="font-medium text-sm sm:text-base mb-1">과업 등록</h4>
-                  <p className="text-xs sm:text-sm text-muted-foreground">피평가자가 본인의 주요 과업과 가중치를 등록합니다. (필요시 과업 관리에서 추가/수정)</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">피평가자가 본인의 주요 과업과 가중치를 등록합니다. (필요시 내 과업에서 추가/수정)</p>
                 </div>
               </div>
               {/* 평가자: 과업 검토 */}
@@ -98,7 +98,7 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
                 </div>
                 <div className="flex-1">
                   <h4 className="font-medium text-sm sm:text-base mb-1">과업 검토</h4>
-                  <p className="text-xs sm:text-sm text-muted-foreground">피평가자의 과업 목록과 가중치를 확인합니다. 필요시 과업 관리에서 수정할 수 있습니다.</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">피평가자의 과업 목록과 가중치를 확인합니다. 조정이 필요하면 「피평가자에게 돌려보내기」로 요청합니다.</p>
                 </div>
               </div>
               {/* 평가자: 기여방식 평가 */}

@@ -116,17 +116,27 @@ const HrAuditLogPage = () => {
   const [fTo, setFTo] = useState('');
 
   const load = useCallback(
-    async (targetOffset: number) => {
+    // override: '초기화' 등에서 state 배치 타이밍과 무관하게 명시 필터로 즉시 조회하기 위한 우선값.
+    // 빈 문자열('')은 ?? 로 유지되므로 '필터 없이 전체' 조회가 정확히 반영된다.
+    async (
+      targetOffset: number,
+      override?: { actionType?: string; target?: string; actor?: string; from?: string; to?: string },
+    ) => {
       setLoading(true);
+      const aType = override?.actionType ?? fActionType;
+      const aTarget = override?.target ?? fTarget;
+      const aActor = override?.actor ?? fActor;
+      const aFrom = override?.from ?? fFrom;
+      const aTo = override?.to ?? fTo;
       try {
         const page = await auditLogService.list({
-          actionType: fActionType || undefined,
-          target: fTarget.trim() || undefined,
-          actor: fActor.trim() || undefined,
+          actionType: aType || undefined,
+          target: aTarget.trim() || undefined,
+          actor: aActor.trim() || undefined,
           // 날짜 경계는 KST(+09:00) 명시 — 표시 시각이 KST이므로 필터도 KST 달력 하루 기준으로 맞춘다
           // (DB 세션 TZ에 의존하지 않도록 오프셋을 박아 캐스팅 모호성 제거). ‘종료일’은 그날 끝까지 포함.
-          from: fFrom ? `${fFrom}T00:00:00+09:00` : undefined,
-          to: fTo ? `${fTo}T23:59:59+09:00` : undefined,
+          from: aFrom ? `${aFrom}T00:00:00+09:00` : undefined,
+          to: aTo ? `${aTo}T23:59:59+09:00` : undefined,
           limit: PAGE_SIZE,
           offset: targetOffset,
         });
@@ -165,6 +175,8 @@ const HrAuditLogPage = () => {
     setFActor('');
     setFFrom('');
     setFTo('');
+    // 입력만 비우지 않고 즉시 '필터 없음' 전체 목록으로 재조회한다(빈 필터를 명시 전달).
+    void load(0, { actionType: '', target: '', actor: '', from: '', to: '' });
   };
 
   const from = total === 0 ? 0 : offset + 1;

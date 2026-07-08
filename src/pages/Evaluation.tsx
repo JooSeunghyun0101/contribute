@@ -501,12 +501,21 @@ const Evaluation = () => {
         return;
       }
       if (!evaluationData?.id) return;
+      // 완료 상태에서 이 버튼은 '임시저장'이 아니라 완료 해제(되돌리기)다 — 실수로 확정을
+      // 푸는 것을 막기 위해 확인을 받는다. 점수는 보존되고 편집만 다시 열린다.
+      const okReopen = await confirm({
+        title: '완료된 평가를 다시 여시겠습니까?',
+        description:
+          "평가 단계가 '평가 중'으로 되돌아가 점수와 피드백을 다시 수정할 수 있습니다.\n입력한 점수는 그대로 보존됩니다.",
+        confirmText: '평가 중으로 되돌리기',
+      });
+      if (!okReopen) return;
       setIsDraftSaving(true);
       try {
         await evaluationService.reopenForEvaluator(evaluationData.id);
         await reloadData();
         toast({
-          title: '평가 단계를 임시저장으로 되돌렸습니다.',
+          title: "완료를 해제하고 '평가 중'으로 되돌렸습니다.",
           description: '점수와 피드백을 수정한 뒤 다시 평가 저장하세요.',
         });
       } catch (error) {
@@ -687,7 +696,11 @@ const Evaluation = () => {
                         : undefined
                 }
               >
-                {isDraftSaving ? '처리 중…' : '임시저장'}
+                {isDraftSaving
+                  ? '처리 중…'
+                  : evaluationStatus === 'completed'
+                    ? '평가 중으로 되돌리기'
+                    : '임시저장'}
               </button>
               {isSaving || isAiReviewing ? (
                 // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시

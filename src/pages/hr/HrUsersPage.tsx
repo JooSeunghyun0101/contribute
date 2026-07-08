@@ -460,6 +460,12 @@ const HrUsersPage = () => {
     () => filteredEmployees.slice(currentPage * pageSize, currentPage * pageSize + pageSize),
     [filteredEmployees, currentPage, pageSize],
   );
+  // 현재 필터/검색/기간/조직에 실제로 보이는 대상 집합 — 일괄작업을 이 집합으로만 스코프해
+  // 화면에서 사라진(선택만 남은) 대상까지 함께 바꾸는 사고를 막는다.
+  const filteredIdSet = useMemo(
+    () => new Set(filteredEmployees.map((e) => e.employee_id)),
+    [filteredEmployees],
+  );
   // 검색·역할·평가기간·페이지크기가 바뀌면 첫 페이지로.
   useEffect(() => {
     setPageIndex(0);
@@ -468,6 +474,11 @@ const HrUsersPage = () => {
   useEffect(() => {
     setOrgNodeKeys([]);
   }, [selectedPeriodId]);
+  // 평가기간·역할·조직필터가 바뀌면 '화면에 없는 이전 선택'이 일괄작업 대상으로 남지 않도록 초기화한다.
+  // (검색어 타이핑마다 지우면 번거로우므로 구조적 필터 변경에만 초기화 — 검색 narrowing 은 filteredIdSet 스코프가 방어.)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedPeriodId, selectedRole, orgNodeKeys]);
 
   // 다중 선택 (현재 페이지 기준 전체선택, 선택 자체는 페이지 넘어가도 유지).
   const pageIds = useMemo(() => pagedEmployees.map((e) => e.employee_id), [pagedEmployees]);
@@ -979,8 +990,16 @@ const HrUsersPage = () => {
   const onRowOpenEvaluation = useCallback((id: string) => rowHandlersRef.current.openEvaluationViewer(id), []);
 
   const handleBulkDelete = async () => {
-    const ids = [...selectedIds];
-    if (!ids.length) return;
+    // 현재 목록에 보이는 대상만 — 필터/기간을 바꿔 화면에서 사라진 선택은 제외한다.
+    const ids = [...selectedIds].filter((id) => filteredIdSet.has(id));
+    if (!ids.length) {
+      toast({
+        title: '현재 목록에 포함된 선택 대상이 없습니다.',
+        description: '검색·필터를 조정했다면 대상을 다시 선택해 주세요.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const names = ids.map((id) => employeeMap.get(id)?.name ?? id);
     const nameList =
       names.slice(0, 10).join(', ') + (names.length > 10 ? ` 외 ${names.length - 10}명` : '');
@@ -1027,7 +1046,8 @@ const HrUsersPage = () => {
   };
 
   const handleBulkEvaluatorChange = async () => {
-    const ids = [...selectedIds];
+    // 현재 목록에 보이는 대상만 — 필터/기간을 바꿔 화면에서 사라진 선택은 제외한다.
+    const ids = [...selectedIds].filter((id) => filteredIdSet.has(id));
     if (!ids.length || !bulkEvaluatorId) return;
     if (!selectedPeriodId) {
       toast({
@@ -1046,9 +1066,20 @@ const HrUsersPage = () => {
       return;
     }
     const toLabel = getEvaluatorLabel(bulkEvaluatorId);
+    // 삭제와 동일하게 대상 이름을 노출해, 안 보이는 코호트를 통째로 바꾸는 실수를 확인 단계에서 잡는다.
+    const names = ids.map((id) => employeeMap.get(id)?.name ?? id);
+    const nameList =
+      names.slice(0, 10).join(', ') + (names.length > 10 ? ` 외 ${names.length - 10}명` : '');
     const ok = await confirm({
       title: '평가자 일괄 변경',
-      description: `선택한 ${ids.length}명의 평가자를 "${toLabel}"(으)로 ${bulkChangeDate}부로 일괄 변경할까요?`,
+      description: (
+        <div className="space-y-1">
+          <p className="break-all">대상 {ids.length}명: {nameList}</p>
+          <p>
+            평가자를 &quot;{toLabel}&quot;(으)로 {bulkChangeDate}부로 일괄 변경합니다.
+          </p>
+        </div>
+      ),
       confirmText: `${ids.length}명 변경`,
     });
     if (!ok) return;

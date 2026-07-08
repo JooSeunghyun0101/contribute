@@ -6,6 +6,7 @@ import {
   passwordResetService,
   type PasswordResetRequest,
 } from '@/lib/services/passwordResetService';
+import { employeeService } from '@/lib/services/employeeService';
 
 // HR 비밀번호 초기화 관리: 대기 요청 승인/반려 + 요청 없이 직접 초기화.
 // 승인·직접초기화 모두 대상 직원 비밀번호를 사번(초기 비밀번호)으로 되돌린다.
@@ -17,6 +18,9 @@ const PasswordResetManager = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [directId, setDirectId] = useState('');
   const [directBusy, setDirectBusy] = useState(false);
+  // 직접 초기화 대상 사번의 이름 대조 상태 — 확정 전에 '이 사번이 누구인지' 확인시킨다.
+  const [directName, setDirectName] = useState<string | null>(null);
+  const [lookupState, setLookupState] = useState<'idle' | 'checking' | 'found' | 'notfound'>('idle');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,20 +79,49 @@ const PasswordResetManager = () => {
     }
   };
 
+  // 사번 → 직원 이름 조회. 확정 전에 반드시 이름을 대조해 오타로 인한 엉뚱한 직원 초기화를 막는다.
+  const lookupDirect = useCallback(async (id: string): Promise<string | null> => {
+    setLookupState('checking');
+    try {
+      const emp = await employeeService.getEmployeeById(id);
+      const name = emp?.name ?? null;
+      setDirectName(name);
+      setLookupState(name ? 'found' : 'notfound');
+      return name;
+    } catch {
+      setDirectName(null);
+      setLookupState('notfound');
+      return null;
+    }
+  }, []);
+
   const handleDirect = async () => {
     const id = directId.trim();
     if (!id) return;
+    // 이미 조회된 이름이 있으면 재사용, 없으면 확정 직전에 조회.
+    const name = lookupState === 'found' && directName ? directName : await lookupDirect(id);
+    if (!name) {
+      toast({
+        title: '해당 사번의 직원을 찾을 수 없습니다.',
+        description: `사번 ${id} 를 다시 확인해 주세요. 존재하는 사번만 초기화할 수 있습니다.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    const label = `${name}(${id})`;
     const ok = await confirm({
       title: 'HR 직접 비밀번호 초기화',
-      description: `${id} 직원의 비밀번호를 사번으로 즉시 초기화합니다. 해당 직원은 사번으로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
+      description: `${label} 님의 비밀번호를 사번으로 즉시 초기화합니다. 해당 직원은 사번으로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
       confirmText: '초기화',
     });
     if (!ok) return;
     setDirectBusy(true);
     try {
       await passwordResetService.directReset(id);
-      toast({ title: '초기화 완료', description: `${id} 직원의 비밀번호를 사번으로 초기화했습니다.` });
+      toast({ title: '초기화 완료', description: `${label} 님의 비밀번호를 사번으로 초기화했습니다.` });
       setDirectId('');
+      setDirectName(null);
+      setLookupState('idle');
       await load();
     } catch {
       toast({
@@ -172,23 +205,49 @@ const PasswordResetManager = () => {
           요청 없이 특정 직원의 비밀번호를 <b>사번(초기 비밀번호)</b>으로 즉시 되돌립니다.
           해당 직원은 다음 로그인 시 새 비밀번호 설정을 강제받습니다.
         </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="sd-input"
-            style={{ maxWidth: 240 }}
-            value={directId}
-            onChange={(e) => setDirectId(e.target.value)}
-            placeholder="대상 사번 (예: 1234567)"
-            spellCheck={false}
-          />
-          <button
-            className="sd-btn sd-btn-sm"
-            disabled={directBusy || !directId.trim()}
-            onClick={handleDirect}
-            style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
-          >
-            {directBusy ? '초기화 중…' : '사번으로 초기화'}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              className="sd-input"
+              style={{ maxWidth: 240 }}
+              value={directId}
+              onChange={(e) => {
+                setDirectId(e.target.value);
+                setDirectName(null);
+                setLookupState('idle');
+              }}
+              onBlur={() => {
+                const id = directId.trim();
+                if (id) void lookupDirect(id);
+              }}
+              placeholder="대상 사번 (예: 1234567)"
+              spellCheck={false}
+            />
+            <button
+              className="sd-btn sd-btn-sm"
+              disabled={directBusy || !directId.trim()}
+              onClick={handleDirect}
+              style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
+            >
+              {directBusy ? '초기화 중…' : '사번으로 초기화'}
+            </button>
+          </div>
+          {/* 사번 → 이름 대조 미리보기: 확정 전에 대상이 맞는지 눈으로 확인시킨다. */}
+          {directId.trim() && lookupState !== 'idle' && (
+            <div style={{ fontSize: 'var(--fs-sm)', minHeight: 18 }}>
+              {lookupState === 'checking' && <span style={{ color: 'var(--fg-muted)' }}>대상 확인 중…</span>}
+              {lookupState === 'found' && directName && (
+                <span style={{ color: '#2E7D57', fontWeight: 700 }}>
+                  대상: {directName}({directId.trim()})
+                </span>
+              )}
+              {lookupState === 'notfound' && (
+                <span style={{ color: 'var(--danger, #CB3A2C)', fontWeight: 700 }}>
+                  사번 {directId.trim()} 에 해당하는 직원을 찾을 수 없습니다.
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>
