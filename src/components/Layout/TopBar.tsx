@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { KeyRound } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -16,6 +16,25 @@ const roleLabels: Record<UserRole, string> = {
 
 const roleOrder: UserRole[] = ['evaluatee', 'evaluator', 'hr'];
 
+// 평가기간 선택이 화면에 영향을 주지 않는 라우트 — 여기선 선택기를 숨겨 '바꿔도 안 바뀌네?' 혼란을 없앤다.
+// (감사로그=기간 개념 없음, 설정/공지/알림/AI/변경요청·평가자변경요청=무관 또는 자체 스코프,
+//  평가기간 관리=선택기 자체가 관리 대상). 나머지(현황·보드·목록·평가 등)는 기간 스코프이므로 노출.
+const NON_PERIOD_SCOPED_PREFIXES = [
+  '/notifications',
+  '/hr/audit-logs',
+  '/hr/settings',
+  '/hr/notices-faq',
+  '/hr/people-search',
+  '/hr/change-requests',
+  '/hr/periods',
+  '/my/ai',
+  '/team/ai',
+  '/my/evaluator-request',
+  '/team/evaluator-request',
+];
+const isPeriodScopedRoute = (pathname: string) =>
+  !NON_PERIOD_SCOPED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
 const getInitialTheme = (): 'light' | 'dark' => {
   if (typeof window === 'undefined') return 'light';
   const saved = localStorage.getItem('theme');
@@ -26,6 +45,8 @@ const getInitialTheme = (): 'light' | 'dark' => {
 export const TopBar = () => {
   const { user, switchRole, logout, changePassword } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const showPeriodSelector = isPeriodScopedRoute(location.pathname);
   const { toast } = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
 
@@ -180,7 +201,7 @@ export const TopBar = () => {
       </div>
 
       <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
-        <EvaluationPeriodSelector />
+        {showPeriodSelector && <EvaluationPeriodSelector />}
         <button
           className="sd-btn sd-btn-ghost"
           style={{ padding: 8 }}

@@ -16,6 +16,7 @@ import {
   IconMsg,
   IconGrid,
   IconChart,
+  IconTrend,
   IconUsers,
   IconSettings,
   IconSparkle,
@@ -57,7 +58,7 @@ const menus: Record<UserRole, MenuItem[]> = {
   hr: [
     { to: '/hr', label: '전사 현황', icon: IconHome, end: true, group: '현황·분석' },
     { to: '/hr/departments', label: '부서별 진행', icon: IconChart, group: '현황·분석' },
-    { to: '/hr/insights', label: '평가 인사이트', icon: IconChart, group: '현황·분석' },
+    { to: '/hr/insights', label: '평가 인사이트', icon: IconTrend, group: '현황·분석' },
     { to: '/kpi', label: '조직 KPI', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
     { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
