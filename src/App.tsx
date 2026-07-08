@@ -45,6 +45,7 @@ const HrMatrixPage = lazy(() => import("./pages/hr/HrMatrixPage"));
 const HrUsersPage = lazy(() => import("./pages/hr/HrUsersPage"));
 const HrSettingsPage = lazy(() => import("./pages/hr/HrSettingsPage"));
 const HrChangeRequestsPage = lazy(() => import("./pages/hr/ChangeRequestsPage"));
+const HrPasswordResetsPage = lazy(() => import("./pages/hr/HrPasswordResetsPage"));
 const HrRemindersPage = lazy(() => import("./pages/hr/RemindersPage"));
 const HrNoticesFaqPage = lazy(() => import("./pages/hr/HrNoticesFaqPage"));
 const HrInsightsPage = lazy(() => import("./pages/hr/HrInsightsPage"));
@@ -279,6 +280,16 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/hr/password-resets"
+                  element={
+                    <ProtectedRoute allowedRoles={["hr"]}>
+                      <HrPasswordResetsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                {/* 비밀번호 초기화는 시스템 설정 탭에서 독립 메뉴로 승격 — 구 탭 링크(북마크) 유지 */}
+                <Route path="/hr/settings/account" element={<Navigate to="/hr/password-resets" replace />} />
                 <Route
                   path="/hr/audit-logs"
                   element={

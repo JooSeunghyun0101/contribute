@@ -5,7 +5,6 @@ import PageHeader from '@/components/Layout/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NotificationSettings } from '@/components/Settings/NotificationSettings';
 import { PromptManagement } from '@/components/Settings/PromptManagement';
-import PasswordResetManager from '@/components/hr/PasswordResetManager';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -24,14 +23,14 @@ const HrSettingsPage = () => {
   const actorId = user?.employeeId ?? user?.id ?? null;
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const defaultTab = ['notifications', 'account', 'prompts', 'advanced'].includes(tabParam ?? '')
+  const defaultTab = ['notifications', 'prompts', 'advanced'].includes(tabParam ?? '')
     ? (tabParam as string)
     : 'notifications';
   // controlled Tabs — 이미 이 페이지에 있는 상태에서 ?tab= 딥링크(알림 클릭 등)로 오면
   // 리마운트가 없어 defaultValue 만으로는 탭이 안 바뀐다. 쿼리 변경을 상태로 동기화.
   const [activeTab, setActiveTab] = useState(defaultTab);
   useEffect(() => {
-    if (tabParam && ['notifications', 'account', 'prompts', 'advanced'].includes(tabParam)) {
+    if (tabParam && ['notifications', 'prompts', 'advanced'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [tabParam]);
@@ -186,7 +185,6 @@ const HrSettingsPage = () => {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="notifications">알림</TabsTrigger>
-            <TabsTrigger value="account">비밀번호</TabsTrigger>
             <TabsTrigger value="prompts">AI 프롬프트</TabsTrigger>
             <TabsTrigger value="advanced">고급/시스템</TabsTrigger>
           </TabsList>
@@ -200,11 +198,6 @@ const HrSettingsPage = () => {
               <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 20 }}>알림 설정</h3>
               <NotificationSettings embedded />
             </section>
-          </TabsContent>
-
-          {/* 비밀번호 — 초기화 요청 승인/반려 + HR 직접 초기화 */}
-          <TabsContent value="account" className="space-y-6">
-            <PasswordResetManager />
           </TabsContent>
 
           {/* AI 프롬프트 — 시스템 AI 기능에 쓰이는 프롬프트 통합 관리 */}

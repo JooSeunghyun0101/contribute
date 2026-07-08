@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { ComponentType, SVGProps } from 'react';
-import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ChevronDown, KeyRound, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -24,9 +24,13 @@ import {
   IconCheck,
   IconBell,
   IconFile,
+  IconBook,
 } from '@/components/brand';
 
 type IconComp = ComponentType<SVGProps<SVGSVGElement> & { size?: number }>;
+
+// lucide 아이콘을 브랜드 IconComp 시그니처(size:number)에 맞춘 얇은 래퍼 — lucide 는 size:string|number 라 직접 대입 시 타입 불일치.
+const IconKey: IconComp = (props) => <KeyRound {...props} />;
 
 type MenuItem = {
   to: string;
@@ -61,15 +65,16 @@ const menus: Record<UserRole, MenuItem[]> = {
     { to: '/hr/insights', label: '평가 인사이트', icon: IconTrend, group: '현황·분석' },
     { to: '/kpi', label: '조직 KPI', icon: IconTarget, group: '현황·분석' },
     { to: '/hr/people-search', label: 'AI 인물검색', icon: IconSparkle, group: '현황·분석' },
-    { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconTarget, group: '현황·분석' },
+    { to: '/hr/evaluation-viewer', label: '피평가자 평가 열람', icon: IconBook, group: '현황·분석' },
     { to: '/hr/change-requests', label: '변경요청 승인', icon: IconCheck, group: '운영', badgeKey: 'pendingChangeRequests' },
+    { to: '/hr/password-resets', label: '비밀번호 초기화 승인', icon: IconKey, group: '운영', badgeKey: 'pendingPasswordResets' },
     { to: '/hr/audit-logs', label: '감사 로그', icon: IconFile, group: '운영' },
     { to: '/hr/reminders', label: '리마인드·AI검수', icon: IconBell, group: '운영' },
     { to: '/hr/notices-faq', label: '공지·FAQ', icon: IconMsg, group: '운영' },
     { to: '/hr/periods', label: '평가기간 관리', icon: IconCalendar, group: '설정' },
     { to: '/hr/matrix', label: '평가 매트릭스', icon: IconGrid, group: '설정' },
     { to: '/hr/users', label: '사용자 관리', icon: IconUsers, group: '설정' },
-    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정', badgeKey: 'pendingPasswordResets' },
+    { to: '/hr/settings', label: '시스템 설정', icon: IconSettings, group: '설정' },
   ],
 };
 
