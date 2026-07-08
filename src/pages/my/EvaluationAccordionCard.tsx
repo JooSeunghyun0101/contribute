@@ -487,8 +487,8 @@ const EvaluationAccordionCard = ({
 
     if (isFinal) {
       const ok = await confirm({
-        title: '최종제출 하시겠습니까?',
-        description: '제출 후에는 평가자 확인 전까지 수정할 수 없습니다.',
+        title: '성과보고(최종제출) 하시겠습니까?',
+        description: '이 제출이 이번 달 성과보고로 기록됩니다. 제출 후에는 평가자 확인 전까지 수정할 수 없습니다.',
         confirmText: '최종제출',
       });
       if (!ok) return;
@@ -935,7 +935,7 @@ const EvaluationAccordionCard = ({
                     >
                       <Save size={14} aria-hidden="true" />
                       {isSaving
-                        ? '저장 중...'
+                        ? '저장 중…'
                         : dirtyTaskCount > 1
                           ? `임시저장 (변경 ${dirtyTaskCount}건)`
                           : '임시저장'}
@@ -948,7 +948,7 @@ const EvaluationAccordionCard = ({
                         !canEditTasks
                           ? taskEditMessage ?? undefined
                           : draftTotalWeight === 100
-                            ? '평가자 검토 단계로 제출합니다.'
+                            ? '평가자 검토 단계로 제출합니다. 이 제출이 이번 달 성과보고로 기록됩니다.'
                             : '최종제출은 총 가중치가 정확히 100%일 때만 가능합니다.'
                       }
                     >

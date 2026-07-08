@@ -60,7 +60,7 @@ type EvaluateeMeta = { name: string; position: string; department: string; growt
 /**
  * 피평가자 한 명의 평가를 '읽기 전용'으로 렌더한다(이동 시 평가자별로 분리 표시).
  * HR 열람과 부서장 열람이 공유한다.
- * - enableEditRequest=true(HR): 평가자별 '수정요청' 버튼 노출(상태 변경 없음, 알림만).
+ * - enableEditRequest=true(HR): 평가자별 '수정 요청' 버튼 노출(상태 변경 없음, 알림만).
  * - enableEditRequest=false(부서장 등): 순수 읽기 — 액션 없음.
  */
 export const EvaluationReadonlyView = ({
@@ -283,19 +283,19 @@ export const EvaluationReadonlyView = ({
 
   const handleRequestEdit = async (evaluationId: string | undefined, evaluatorName: string) => {
     if (!evaluationId) {
-      toast({ title: '수정요청 불가', description: '연결된 평가 레코드가 없습니다.', variant: 'destructive' });
+      toast({ title: '수정 요청 불가', description: '연결된 평가 레코드가 없습니다.', variant: 'destructive' });
       return;
     }
     if (!user?.employeeId) {
-      toast({ title: '수정요청 불가', description: '요청자 정보를 확인할 수 없습니다.', variant: 'destructive' });
+      toast({ title: '수정 요청 불가', description: '요청자 정보를 확인할 수 없습니다.', variant: 'destructive' });
       return;
     }
     const reason = await askReason({
-      title: `${meta?.name ?? '피평가자'} 평가 수정요청 · ${evaluatorName}`,
+      title: `${meta?.name ?? '피평가자'} 평가 수정 요청 · ${evaluatorName}`,
       description:
-        `${evaluatorName} 평가자에게 전달할 수정요청 사유를 입력해 주세요. (선택) ※ 평가 상태는 변경되지 않으며 알림만 발송됩니다.`,
-      placeholder: '수정요청 사유 (선택)',
-      confirmText: '수정요청 보내기',
+        `${evaluatorName} 평가자에게 전달할 수정 요청 사유를 입력해 주세요. (선택) ※ 평가 상태는 변경되지 않으며 알림만 발송됩니다.`,
+      placeholder: '수정 요청 사유 (선택)',
+      confirmText: '수정 요청 보내기',
     });
     if (reason === null) return;
     setRequestingId(evaluationId);
@@ -306,12 +306,12 @@ export const EvaluationReadonlyView = ({
         origin: requestOrigin,
       });
       toast({
-        title: '수정요청을 보냈습니다.',
-        description: `${evaluatorName} 평가자에게 수정요청 알림이 전달되었습니다. (상태 변경 없음)`,
+        title: '수정 요청을 보냈습니다.',
+        description: `${evaluatorName} 평가자에게 수정 요청 알림이 전달되었습니다. (상태 변경 없음)`,
       });
     } catch (err) {
-      console.error('수정요청 실패:', err);
-      toast({ title: '수정요청 실패', description: '잠시 후 다시 시도해 주세요.', variant: 'destructive' });
+      console.error('수정 요청 실패:', err);
+      toast({ title: '수정 요청 실패', description: '잠시 후 다시 시도해 주세요.', variant: 'destructive' });
     } finally {
       setRequestingId(null);
     }
@@ -360,7 +360,7 @@ export const EvaluationReadonlyView = ({
         const selectedItem = group.tasks.find((t) => t.task.id === selectedTaskId) ?? group.tasks[0];
         return (
           <div key={group.key} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* 평가자별 상태 바 (+ HR 한정 수정요청) */}
+            {/* 평가자별 상태 바 (+ HR 한정 수정 요청) */}
             <div
               style={{
                 display: 'flex',
@@ -384,9 +384,9 @@ export const EvaluationReadonlyView = ({
                   className="sd-btn sd-btn-primary sd-btn-sm"
                   onClick={() => handleRequestEdit(group.evaluationId, group.evaluatorName)}
                   disabled={requestingId === group.evaluationId}
-                  title={`${group.evaluatorName} 평가자에게 수정요청 알림을 보냅니다. (평가 상태는 변경되지 않음)`}
+                  title={`${group.evaluatorName} 평가자에게 수정 요청 알림을 보냅니다. (평가 상태는 변경되지 않음)`}
                 >
-                  {requestingId === group.evaluationId ? '전송 중…' : '이 평가자에게 수정요청'}
+                  {requestingId === group.evaluationId ? '전송 중…' : '이 평가자에게 수정 요청'}
                 </button>
               )}
             </div>

@@ -65,7 +65,7 @@ const HrEvaluationViewerPage = () => {
             '피평가자 평가 열람'
           )
         }
-        subtitle="피평가자를 선택해 평가자 화면(읽기 전용)을 그대로 봅니다. 이동으로 평가자가 여럿이면 평가자별로 모두 표시되며, 각 평가자에게 따로 수정요청을 보낼 수 있습니다."
+        subtitle="피평가자를 선택해 평가자 화면(읽기 전용)을 그대로 봅니다. 이동으로 평가자가 여럿이면 평가자별로 모두 표시되며, 각 평가자에게 따로 수정 요청을 보낼 수 있습니다."
         actions={<Pill tone="neutral">{periodLabel}</Pill>}
         filters={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

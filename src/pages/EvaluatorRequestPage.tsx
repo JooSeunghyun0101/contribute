@@ -305,7 +305,7 @@ const EvaluatorRequestPage = () => {
   return (
     <div>
       <PageHeader
-        title="평가자 변경요청"
+        title={isEvaluator ? '팀원 평가자 변경요청' : '내 평가자 변경요청'}
         subtitle={
           isEvaluator
             ? '담당 팀원의 평가 구간을 선택해 평가자 변경을 요청합니다. HR 승인 후 반영됩니다.'

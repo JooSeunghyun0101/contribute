@@ -690,7 +690,7 @@ const Evaluation = () => {
                 }
               >
                 <PencilLine size={14} aria-hidden="true" />
-                {isReopening ? '처리 중...' : '피평가자에게 돌려보내기'}
+                {isReopening ? '처리 중…' : '피평가자에게 돌려보내기'}
               </button>
               <button
                 className="sd-btn sd-btn-outline sd-btn-sm"
