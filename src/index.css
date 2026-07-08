@@ -376,6 +376,14 @@
     box-shadow: var(--sh-focus);
   }
 
+  /* 인라인 스타일 div(차트 하이라이트·산점도 행 등 role=button)용 키보드 포커스 링.
+     --sh-focus 는 외곽 그림자라 overflow:hidden 부모에 잘린다 — 여기선 음수 outline-offset 으로
+     요소 '안쪽'에 링을 그려 클리핑을 피한다. */
+  .kbd-focus:focus-visible {
+    outline: 2px solid var(--ok-orange);
+    outline-offset: -2px;
+  }
+
   .sd-chip {
     display: inline-flex;
     align-items: center;

@@ -54,6 +54,7 @@ const formatDate = (value?: string) => {
 const taskHighlightA11y = (onActivate: () => void, active: boolean) => ({
   role: 'button' as const,
   tabIndex: 0,
+  className: 'kbd-focus',
   'aria-pressed': active,
   onClick: onActivate,
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {

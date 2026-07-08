@@ -469,6 +469,7 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   key={p.id}
                   role="button"
                   tabIndex={0}
+                  className="kbd-focus"
                   aria-pressed={p.id === highlightId}
                   onClick={(e) => onRowClick(p, e.ctrlKey || e.metaKey)}
                   onKeyDown={(e) => {
