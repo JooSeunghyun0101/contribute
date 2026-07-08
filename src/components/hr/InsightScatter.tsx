@@ -230,8 +230,8 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
     window.addEventListener('mouseup', up);
   };
 
-  const onRowClick = (p: ScatterPoint, e: ReactMouseEvent) => {
-    if (e.ctrlKey || e.metaKey) {
+  const onRowClick = (p: ScatterPoint, multi: boolean) => {
+    if (multi) {
       // Ctrl+행 = 다중 선택 토글.
       const next = new Set(selectedIds ?? []);
       if (next.has(p.id)) next.delete(p.id);
@@ -469,7 +469,14 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  onClick={(e) => onRowClick(p, e)}
+                  aria-pressed={p.id === highlightId}
+                  onClick={(e) => onRowClick(p, e.ctrlKey || e.metaKey)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRowClick(p, e.ctrlKey || e.metaKey);
+                    }
+                  }}
                   title={`${p.label} · ${variWord(p.stdDev)} · 쏠림 ${Math.round(p.modeShare * 100)}%`}
                   style={{
                     display: 'flex',
