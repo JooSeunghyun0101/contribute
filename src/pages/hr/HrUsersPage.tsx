@@ -282,6 +282,87 @@ const toYmd = (v: unknown): string => {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
 };
 
+// 헤더 업로드/다운로드 버튼(7개)을 하나의 '데이터 관리' 드롭다운으로 묶어 과밀·오버플로를 해소.
+type DataMenuItem = { label: string; onClick: () => void; disabled?: boolean; title?: string };
+const DataMenu = ({ items }: { items: DataMenuItem[] }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="sd-btn sd-btn-outline sd-btn-sm"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        데이터 관리 ▾
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            zIndex: 100,
+            minWidth: 208,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
+            padding: 4,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              role="menuitem"
+              disabled={it.disabled}
+              title={it.title}
+              onClick={() => {
+                setOpen(false);
+                it.onClick();
+              }}
+              style={{
+                textAlign: 'left',
+                padding: '8px 12px',
+                border: 'none',
+                background: 'transparent',
+                borderRadius: 6,
+                cursor: it.disabled ? 'not-allowed' : 'pointer',
+                color: it.disabled ? 'var(--fg-subtle)' : 'var(--fg)',
+                fontSize: 'var(--fs-body)',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={(e) => {
+                if (!it.disabled) e.currentTarget.style.background = 'var(--bg-muted)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const HrUsersPage = () => {
   const profileFileInputRef = useRef<HTMLInputElement | null>(null);
   const matchingFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1653,90 +1734,39 @@ const HrUsersPage = () => {
         title="사용자 관리"
         subtitle={`이 평가기간 대상자 ${records.filter((r) => r.evaluation).length}명 · 전체 등록 ${employees.length}명`}
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={openProfileFileDialog}
-              disabled={isImportingProfiles}
-            >
-              {isImportingProfiles ? '업로드 중' : '대상자 업로드'}
-            </button>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={exportProfileFile}
-              disabled={isExportingProfiles}
-            >
-              {isExportingProfiles ? '다운로드 중' : '대상자 다운로드'}
-            </button>
-            <input
-              ref={profileFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={importProfileFile}
-              style={{ display: 'none' }}
-            />
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={openMatchingFileDialog}
-              disabled={isImportingMatching}
-            >
-              {isImportingMatching ? '업로드 중' : '매칭 업로드'}
-            </button>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={exportMatchingFile}
-              disabled={isExportingMatching}
-            >
-              {isExportingMatching ? '다운로드 중' : '매칭 다운로드'}
-            </button>
-            <input
-              ref={matchingFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={importMatchingFile}
-              style={{ display: 'none' }}
-            />
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={openOrgFileDialog}
-              disabled={isImportingOrg}
-              title="조직구조 엑셀(법인·본부·부·팀 T-Level 트리)을 올리면 부서코드로 상위조직을 자동 매칭합니다."
-            >
-              {isImportingOrg ? '업로드 중' : '조직정보 업로드'}
-            </button>
-            <input
-              ref={orgFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={importOrgStructureFile}
-              style={{ display: 'none' }}
-            />
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={openOrgHistory}
-              title="평가기간별 조직정보 업로드 이력(업로드 일자·부서수)을 봅니다."
-            >
-              조직정보 이력
-            </button>
-            <button
-              className="sd-btn sd-btn-outline sd-btn-sm"
-              onClick={openContribFileDialog}
-              disabled={isImportingContribution}
-              title="기여도 평가 엑셀을 올리면 그 기간 평가에 과업·점수와 부서 상위조직을 매핑합니다(미리보기 후 적용)."
-            >
-              {isImportingContribution ? '업로드 중' : '기여도 업로드'}
-            </button>
-            <input
-              ref={contribFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={importContributionFile}
-              style={{ display: 'none' }}
-            />
-            <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={() => setShowAddModal(true)}>
-              + 사용자 추가
-            </button>
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <DataMenu
+                items={[
+                  { label: isImportingProfiles ? '대상자 업로드 중…' : '대상자 업로드', onClick: openProfileFileDialog, disabled: isImportingProfiles },
+                  { label: isExportingProfiles ? '대상자 내보내는 중…' : '대상자 내보내기', onClick: exportProfileFile, disabled: isExportingProfiles },
+                  { label: isImportingMatching ? '매칭 업로드 중…' : '매칭 업로드', onClick: openMatchingFileDialog, disabled: isImportingMatching },
+                  { label: isExportingMatching ? '매칭 내보내는 중…' : '매칭 내보내기', onClick: exportMatchingFile, disabled: isExportingMatching },
+                  {
+                    label: isImportingOrg ? '조직정보 업로드 중…' : '조직정보 업로드',
+                    onClick: openOrgFileDialog,
+                    disabled: isImportingOrg,
+                    title: '조직구조 엑셀(법인·본부·부·팀 T-Level 트리)을 올리면 부서코드로 상위조직을 자동 매칭합니다.',
+                  },
+                  { label: '조직정보 이력', onClick: openOrgHistory, title: '평가기간별 조직정보 업로드 이력(업로드 일자·부서수)을 봅니다.' },
+                  {
+                    label: isImportingContribution ? '기여도 업로드 중…' : '기여도 업로드',
+                    onClick: openContribFileDialog,
+                    disabled: isImportingContribution,
+                    title: '기여도 평가 엑셀을 올리면 그 기간 평가에 과업·점수와 부서 상위조직을 매핑합니다(미리보기 후 적용).',
+                  },
+                ]}
+              />
+              <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={() => setShowAddModal(true)}>
+                + 사용자 추가
+              </button>
+            </div>
+            {/* 숨김 파일 입력 — 위 메뉴 항목이 트리거한다. */}
+            <input ref={profileFileInputRef} type="file" accept=".xlsx,.xls" onChange={importProfileFile} style={{ display: 'none' }} />
+            <input ref={matchingFileInputRef} type="file" accept=".xlsx,.xls" onChange={importMatchingFile} style={{ display: 'none' }} />
+            <input ref={orgFileInputRef} type="file" accept=".xlsx,.xls" onChange={importOrgStructureFile} style={{ display: 'none' }} />
+            <input ref={contribFileInputRef} type="file" accept=".xlsx,.xls" onChange={importContributionFile} style={{ display: 'none' }} />
+          </>
         }
         filters={
           <>
