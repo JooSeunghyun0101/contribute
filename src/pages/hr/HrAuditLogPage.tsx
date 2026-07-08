@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { auditLogService, type AuditLogRow } from '@/lib/services';
+import { downloadAuditLogWorkbook } from '@/utils/hrDataExport';
 import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 50;
@@ -100,6 +101,12 @@ const buildDiff = (prev: unknown, next: unknown): DiffLine[] => {
 
 const truncate = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+// 엑셀 '변경내용' 셀 — 화면 diff 와 동일 로직을 한 줄 텍스트로 직렬화.
+const buildDiffText = (row: AuditLogRow): string =>
+  buildDiff(row.previous_value, row.new_value)
+    .map((l) => (l.key ? `${fieldLabel(l.key)}: ${l.before} → ${l.after}` : `${l.before} → ${l.after}`))
+    .join(' / ');
+
 const HrAuditLogPage = () => {
   const { toast } = useToast();
   const [rows, setRows] = useState<AuditLogRow[]>([]);
@@ -107,6 +114,7 @@ const HrAuditLogPage = () => {
   const [offset, setOffset] = useState(0);
   const [actionTypes, setActionTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportBusy, setExportBusy] = useState(false);
 
   // 필터 입력값(‘조회’ 클릭/페이지 이동 시 적용).
   const [fActionType, setFActionType] = useState('');
@@ -179,6 +187,48 @@ const HrAuditLogPage = () => {
     void load(0, { actionType: '', target: '', actor: '', from: '', to: '' });
   };
 
+  // 현재 필터 조건의 감사 로그 '전체'를 페이지 루프로 모아 엑셀로 내보낸다(현재 페이지만이 아님).
+  const handleExport = async () => {
+    setExportBusy(true);
+    try {
+      const filters = {
+        actionType: fActionType || undefined,
+        target: fTarget.trim() || undefined,
+        actor: fActor.trim() || undefined,
+        from: fFrom ? `${fFrom}T00:00:00+09:00` : undefined,
+        to: fTo ? `${fTo}T23:59:59+09:00` : undefined,
+      };
+      // 서버가 limit 을 자체 상한(예: 200)으로 잘라도 전량을 모으도록, offset 은 '실제 받은 행 수'
+      // 만큼만 전진시킨다(요청 limit 이 아니라). 요청 limit 보다 적게 오면 그게 서버 상한이다.
+      const all: AuditLogRow[] = [];
+      let off = 0;
+      for (;;) {
+        const page = await auditLogService.list({ ...filters, limit: 1000, offset: off });
+        if (page.rows.length === 0) break;
+        all.push(...page.rows);
+        off += page.rows.length;
+        if (all.length >= page.total) break;
+      }
+      if (all.length === 0) {
+        toast({ title: '내보낼 감사 로그가 없습니다.', description: '필터 조건을 확인해 주세요.', variant: 'destructive' });
+        return;
+      }
+      const result = downloadAuditLogWorkbook(all, { actionLabel, diffText: buildDiffText });
+      toast({
+        title: '감사 로그 내보내기 완료',
+        description: `${(result.rowCount ?? 0).toLocaleString()}건을 ${result.fileName} 로 저장했습니다.`,
+      });
+    } catch (err) {
+      toast({
+        title: '내보내기 실패',
+        description: err instanceof Error ? err.message : '잠시 후 다시 시도해 주세요.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const from = total === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, total);
   const canPrev = offset > 0;
@@ -190,9 +240,19 @@ const HrAuditLogPage = () => {
         title="감사 로그"
         subtitle="점수·평가자·상태·과업·AI검수 등 평가 데이터 변경의 누가/언제/이전→이후 기록입니다."
         actions={
-          <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={() => void load(offset)} disabled={loading}>
-            {loading ? '불러오는 중…' : '새로고침'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="sd-btn sd-btn-outline sd-btn-sm" onClick={() => void load(offset)} disabled={loading}>
+              {loading ? '불러오는 중…' : '새로고침'}
+            </button>
+            <button
+              className="sd-btn sd-btn-primary sd-btn-sm"
+              onClick={() => void handleExport()}
+              disabled={exportBusy || loading || total === 0}
+              title="현재 필터 조건의 감사 로그 전체를 엑셀(.xlsx)로 내보냅니다."
+            >
+              {exportBusy ? '내보내는 중…' : '엑셀 내보내기'}
+            </button>
+          </div>
         }
       />
 

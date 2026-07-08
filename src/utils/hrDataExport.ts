@@ -21,6 +21,7 @@ import type {
   Task,
   TaskEvaluationEntry,
 } from '@/types';
+import type { AuditLogRow } from '@/lib/services/auditLogService';
 
 // 공통 평가대상자 양식(업로드/다운로드 동일). 부서명·평가그룹은 제거:
 // 부서명(표시명)은 매칭 업로드의 부서명에서 채운다.
@@ -311,6 +312,41 @@ const appendObjectSheet = (
 const writeWorkbook = (wb: XLSX.WorkBook, fileName: string) => {
   XLSX.writeFile(wb, fileName);
   return fileName;
+};
+
+const AUDIT_LOG_HEADERS = [
+  '시각',
+  '유형',
+  '유형코드',
+  '행위자사번',
+  '행위자명',
+  '대상사번',
+  '대상명',
+  '변경내용',
+  '사유',
+];
+
+// 감사 로그 엑셀 내보내기 — 페이지가 필터 조건으로 전체 조회한 rows 를 그대로 받아,
+// 페이지와 동일한 라벨/변경요약(diffText) 로직으로 시트를 만든다(컴플라이언스 반출용).
+export const downloadAuditLogWorkbook = (
+  rows: AuditLogRow[],
+  opts: { actionLabel: (t: string) => string; diffText: (row: AuditLogRow) => string },
+): ExportResult => {
+  const objectRows = rows.map((r) => ({
+    시각: dateTimeText(r.created_at),
+    유형: opts.actionLabel(r.action_type),
+    유형코드: r.action_type,
+    행위자사번: r.actor_id ?? '',
+    행위자명: r.actor_name ?? '',
+    대상사번: r.target_employee_id ?? '',
+    대상명: r.target_employee_name ?? '',
+    변경내용: opts.diffText(r),
+    사유: r.reason ?? '',
+  }));
+  const wb = XLSX.utils.book_new();
+  appendObjectSheet(wb, '감사로그', AUDIT_LOG_HEADERS, objectRows);
+  const fileName = writeWorkbook(wb, buildExportFileName('감사로그'));
+  return { fileName, targetCount: rows.length, rowCount: rows.length };
 };
 
 const safeAssignmentHistory = async (employeeId: string) => {
