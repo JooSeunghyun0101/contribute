@@ -24,6 +24,7 @@ import {
   type EvaluatorGroup,
   type EvaluatorTaskView,
 } from '@/components/Evaluation/EvaluatorReview';
+import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 
 const EVALUATOR_EDITABLE_STATUSES = new Set(['submitted', 'evaluating']);
 
@@ -111,6 +112,7 @@ const Evaluation = () => {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isDraftSaving, setIsDraftSaving] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   // S4: 이전/다음 검토 대상 네비게이션 — 보드 '검토 필요' 컬럼과 동일 기준(제출됨·평가중)·
   // 동일 정렬(성장레벨 내림차순 → 이름). 보드와 같은 React Query 캐시를 재사용하므로 추가
@@ -449,15 +451,17 @@ const Evaluation = () => {
       });
       return;
     }
-    if (missingFeedbackTitles.length > 0) {
+    const willComplete = scored === total;
+    // 피드백 전건 필수는 '완료'로 전환될 때만 적용한다 — 부분 채점(→'평가 중') 진행 저장은
+    // 피드백을 다 못 채웠어도 허용해, 여러 과업을 나눠 평가하다 저장이 막히는 비대칭을 없앤다.
+    if (willComplete && missingFeedbackTitles.length > 0) {
       toast({
         title: `피드백 미작성 ${missingFeedbackTitles.length}건`,
-        description: `모든 과업에 피드백이 있어야 저장할 수 있습니다: ${missingFeedbackTitles.join(', ')}`,
+        description: `평가를 완료하려면 모든 과업에 피드백이 필요합니다: ${missingFeedbackTitles.join(', ')}`,
         variant: 'destructive',
       });
       return;
     }
-    const willComplete = scored === total;
     const ok = await confirm({
       title: '최종 평가를 저장하시겠습니까?',
       description: `채점 ${scored}/${total} · 피드백 ${total - missingFeedbackTitles.length}/${total}\n${
@@ -557,6 +561,14 @@ const Evaluation = () => {
     }
   };
 
+  const handleBack = () => {
+    // 앱 안에서 이동해 들어왔으면 직전 화면으로, 딥링크·새로고침으로 직접 열렸으면 평가 보드로.
+    // navigate(-1)은 히스토리가 없으면 앱을 벗어나거나 아무 동작도 안 하던 문제를 방지한다.
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate('/team');
+  };
+
   const onReopenEvaluationClick = async () => {
     if (!evaluationData?.id) {
       toast({
@@ -605,7 +617,7 @@ const Evaluation = () => {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
             <button
               type="button"
-              onClick={() => navigate(-1)}
+              onClick={handleBack}
               className="sd-btn sd-btn-outline sd-btn-sm"
               title="직전 화면으로 돌아가기"
               aria-label="뒤로 가기"
@@ -660,6 +672,13 @@ const Evaluation = () => {
         actions={
           // 성장레벨/달성여부/반영점수는 아코디언 헤더 스탯으로 이동(2026-07-07 사용자) — 상단은 액션 버튼만.
           <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="sd-btn sd-btn-ghost sd-btn-sm"
+                onClick={() => setShowGuide(true)}
+                title="평가 기준·절차·점수 매트릭스 가이드를 엽니다."
+              >
+                평가 가이드
+              </button>
               <button
                 className="sd-btn sd-btn-outline sd-btn-sm"
                 onClick={onReopenEvaluationClick}
@@ -782,6 +801,7 @@ const Evaluation = () => {
           </div>
         )}
       </div>
+      {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}
     </>
   );
 };

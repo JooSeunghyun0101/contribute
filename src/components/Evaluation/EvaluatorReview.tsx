@@ -391,7 +391,12 @@ type TaskTabsProps = {
   onSelectTask: (taskId: string) => void;
 };
 
-const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
+const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
+  // 채점·피드백 진행 요약 — 완료 전 무엇이 남았는지 한눈에(에러 시 탭을 하나씩 열어 찾던 문제 완화).
+  const taskCount = group.tasks.length;
+  const scoredCount = group.tasks.filter((t) => t.score != null).length;
+  const feedbackCount = group.tasks.filter((t) => (t.displayTask.feedback ?? '').trim()).length;
+  return (
   <nav
     style={{
       borderRight: '1px solid var(--border)',
@@ -400,6 +405,27 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
       minHeight: 0,
     }}
   >
+    <div
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 1,
+        background: 'var(--bg-muted)',
+        borderBottom: '1px solid var(--border)',
+        padding: '9px 12px',
+        display: 'flex',
+        gap: 12,
+        fontSize: 'var(--fs-xs)',
+        fontWeight: 800,
+      }}
+    >
+      <span style={{ color: scoredCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
+        채점 {scoredCount}/{taskCount}
+      </span>
+      <span style={{ color: feedbackCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
+        피드백 {feedbackCount}/{taskCount}
+      </span>
+    </div>
     {group.tasks.map((item, index) => {
       const active = item.task.id === selectedTaskId;
 
@@ -472,13 +498,26 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => (
                   <span style={{ color: group.accent, fontWeight: 900 }}>임시저장</span>
                 </>
               )}
+              {item.score == null && (
+                <>
+                  <span>·</span>
+                  <span style={{ color: 'var(--warning)', fontWeight: 900 }}>미채점</span>
+                </>
+              )}
+              {!(item.displayTask.feedback ?? '').trim() && (
+                <>
+                  <span>·</span>
+                  <span style={{ color: 'var(--warning)', fontWeight: 900 }}>피드백 없음</span>
+                </>
+              )}
             </div>
           </div>
         </button>
       );
     })}
   </nav>
-);
+  );
+};
 
 // AI 검수 유형(저장값) → 칩 색. AiReviewRollup 의 typeTone 과 동일 매핑.
 const AI_TYPE_TONE: Record<string, 'orange' | 'info' | 'warning'> = {
