@@ -1,0 +1,186 @@
+import { apiFetch } from '@/lib/api';
+import { Evaluation, EvaluationStatus } from '@/types';
+import { apiErrorHandler } from '@/utils/errorHandler';
+
+type EvaluationQuery = {
+  periodId?: string | null;
+  year?: number | null;
+  evaluatorId?: string | null;
+};
+
+const buildEvaluationQuery = (query: EvaluationQuery = {}) => {
+  const params = new URLSearchParams();
+  if (query.periodId) {
+    params.set('periodId', query.periodId);
+  } else if (query.year != null) {
+    params.set('year', String(query.year));
+  }
+  if (query.evaluatorId) {
+    params.set('evaluatorId', query.evaluatorId);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+};
+
+export const evaluationService = {
+  // 모든 평가 조회
+  async getAllEvaluations(query?: EvaluationQuery): Promise<Evaluation[]> {
+    try {
+      return await apiFetch<Evaluation[]>(`/api/evaluations${buildEvaluationQuery(query)}`);
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 직원별 '현재 평가' 1건씩 일괄 조회 (대시보드 N+1 완화). HR 전용.
+  // 서버가 getEvaluationByEmployeeId 와 동일한 선택 로직으로 직원당 1건을 고른다.
+  async getCurrentEvaluationsByEmployee(query?: EvaluationQuery): Promise<Evaluation[]> {
+    try {
+      return await apiFetch<Evaluation[]>(
+        `/api/evaluations/current-by-employee${buildEvaluationQuery(query)}`,
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 특정 직원의 평가 조회
+  async getEvaluationByEmployeeId(employeeId: string, query?: EvaluationQuery): Promise<Evaluation | null> {
+    if (!employeeId) {
+      // Prevent calling API with empty ID which results in 404
+      throw new Error('employeeId is required');
+    }
+    try {
+      // The endpoint returns a single Evaluation object (or null), not an array.
+      const evaluation = await apiFetch<Evaluation>(
+        `/api/evaluations/by-employee/${employeeId}${buildEvaluationQuery(query)}`,
+      );
+      // Ensure the returned object always has an `id` field.
+      if (evaluation && !evaluation.id && (evaluation as any).evaluation_id) {
+        (evaluation as any).id = (evaluation as any).evaluation_id;
+      }
+      return evaluation ?? null;
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  async getEvaluationById(id: string): Promise<Evaluation | null> {
+    if (!id) throw new Error('id is required');
+    try {
+      const evaluation = await apiFetch<Evaluation>(`/api/evaluation/${id}`);
+      if (evaluation && !evaluation.id && (evaluation as any).evaluation_id) {
+        (evaluation as any).id = (evaluation as any).evaluation_id;
+      }
+      return evaluation ?? null;
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  async getEvaluationsByEmployeeId(employeeId: string, query?: EvaluationQuery): Promise<Evaluation[]> {
+    if (!employeeId) {
+      throw new Error('employeeId is required');
+    }
+    try {
+      return await apiFetch<Evaluation[]>(
+        `/api/evaluations/employee/${employeeId}${buildEvaluationQuery(query)}`,
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가 생성
+  async createEvaluation(evaluation: Omit<Evaluation, 'id' | 'created_at' | 'updated_at'>): Promise<Evaluation> {
+    try {
+      return await apiFetch<Evaluation>('/api/evaluation', {
+        method: 'POST',
+        body: JSON.stringify(evaluation),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가 업데이트
+  async updateEvaluation(id: string, updates: Partial<Evaluation>): Promise<Evaluation> {
+    try {
+      return await apiFetch<Evaluation>(`/api/evaluation/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가 상태별 조회
+  async getEvaluationsByStatus(status: EvaluationStatus, query?: EvaluationQuery): Promise<Evaluation[]> {
+    try {
+      return await apiFetch<Evaluation[]>(
+        `/api/evaluations/status/${status}${buildEvaluationQuery(query)}`,
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가 삭제
+  async deleteEvaluation(id: string): Promise<void> {
+    try {
+      await apiFetch<void>(`/api/evaluation/${id}`, { method: 'DELETE' });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가자에게 재검토/수정 요청 (알림만 발송, evaluation_status 변경 없음)
+  // origin 미지정 시 피평가자 발신 문구, origin='hr' 시 HR 재검토 요청 문구로 분기.
+  // 수신자(담당 평가자)·상태 무변경·알림 타입·우선순위는 동일하게 서버에서 결정.
+  async requestReturn(
+    evaluationId: string,
+    payload: { requestedBy: string; reason?: string; origin?: 'hr' },
+  ): Promise<{ recipient_id: string }> {
+    try {
+      return await apiFetch<{ recipient_id: string }>(
+        `/api/evaluation/${evaluationId}/return-request`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가자가 완료 평가를 피평가자에게 돌려보냄 (status → in-progress + 피평가자 알림)
+  async reopenEvaluation(evaluationId: string, payload: { actorId: string; reason?: string }): Promise<void> {
+    try {
+      await apiFetch<void>(`/api/evaluation/${evaluationId}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+
+  // 평가자가 자기 완료 평가를 다시 열어 점수/피드백 수정 가능 단계(evaluating)로 되돌림 (알림 없음)
+  async reopenForEvaluator(evaluationId: string): Promise<void> {
+    try {
+      await apiFetch<void>(`/api/evaluation/${evaluationId}/reopen-for-evaluator`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      throw apiErrorHandler.handleApiError(error);
+    }
+  },
+};

@@ -1,0 +1,50 @@
+# Render Blueprint — 무료 임시 배포용 (웹 서비스 1개 + Postgres 1개)
+# 사용법: Render 대시보드 → New → Blueprint → 이 레포 선택 → Apply
+# 또는 Postgres/Web Service 를 수동으로 만들고 아래 값을 참고해 입력해도 됨.
+#
+# ⚠ 무료 티어 제약
+#   - 웹 서비스: 15분 미사용 시 잠들고 다음 요청에 ~1분 콜드스타트
+#   - Postgres: 생성 30일 후 만료(+14일 유예). 임시 데모 전용 — 실데이터/PII 넣지 말 것.
+
+databases:
+  - name: hr-db
+    plan: free
+    region: singapore       # 한국에서 가장 가까운 리전
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: elevate-growth
+    runtime: node
+    plan: free
+    region: singapore
+    # Render 는 Node 서비스를 NODE_ENV=production 으로 빌드하므로 npm install 이 devDependencies
+    # (vite·typescript 등 빌드 도구)를 건너뛴다. --include=dev 로 강제 설치해야 vite build 가 동작.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      # DB 주소는 위 hr-db 에서 자동 주입(내부망 연결, SSL 불필요)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hr-db
+          property: connectionString
+      - key: NODE_VERSION
+        value: "24"
+      # HTTPS 종단 뒤이므로 세션 쿠키 Secure 켬
+      - key: COOKIE_SECURE
+        value: "true"
+      # 프런트는 같은 오리진에서 서빙되므로 API_BASE 비움(상대경로)
+      - key: VITE_API_BASE
+        value: ""
+      # 운영은 DB 실패 시 즉시 종료(빈 데이터 은폐 금지)
+      - key: ALLOW_MOCK_FALLBACK
+        value: "false"
+      # ── AI 프록시 (선택) — 대시보드에서 직접 입력 ──
+      # 외부 GitHub Models 쓰려면 AI_API_KEY 만, 내부 GPT-OSS 면 AI_BASE_URL 만.
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
