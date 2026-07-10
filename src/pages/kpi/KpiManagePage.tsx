@@ -700,6 +700,15 @@ const KpiFormModal = ({
   // 생성자-체인 가시성과 무관하므로 팀장이 본부장 KPI 에도 연결할 수 있다.
   const [parentOptions, setParentOptions] = useState<OrgKpi[]>([]);
   const [parentLoading, setParentLoading] = useState(false);
+  // 단위 — datalist 는 크롬에서 값이 있으면 제안이 안 떠 '드롭다운이 안 나온다'(사용자 보고).
+  // 실제 select + '직접 입력' 조합으로 교체. 기존 값이 제안 목록 밖이면 직접 입력 모드로 표시.
+  const [unitCustom, setUnitCustom] = useState(false);
+  useEffect(() => {
+    setUnitCustom(Boolean(form.unit && !UNIT_SUGGESTIONS.includes(form.unit)));
+    // 편집 대상이 바뀔 때만 모드 재계산(타이핑 중 재계산 방지).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.id]);
+  const unitIsCustom = unitCustom || Boolean(form.unit && !UNIT_SUGGESTIONS.includes(form.unit));
   const unitTrimmed = form.unit.trim();
   useEffect(() => {
     let cancelled = false;
@@ -893,12 +902,36 @@ const KpiFormModal = ({
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             단위
-            <input className="sd-input" list="kpi-units" value={form.unit} onChange={(e) => set({ unit: e.target.value })} placeholder="억" />
-            <datalist id="kpi-units">
+            <select
+              className="sd-input"
+              value={unitIsCustom ? '__custom__' : form.unit}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '__custom__') {
+                  setUnitCustom(true);
+                  set({ unit: '' });
+                } else {
+                  setUnitCustom(false);
+                  set({ unit: v });
+                }
+              }}
+            >
+              <option value="">단위 선택</option>
               {UNIT_SUGGESTIONS.map((u) => (
-                <option key={u} value={u} />
+                <option key={u} value={u}>
+                  {u}
+                </option>
               ))}
-            </datalist>
+              <option value="__custom__">직접 입력…</option>
+            </select>
+            {unitIsCustom && (
+              <input
+                className="sd-input"
+                value={form.unit}
+                onChange={(e) => set({ unit: e.target.value })}
+                placeholder="단위 직접 입력 (예: 천원)"
+              />
+            )}
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
