@@ -89,7 +89,7 @@ const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
         />
       </div>
       <div className="tnum" style={{ fontSize: 'var(--fs-2xs)', color: 'var(--fg-muted)' }}>
-        실적 {node.rolled_achieved ?? 0} / 목표 {node.target_value} {node.unit}
+        실적 {node.rolled_achieved ?? 0} / 목표 {node.rolled_target ?? node.target_value} {node.unit}
       </div>
     </div>
   );

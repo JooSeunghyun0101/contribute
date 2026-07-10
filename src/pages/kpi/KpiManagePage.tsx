@@ -272,7 +272,7 @@ const KpiManagePage = () => {
     }
   };
 
-  const startEdit = (k: OrgKpi) => {
+  const startEdit = (k: OrgKpi | KpiNode) => {
     setSeedParent(null);
     setForm({
       id: k.id,
@@ -284,7 +284,8 @@ const KpiManagePage = () => {
       org_path_department: k.org_path_department ?? '',
       name: k.name,
       unit: k.unit,
-      target_value: String(k.target_value ?? ''),
+      // 하위 보유 KPI 는 목표가 '하위 합'(rolled_target)으로 파생 — 폼에도 파생값을 보여준다.
+      target_value: String((('children' in k && k.children.length) ? k.rolled_target : k.target_value) ?? ''),
       direction: k.direction,
       achieved_value: k.achieved_value == null ? '' : String(k.achieved_value),
       description: k.description ?? '',
@@ -558,7 +559,7 @@ const KpiManagePage = () => {
                     <div style={{ flex: '1 1 220px', maxWidth: 320 }}>
                       <KpiProgressBar
                         achieved={node.rolled_achieved}
-                        target={node.target_value}
+                        target={node.rolled_target ?? node.target_value}
                         unit={node.unit}
                         direction={node.direction}
                         hasActuals={node.has_actuals}
@@ -873,16 +874,22 @@ const KpiFormModal = ({
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             목표값
-            {/* 숫자 전용 — 문자 입력 자체를 차단(type=number). */}
+            {/* 숫자 전용 — 문자 입력 자체를 차단(type=number). 하위 보유 시 실적과 동일 규칙으로 잠금. */}
             <input
               className="sd-input"
               type="number"
               inputMode="decimal"
               step="any"
               value={form.target_value}
+              disabled={hasChildren}
               onChange={(e) => set({ target_value: e.target.value })}
               placeholder="5000"
             />
+            {hasChildren && (
+              <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 500 }}>
+                하위 KPI가 연결된 KPI는 목표가 하위 목표의 합으로 자동 계산됩니다(직접 입력 불가).
+              </span>
+            )}
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 800 }}>
             단위
@@ -985,7 +992,7 @@ const KpiFormModal = ({
         )}
 
         <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 10 }}>
-          상위 KPI는 같은 단위·상위 레벨만 선택할 수 있고, 실적은 하위에서 자동 합산됩니다.
+          상위 KPI는 같은 단위·상위 레벨만 선택할 수 있고, 실적·목표는 하위에서 자동 합산됩니다.
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>

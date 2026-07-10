@@ -34,6 +34,8 @@ export interface OrgKpi {
   // 서버 집계(읽기 전용) — 노드 자체 실적 + 트리 롤업.
   own_achieved?: number;
   rolled_achieved?: number;
+  /** 롤업 목표 — 하위 보유 KPI는 하위 목표의 합, 리프는 자체 목표. 표시·진척률의 단일 기준. */
+  rolled_target?: number;
   /** direction 반영 진척률(0~1+, 초과 허용). higher=실적/목표, lower=목표/실적(미입력=0). */
   progress?: number;
   /** 실적이 1건이라도 입력됐는가 — lower 방향에서 '미입력'과 '실적 0'을 구분. */

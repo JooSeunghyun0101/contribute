@@ -7983,14 +7983,16 @@ const loadKpiRowsForPeriod = async (periodId) => {
 
 // 진척률 — direction 반영. higher=실적/목표. lower(낮을수록 좋음)=목표/실적:
 //   실적 미입력이면 0(판정 불가), 실적 0 이하면 1(목표 이하 유지 = 달성), 그 외 목표/실적(실적≤목표 ⇒ ≥1).
+//   목표는 롤업 목표(rolled_target: 하위 보유 시 하위 합) 기준 — 실적과 분모·분자 기준을 일치시킨다.
 const computeKpiProgress = (node) => {
-  if (!(node.target_value > 0)) return 0;
+  const target = node.rolled_target ?? node.target_value;
+  if (!(target > 0)) return 0;
   if (node.direction === 'lower') {
     if (!(node.rolled_achieved_count > 0)) return 0;
     if (node.rolled_achieved <= 0) return 1;
-    return node.target_value / node.rolled_achieved;
+    return target / node.rolled_achieved;
   }
-  return node.rolled_achieved / node.target_value;
+  return node.rolled_achieved / target;
 };
 
 // 트리 구성 + 후위순회 롤업. 각 KPI 실적은 자기 노드에 1회 귀속 → 조상 합산(이중계산 없음).
@@ -8000,6 +8002,7 @@ const buildKpiTree = (rows) => {
     r.children = [];
     r.rolled_achieved = r.own_achieved;
     r.rolled_achieved_count = r.own_achieved_count ?? 0;
+    r.rolled_target = Number(r.target_value);
   }
   const roots = [];
   for (const r of rows) {
@@ -8015,10 +8018,19 @@ const buildKpiTree = (rows) => {
   const visit = (node) => {
     if (seen.has(node.id)) return; // 손상 데이터 순환 방어
     seen.add(node.id);
-    for (const child of node.children) {
-      visit(child);
-      node.rolled_achieved += child.rolled_achieved;
-      node.rolled_achieved_count += child.rolled_achieved_count;
+    for (const child of node.children) visit(child);
+    if (node.children.length > 0) {
+      // 하위 보유 KPI 는 실적·목표 모두 '하위 합'으로 대체(자체 저장값 무시) —
+      // UI 가 하위 보유 KPI 의 실적 직접 입력을 막는 규칙과 대칭(2026-07-10 사용자 결정:
+      // 상위 목표 = 하위 목표의 합). target_value·achieved_value 저장값은 보존만 하고 표시·진척률에 미사용.
+      node.rolled_achieved = 0;
+      node.rolled_achieved_count = 0;
+      node.rolled_target = 0;
+      for (const child of node.children) {
+        node.rolled_achieved += child.rolled_achieved;
+        node.rolled_achieved_count += child.rolled_achieved_count;
+        node.rolled_target += child.rolled_target;
+      }
     }
     node.progress = computeKpiProgress(node);
   };
@@ -8039,6 +8051,8 @@ const serializeKpiBase = (r) => ({
   name: r.name,
   unit: r.unit,
   target_value: kpiNum(r.target_value),
+  // 롤업 목표 — 하위 보유 KPI 는 하위 목표의 합, 리프는 자체 목표. 표시·진척률의 단일 기준.
+  rolled_target: kpiNum(r.rolled_target) ?? kpiNum(r.target_value),
   direction: r.direction,
   description: r.description,
   owner_id: r.owner_id,
