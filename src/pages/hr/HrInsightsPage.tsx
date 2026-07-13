@@ -66,16 +66,7 @@ const HrInsightsPage = () => {
         subtitle="평가자·조직·직종별로 점수가 레벨평균보다 높은지/낮은지, 사람마다 차등을 뒀는지를 한눈에 봅니다. 점을 클릭하면 대상자와 후속 조치로 이어집니다. (판정이 아닌 검토 참고용)"
         actions={<Pill tone="neutral">{periodLabel}</Pill>}
         filters={
-          <div
-            style={{
-              display: 'inline-flex',
-              gap: 4,
-              padding: 3,
-              borderRadius: 10,
-              background: 'var(--bg-muted)',
-              border: '1px solid var(--border)',
-            }}
-          >
+          <div className="sd-seg">
             {TABS.map((t) => {
               const active = tab === t.key;
               return (
@@ -84,16 +75,8 @@ const HrInsightsPage = () => {
                   type="button"
                   onClick={() => setTab(t.key)}
                   aria-pressed={active}
-                  style={{
-                    padding: '6px 16px',
-                    borderRadius: 7,
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 800,
-                    color: active ? '#fff' : 'var(--fg-muted)',
-                    background: active ? 'var(--ok-orange)' : 'transparent',
-                  }}
+                  className={`sd-seg-item${active ? ' is-active' : ''}`}
+                  style={{ fontSize: 'var(--fs-sm)', fontWeight: 800 }}
                 >
                   {t.label}
                 </button>
@@ -118,17 +101,7 @@ const HrInsightsPage = () => {
                   key={lv}
                   type="button"
                   onClick={() => setLevelFilter(lv)}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: 8,
-                    border: '1px solid',
-                    borderColor: levelFilter === lv ? 'var(--ok-orange)' : 'var(--border)',
-                    background: levelFilter === lv ? 'var(--ok-orange)' : 'transparent',
-                    color: levelFilter === lv ? '#fff' : 'var(--fg)',
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  className={`sd-filter-chip${levelFilter === lv ? ' is-active' : ''}`}
                 >
                   {lv === 'all' ? '전체 레벨' : `Lv.${lv}`}
                 </button>
@@ -167,12 +140,13 @@ const PointMembersDrawer = ({
     aria-modal="true"
     aria-label={`검토 대상자 ${point.label} 상세`}
     onClick={onClose}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'flex-end', zIndex: 50 }}
+    /* 오버레이 배경 — 웜 잉크 틴트(--shadow-color) 45%. Home 모달 오버레이와 동일 토큰·알파. */
+    style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', display: 'flex', justifyContent: 'flex-end', zIndex: 50 }}
   >
     <div
       onClick={(e) => e.stopPropagation()}
       className="sd-card"
-      style={{ width: 'min(440px, 100%)', height: '100%', borderRadius: 0, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}
+      style={{ width: 'min(440px, 100%)', height: '100%', borderRadius: 0, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', boxShadow: 'var(--sh-lg)' }}
     >
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div>
@@ -192,7 +166,8 @@ const PointMembersDrawer = ({
         {point.members.map((m) => (
           <div
             key={m.employeeId}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 8px', borderBottom: '1px solid var(--border)' }}
+            className="row-hover"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 8px', borderBottom: '1px solid var(--border)', borderRadius: 'var(--r-xs)' }}
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{m.name}</div>

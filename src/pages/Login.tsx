@@ -1,10 +1,12 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { authService } from '@/lib/services/authService';
 import { SESSION_EXPIRED_STORAGE_KEY } from '@/lib/api';
 import { IconArrowRight } from '@/components/brand';
 import { Spinner } from '@/components/ui/spinner';
+import './login.css';
 
 // WebGL hero is used only on the login screen, so keep it out of the main bundle.
 const ShaderShowcase = lazy(() => import('@/components/ui/hero'));
@@ -116,26 +118,11 @@ const Login = () => {
     navigate('/');
   };
 
-  // OK 브랜드 다크 톤 — 셰이더의 검정 배경과 자연스럽게 이어지는 웜 브라운 계열
-  const bgL = '#161210';
-  const panelL = '#211B17';
-  const inputL = '#2C2420';
-  const borderL = '#3D332C';
-  const textSoft = '#D6C9BC';
-  const textSubtle = '#9B8C7D';
-
   return (
-    <div
-      style={{
-        width: '100%',
-        minHeight: '100vh',
-        background: `radial-gradient(1200px 600px at 15% 20%, rgba(245,80,0,0.16), transparent 60%), radial-gradient(900px 500px at 85% 100%, rgba(255,170,0,0.10), transparent 60%), ${bgL}`,
-        color: '#F4EDE3',
-        display: 'flex',
-      }}
-    >
-      <div className="hidden lg:block lg:flex-1 relative overflow-hidden bg-black">
-        <Suspense fallback={<div className="min-h-screen w-full bg-black" />}>
+    <div className="login-page">
+      {/* 좌측 — WebGL 히어로 + 브랜드 오버레이 */}
+      <div className="hidden lg:block lg:flex-1 relative overflow-hidden" style={{ background: '#000' }}>
+        <Suspense fallback={<div className="min-h-screen w-full" style={{ background: '#000' }} />}>
           <ShaderShowcase />
         </Suspense>
         <div
@@ -143,7 +130,7 @@ const Login = () => {
             position: 'absolute',
             inset: 0,
             zIndex: 1,
-            padding: '70px 72px 70px 24px',
+            padding: '70px 72px 56px 24px',
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -174,7 +161,7 @@ const Login = () => {
                 style={{
                   fontSize: 'clamp(46px, 5.4vw, 76px)',
                   fontWeight: 900,
-                  letterSpacing: '-0.04em',
+                  letterSpacing: '-0.045em',
                   lineHeight: 1.06,
                   textShadow: '0 2px 24px rgba(0,0,0,0.65)',
                 }}
@@ -183,7 +170,7 @@ const Login = () => {
               </h1>
               <p
                 style={{
-                  color: textSoft,
+                  color: 'var(--lg-text-soft)',
                   marginTop: 16,
                   fontSize: 'clamp(18px, 1.45vw, 24px)',
                   lineHeight: 1.5,
@@ -194,70 +181,40 @@ const Login = () => {
               </p>
             </div>
           </div>
+          {/* 좌하단 푸터 — 히어로에 무게중심을 잡아주는 낮은 시각 요소 */}
+          <div
+            style={{
+              paddingLeft: 48,
+              fontSize: 'var(--fs-xs)',
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: 'rgba(245,241,235,0.45)',
+              textShadow: '0 1px 12px rgba(0,0,0,0.6)',
+            }}
+          >
+            OK Financial Group · Elevate Growth System
+          </div>
         </div>
       </div>
 
-      {/* Right — login panel */}
-      <div
-        style={{
-          width: 480,
-          padding: '80px 56px',
-          background: panelL,
-          borderLeft: `1px solid ${borderL}`,
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-        }}
-        className="w-full lg:w-[480px]"
-      >
-        <div
-          style={{
-            fontSize: 'var(--fs-sm)',
-            fontWeight: 700,
-            letterSpacing: '0.14em',
-            color: 'var(--ok-yellow-300)',
-          }}
-        >
-          {showChangeForm ? 'PASSWORD' : 'LOGIN'}
-        </div>
-        <h2 style={{ fontSize: 'var(--fs-h1)', fontWeight: 800, marginTop: 6 }}>
-          {showChangeForm ? '비밀번호 변경' : 'Welcome back.'}
-        </h2>
-        {showChangeForm && (
-          <p style={{ marginTop: 10, color: textSoft, fontSize: 'var(--fs-body)', lineHeight: 1.6 }}>
-            최초 로그인(또는 비밀번호 초기화) 상태입니다. 보안을 위해 새 비밀번호를 설정해 주세요.
-          </p>
-        )}
+      {/* 우측 — 로그인 패널 */}
+      <div className="login-panel w-full lg:w-[480px] lg:shrink-0">
+        <div className="login-eyebrow">{showChangeForm ? 'Password' : 'Login'}</div>
+        <h2 className="login-title">{showChangeForm ? '비밀번호 변경' : '로그인'}</h2>
+        <p className="login-sub">
+          {showChangeForm
+            ? '최초 로그인(또는 비밀번호 초기화) 상태입니다. 보안을 위해 새 비밀번호를 설정해 주세요.'
+            : '사번과 비밀번호로 로그인해 주세요.'}
+        </p>
 
         {error && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: '10px 14px',
-              background: 'rgba(220, 69, 69, 0.15)',
-              border: '1px solid rgba(220, 69, 69, 0.4)',
-              borderRadius: 10,
-              color: '#FFB4B4',
-              fontSize: 'var(--fs-body)',
-            }}
-          >
+          <div className="login-alert login-alert-error" role="alert">
             {error}
           </div>
         )}
 
         {info && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: '10px 14px',
-              background: 'rgba(60, 170, 90, 0.15)',
-              border: '1px solid rgba(60, 170, 90, 0.4)',
-              borderRadius: 10,
-              color: '#B7E3C0',
-              fontSize: 'var(--fs-body)',
-              lineHeight: 1.5,
-            }}
-          >
+          <div className="login-alert login-alert-info" role="status">
             {info}
           </div>
         )}
@@ -265,58 +222,39 @@ const Login = () => {
         {!showChangeForm ? (
           <>
             {/* 로그인 폼은 fragment 로 감싸 아래 '초기화 요청' 토글을 형제로 둔다. */}
-          <form
-            onSubmit={handleCredentials}
-            style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
-          >
-            <div className="sd-field">
-              {/* P3-12: label-input 연결(htmlFor/id) — 스크린리더가 필드명을 읽도록 */}
-              <label htmlFor="login-employee-id" style={{ color: textSoft }}>사번</label>
-              <input
-                id="login-employee-id"
-                className="sd-input"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-                placeholder="예: 1234567"
-                autoComplete="username"
-                spellCheck={false}
-              />
-            </div>
-            <div className="sd-field">
-              <label htmlFor="login-password" style={{ color: textSoft }}>비밀번호 (최초 로그인은 사번)</label>
-              <input
-                id="login-password"
-                className="sd-input"
-                type="password"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호"
-                autoComplete="current-password"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{
-                height: 46,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                background: 'linear-gradient(135deg, var(--ok-orange-brand) 0%, #D94400 100%)',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: 10,
-                border: 'none',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                opacity: isLoading ? 0.7 : 1,
-              }}
+            <form
+              onSubmit={handleCredentials}
+              style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
             >
-              {isLoading ? '로그인 중…' : '로그인'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
-            </button>
-          </form>
+              <div className="sd-field">
+                {/* P3-12: label-input 연결(htmlFor/id) — 스크린리더가 필드명을 읽도록 */}
+                <label htmlFor="login-employee-id" className="login-label">사번</label>
+                <input
+                  id="login-employee-id"
+                  className="login-input"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  placeholder="예: 1234567"
+                  autoComplete="username"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="sd-field">
+                <label htmlFor="login-password" className="login-label">비밀번호 (최초 로그인은 사번)</label>
+                <input
+                  id="login-password"
+                  className="login-input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="비밀번호"
+                  autoComplete="current-password"
+                />
+              </div>
+              <button type="submit" disabled={isLoading} className="login-cta" style={{ marginTop: 4 }}>
+                {isLoading ? '로그인 중…' : '로그인'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
+              </button>
+            </form>
             {!resetOpen ? (
               <button
                 type="button"
@@ -325,17 +263,8 @@ const Login = () => {
                   setError('');
                   setInfo('');
                 }}
-                style={{
-                  marginTop: 14,
-                  alignSelf: 'flex-start',
-                  background: 'none',
-                  border: 'none',
-                  color: textSubtle,
-                  fontSize: 'var(--fs-sm)',
-                  cursor: 'pointer',
-                  padding: 0,
-                  textDecoration: 'underline',
-                }}
+                className="login-link"
+                style={{ marginTop: 16, alignSelf: 'flex-start' }}
               >
                 비밀번호를 잊으셨나요? 초기화 요청
               </button>
@@ -343,23 +272,23 @@ const Login = () => {
               <form
                 onSubmit={handleResetRequest}
                 style={{
-                  marginTop: 16,
-                  paddingTop: 16,
-                  borderTop: `1px solid ${borderL}`,
+                  marginTop: 18,
+                  paddingTop: 18,
+                  borderTop: '1px solid var(--lg-border-soft)',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 10,
                 }}
               >
-                <div style={{ fontSize: 'var(--fs-sm)', color: textSoft, lineHeight: 1.55 }}>
+                <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--lg-text-soft)', lineHeight: 1.55 }}>
                   사번을 입력하면 관리자에게 초기화 요청이 전달됩니다. 승인되면 <b>사번(초기 비밀번호)</b>으로
                   로그인 후 새 비밀번호를 설정하세요.
                 </div>
                 <div className="sd-field">
-                  <label style={{ color: textSoft }}>사번</label>
+                  <label htmlFor="login-reset-employee-id" className="login-label">사번</label>
                   <input
-                    className="sd-input"
-                    style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                    id="login-reset-employee-id"
+                    className="login-input"
                     value={employeeId}
                     onChange={(e) => setEmployeeId(e.target.value)}
                     placeholder="예: 1234567"
@@ -367,49 +296,22 @@ const Login = () => {
                   />
                 </div>
                 <input
-                  className="sd-input"
-                  style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
+                  className="login-input"
                   value={resetReason}
                   onChange={(e) => setResetReason(e.target.value)}
                   placeholder="요청 사유 (선택)"
+                  aria-label="요청 사유 (선택)"
                 />
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    style={{
-                      flex: 1,
-                      height: 42,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      background: 'var(--ok-orange-brand)',
-                      color: '#fff',
-                      fontWeight: 700,
-                      borderRadius: 10,
-                      border: 'none',
-                      cursor: isLoading ? 'not-allowed' : 'pointer',
-                      opacity: isLoading ? 0.7 : 1,
-                    }}
-                  >
+                  <button type="submit" disabled={isLoading} className="login-cta" style={{ flex: 1, height: 42 }}>
                     {isLoading ? '요청 중…' : '초기화 요청'} {isLoading && <Spinner size={16} />}
                   </button>
                   <button
                     type="button"
+                    className="login-btn-ghost"
                     onClick={() => {
                       setResetOpen(false);
                       setError('');
-                    }}
-                    style={{
-                      height: 42,
-                      padding: '0 14px',
-                      background: 'transparent',
-                      color: textSubtle,
-                      fontWeight: 600,
-                      borderRadius: 10,
-                      border: `1px solid ${borderL}`,
-                      cursor: 'pointer',
                     }}
                   >
                     취소
@@ -424,11 +326,11 @@ const Login = () => {
             style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
           >
             <div className="sd-field">
-              <label style={{ color: textSoft }}>현재 비밀번호 (최초 로그인은 사번)</label>
+              <label htmlFor="login-current-password" className="login-label">현재 비밀번호 (최초 로그인은 사번)</label>
               <input
-                className="sd-input"
+                id="login-current-password"
+                className="login-input"
                 type="password"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="현재 비밀번호"
@@ -436,11 +338,11 @@ const Login = () => {
               />
             </div>
             <div className="sd-field">
-              <label style={{ color: textSoft }}>새 비밀번호 (8자 이상, 사번 사용 불가)</label>
+              <label htmlFor="login-new-password" className="login-label">새 비밀번호 (8자 이상, 사번 사용 불가)</label>
               <input
-                className="sd-input"
+                id="login-new-password"
+                className="login-input"
                 type="password"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="새 비밀번호"
@@ -448,76 +350,34 @@ const Login = () => {
               />
             </div>
             <div className="sd-field">
-              <label style={{ color: textSoft }}>새 비밀번호 확인</label>
+              <label htmlFor="login-confirm-password" className="login-label">새 비밀번호 확인</label>
               <input
-                className="sd-input"
+                id="login-confirm-password"
+                className="login-input"
                 type="password"
-                style={{ background: inputL, borderColor: borderL, color: '#F4EDE3' }}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="다시 입력"
                 autoComplete="new-password"
               />
             </div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{
-                height: 46,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                background: 'linear-gradient(135deg, var(--ok-orange-brand) 0%, #D94400 100%)',
-                color: '#fff',
-                fontWeight: 700,
-                borderRadius: 10,
-                border: 'none',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                opacity: isLoading ? 0.7 : 1,
-              }}
-            >
+            <button type="submit" disabled={isLoading} className="login-cta" style={{ marginTop: 4 }}>
               {isLoading ? '변경 중…' : '비밀번호 변경 후 시작'} {isLoading ? <Spinner size={16} /> : <IconArrowRight size={16} />}
             </button>
             <button
               type="button"
               onClick={handleBackToLogin}
               disabled={isLoading}
-              style={{
-                height: 42,
-                background: 'transparent',
-                color: textSubtle,
-                fontWeight: 600,
-                borderRadius: 10,
-                border: `1px solid ${borderL}`,
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-              }}
+              className="login-btn-ghost"
             >
-              ← 뒤로 (다른 사번으로 로그인)
+              <ArrowLeft size={15} aria-hidden="true" /> 뒤로 (다른 사번으로 로그인)
             </button>
           </form>
         )}
 
-        <div
-          style={{
-            marginTop: 32,
-            padding: '14px 16px',
-            background: 'rgba(245,80,0,0.12)',
-            borderRadius: 10,
-            border: `1px solid ${borderL}`,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 'var(--fs-xs)',
-              color: 'var(--ok-yellow-300)',
-              fontWeight: 700,
-              letterSpacing: '0.1em',
-            }}
-          >
-            TIP
-          </div>
-          <div style={{ fontSize: 'var(--fs-sm)', marginTop: 4, color: textSoft, lineHeight: 1.5 }}>
+        <div className="login-tip">
+          <div className="login-eyebrow" style={{ fontSize: 'var(--fs-2xs)' }}>Tip</div>
+          <div style={{ fontSize: 'var(--fs-sm)', marginTop: 5, color: 'var(--lg-text-soft)', lineHeight: 1.55 }}>
             로그인 후 상단바의 역할 스위처에서 피평가자 / 평가자 / HR을 전환할 수 있습니다.
           </div>
         </div>

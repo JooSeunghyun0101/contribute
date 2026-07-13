@@ -12,7 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState, LoadingState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { evaluationStatusLabel } from '@/lib/evaluationStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -27,9 +27,10 @@ import OrgChecklist from '@/components/hr/OrgChecklist';
 import { getOrgValue, matchesOrgNodes, orgFieldsFromEvaluation } from '@/lib/orgHierarchy';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
-const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4];
-const COLOR_MISSED = 'var(--score-2-bg)';
-const COLOR_PENDING = MATRIX_SCORE_COLORS[1];
+// 차트·범례 색은 점수 단계 토큰(MATRIX_SCORE_COLORS = var(--score-N-bg))으로 일원화 — 단일 소스.
+const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // var(--score-4-bg)
+const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // var(--score-2-bg)
+const COLOR_PENDING = MATRIX_SCORE_COLORS[1]; // var(--score-1-bg)
 const LEVEL_LEGEND: { color: string; label: string }[] = [
   { color: COLOR_ACHIEVED, label: '달성' },
   { color: COLOR_MISSED, label: '미달성' },
@@ -71,7 +72,7 @@ const th: CSSProperties = {
   padding: '10px 12px',
   textAlign: 'left',
   fontSize: 'var(--fs-xs)',
-  fontWeight: 800,
+  fontWeight: 700,
   letterSpacing: '0.04em',
   color: 'var(--fg-muted)',
   whiteSpace: 'nowrap',
@@ -88,9 +89,9 @@ const RelationChip = ({ relation }: { relation: Relation }) => {
     <span
       style={{
         padding: '2px 9px',
-        borderRadius: 999,
+        borderRadius: 'var(--r-pill)',
         fontSize: 'var(--fs-2xs)',
-        fontWeight: 800,
+        fontWeight: 700,
         letterSpacing: '0.03em',
         background: direct ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
         color: direct ? 'var(--ok-orange-700)' : 'var(--fg-muted)',
@@ -236,26 +237,26 @@ const TeamMembersPage = () => {
         ) : error ? (
           <ErrorState message="팀원 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." onRetry={() => void reload()} />
         ) : rows.length === 0 ? (
-          <div className="sd-card">표시할 팀원이 없습니다.</div>
+          <EmptyState message="표시할 팀원이 없습니다." />
         ) : (
           <>
             {/* 필터 바 — 2그룹(① 관계+레벨, ② 조직) */}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {relationOptions.map((opt) => (
-                  <button
-                    key={opt.key}
-                    className={
-                      relationFilter === opt.key ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'
-                    }
-                    onClick={() => setRelationFilter(opt.key)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                <div className="sd-seg">
+                  {relationOptions.map((opt) => (
+                    <button
+                      key={opt.key}
+                      className={`sd-seg-item${relationFilter === opt.key ? ' is-active' : ''}`}
+                      onClick={() => setRelationFilter(opt.key)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
                 <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', minHeight: 20, margin: '0 2px' }} />
                 <button
-                  className={selectedLevel === 'all' ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'}
+                  className={`sd-filter-chip${selectedLevel === 'all' ? ' is-active' : ''}`}
                   onClick={() => setSelectedLevel('all')}
                 >
                   전체 레벨
@@ -263,9 +264,7 @@ const TeamMembersPage = () => {
                 {growthLevels.map((level) => (
                   <button
                     key={level}
-                    className={
-                      selectedLevel === level ? 'sd-btn sd-btn-primary sd-btn-sm' : 'sd-btn sd-btn-outline sd-btn-sm'
-                    }
+                    className={`sd-filter-chip${selectedLevel === level ? ' is-active' : ''}`}
                     onClick={() => setSelectedLevel(level)}
                   >
                     Lv.{level}
@@ -280,7 +279,7 @@ const TeamMembersPage = () => {
             {/* 바차트(좌) · 리스트(우) — 한 화면, 리스트는 내부 스크롤 */}
             <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
               {levelStats.length > 0 && (
-                <div style={{ flex: '0 0 360px', maxWidth: 360 }}>
+                <div style={{ flex: '0 1 360px', minWidth: 260, maxWidth: 360 }}>
                   <LevelBarChart
                     data={levelStats}
                     selectedLevel={selectedLevel}
@@ -309,7 +308,7 @@ const TeamMembersPage = () => {
                 <tbody>
                   {visibleRows.length === 0 ? (
                     <tr>
-                      <td style={{ ...td, color: 'var(--fg-muted)', textAlign: 'center' }} colSpan={11}>
+                      <td style={{ ...td, color: 'var(--fg-muted)', textAlign: 'center', padding: '28px 12px' }} colSpan={11}>
                         선택한 조건에 맞는 팀원이 없습니다.
                       </td>
                     </tr>
@@ -323,14 +322,9 @@ const TeamMembersPage = () => {
                       return (
                         <tr
                           key={r.employee.employee_id}
+                          className="row-hover"
                           onClick={() => openRow({ record: r, relation })}
                           style={{ cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'var(--bg-muted)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
-                          }}
                         >
                           <td style={td}>
                             <span style={{ fontWeight: 700 }}>{r.employee.name}</span>
@@ -351,7 +345,7 @@ const TeamMembersPage = () => {
                             <span
                               className="tnum"
                               style={{
-                                fontWeight: 800,
+                                fontWeight: 700,
                                 color: hasScore ? getScoreColor(r.flooredScore) : 'var(--fg-muted)',
                               }}
                             >
@@ -359,7 +353,23 @@ const TeamMembersPage = () => {
                             </span>
                           </td>
                           <td className="tnum" style={{ ...td, color: 'var(--fg-muted)' }}>
-                            {sinceLabel ? `${sinceLabel} ~ 현재` : lineLoading ? '…' : '정보 없음'}
+                            {sinceLabel ? (
+                              `${sinceLabel} ~ 현재`
+                            ) : lineLoading ? (
+                              // 로딩 중 스켈레톤 — 문자 '…' 대신 자리 표시 바
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  width: 72,
+                                  height: 10,
+                                  borderRadius: 'var(--r-pill)',
+                                  background: 'var(--bg-muted)',
+                                  verticalAlign: 'middle',
+                                }}
+                              />
+                            ) : (
+                              '정보 없음'
+                            )}
                           </td>
                         </tr>
                       );
@@ -390,7 +400,7 @@ const LevelBarChart = ({
     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
       <div>
         <div className="sd-label-mini">레벨 현황</div>
-        <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginTop: 2 }}>레벨별 달성 현황</h3>
+        <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 700, marginTop: 2 }}>레벨별 달성 현황</h3>
       </div>
       <div style={{ display: 'flex', gap: 12, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
         {LEVEL_LEGEND.map((item) => (
@@ -407,7 +417,7 @@ const LevelBarChart = ({
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 12, fill: 'var(--fg)', fontWeight: 800 }}
+            tick={{ fontSize: 12, fill: 'var(--fg)', fontWeight: 700 }}
             axisLine={false}
             tickLine={false}
           />
@@ -418,12 +428,13 @@ const LevelBarChart = ({
             tickLine={false}
           />
           <Tooltip
-            cursor={{ fill: 'rgba(245,80,0,0.06)' }}
+            cursor={{ fill: 'hsl(var(--ok-orange-hsl) / 0.06)' }}
             contentStyle={{
-              borderRadius: 10,
+              borderRadius: 'var(--r-md)',
               border: '1px solid var(--border)',
               fontSize: 'var(--fs-sm)',
               background: 'var(--bg-card)',
+              boxShadow: 'var(--sh-lg)',
             }}
             formatter={(value: number, name: string) => [`${value}명`, name]}
           />
@@ -454,7 +465,7 @@ const LevelBarChart = ({
                     dataKey="total"
                     position="top"
                     formatter={(v: number) => (v > 0 ? `${v}` : '')}
-                    style={{ fontSize: 11, fontWeight: 800, fill: 'var(--fg-muted)' }}
+                    style={{ fontSize: 11, fontWeight: 700, fill: 'var(--fg-muted)' }}
                   />
                 )}
               </Bar>

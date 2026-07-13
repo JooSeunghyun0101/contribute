@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
@@ -514,34 +515,26 @@ const HrNoticesFaqPage = () => {
         }
       />
 
-      {/* ── 탭 바 ───────────────────────────────────────────────── */}
-      <div style={{ padding: '12px 32px 0', display: 'flex', gap: 8, borderBottom: '1px solid var(--border)' }}>
-        {([
-          { key: 'notice', label: '공지 발송' },
-          { key: 'faq', label: '공통 FAQ' },
-        ] as const).map(({ key, label }) => {
-          const active = tab === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              style={{
-                border: 'none',
-                background: 'none',
-                cursor: 'pointer',
-                padding: '10px 14px',
-                fontSize: 'var(--fs-body)',
-                fontWeight: active ? 800 : 600,
-                color: active ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                borderBottom: active ? '2px solid var(--ok-orange)' : '2px solid transparent',
-                marginBottom: -1,
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
+      {/* ── 탭 바 — 세그먼트 컨트롤로 통일(HR 페이지 공통 탭 패턴) ── */}
+      <div style={{ padding: '12px 32px 0' }}>
+        <div className="sd-seg">
+          {([
+            { key: 'notice', label: '공지 발송' },
+            { key: 'faq', label: '공통 FAQ' },
+          ] as const).map(({ key, label }) => {
+            const active = tab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`sd-seg-item${active ? ' is-active' : ''}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ padding: '20px 32px', display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -646,17 +639,8 @@ const HrNoticesFaqPage = () => {
                 {selectedRows.map((r) => (
                   <span
                     key={r.id}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '3px 4px 3px 9px',
-                      borderRadius: 999,
-                      fontSize: 'var(--fs-xs)',
-                      fontWeight: 600,
-                      background: 'var(--ok-orange-50)',
-                      color: 'var(--ok-orange)',
-                    }}
+                    className="sd-chip sd-chip-orange"
+                    style={{ paddingRight: 4 }}
                   >
                     {r.name}
                     <button
@@ -671,10 +655,11 @@ const HrNoticesFaqPage = () => {
                         color: 'inherit',
                         lineHeight: 1,
                         padding: '0 2px',
-                        fontSize: 'var(--fs-body)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
                       }}
                     >
-                      ×
+                      <X size={12} aria-hidden />
                     </button>
                   </span>
                 ))}
@@ -683,8 +668,15 @@ const HrNoticesFaqPage = () => {
           </div>
 
           {/* 수신자 목록 */}
+          {isLoading ? (
+            <LoadingState message="불러오는 중…" />
+          ) : error ? (
+            <ErrorState message={error} />
+          ) : recipients.length === 0 ? (
+            <EmptyState message="선택한 범위에 해당하는 수신자가 없습니다." />
+          ) : (
           <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
-            {!isLoading && !error && recipients.length > 0 && (
+            {recipients.length > 0 && (
               <div
                 style={{
                   padding: 12,
@@ -718,16 +710,7 @@ const HrNoticesFaqPage = () => {
                 )}
               </div>
             )}
-            {isLoading ? (
-              <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
-            ) : error ? (
-              <div style={{ color: 'var(--danger)', padding: 24 }}>{error}</div>
-            ) : recipients.length === 0 ? (
-              <div style={{ color: 'var(--fg-muted)', padding: 24 }}>
-                선택한 범위에 해당하는 수신자가 없습니다.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
                   <thead>
                     <tr style={{ textAlign: 'left' }}>
@@ -758,7 +741,7 @@ const HrNoticesFaqPage = () => {
                       const checked = selectedIds.has(row.id);
                       const recentlySent = row.lastNoticeAt !== null;
                       return (
-                        <tr key={row.id}>
+                        <tr key={row.id} className="row-hover">
                           <td style={td}>
                             <input
                               type="checkbox"
@@ -773,7 +756,7 @@ const HrNoticesFaqPage = () => {
                           </td>
                           <td style={{ ...td, color: 'var(--fg-muted)' }}>{orgDeptLabel(row.org)}</td>
                           <td style={{ ...td, color: 'var(--fg-muted)' }}>{row.id}</td>
-                          <td style={td}>
+                          <td style={td} className="tnum">
                             {recentlySent ? (
                               <span style={{ color: 'var(--ok-orange)', fontWeight: 600 }}>
                                 {fmtDateTime(row.lastNoticeAt)} (제외)
@@ -787,9 +770,9 @@ const HrNoticesFaqPage = () => {
                     })}
                   </tbody>
                 </table>
-              </div>
-            )}
+            </div>
           </div>
+          )}
         </section>
         )}
 
@@ -802,8 +785,9 @@ const HrNoticesFaqPage = () => {
             style={{
               padding: 16,
               marginBottom: 16,
-              background: 'var(--ok-orange-50)',
-              color: 'var(--ok-orange)',
+              background: 'var(--info-bg)',
+              borderColor: 'var(--info)',
+              color: 'var(--info)',
               fontSize: 'var(--fs-sm)',
               fontWeight: 600,
             }}
@@ -814,20 +798,18 @@ const HrNoticesFaqPage = () => {
 
           <div className="sd-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {faqLoading ? (
-              <div style={{ color: 'var(--fg-muted)' }}>불러오는 중…</div>
+              <LoadingState message="불러오는 중…" />
             ) : faqError ? (
               <ErrorState message="FAQ를 불러오지 못했습니다. 저장 전에 반드시 다시 불러와 주세요(빈 목록으로 저장하면 기존 FAQ를 덮어씁니다)." onRetry={() => void loadFaqs()} />
             ) : faqs.length === 0 ? (
-              <div style={{ color: 'var(--fg-muted)' }}>
-                등록된 FAQ가 없습니다. 아래 “항목 추가”로 시작하세요.
-              </div>
+              <EmptyState message="등록된 FAQ가 없습니다. 아래 “항목 추가”로 시작하세요." />
             ) : (
               faqs.map((faq, idx) => (
                 <div
                   key={faq.id}
                   style={{
                     border: '1px solid var(--border)',
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     padding: 12,
                     display: 'flex',
                     flexDirection: 'column',
@@ -846,7 +828,7 @@ const HrNoticesFaqPage = () => {
                         disabled={idx === 0 || faqSaving}
                         aria-label="위로 이동"
                       >
-                        ↑
+                        <ChevronUp size={14} aria-hidden />
                       </button>
                       <button
                         type="button"
@@ -855,7 +837,7 @@ const HrNoticesFaqPage = () => {
                         disabled={idx === faqs.length - 1 || faqSaving}
                         aria-label="아래로 이동"
                       >
-                        ↓
+                        <ChevronDown size={14} aria-hidden />
                       </button>
                       <button
                         type="button"

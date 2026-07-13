@@ -42,7 +42,8 @@ const KpiProgressBar = ({ achieved, target, unit, direction = 'higher', hasActua
   const pct = kpiProgressPct(achieved, target, direction, hasActuals);
   const clamped = Math.min(100, Math.max(0, pct));
   // 0~100% 를 매트릭스 점수 1~4 로 매핑해 색 일관성 유지.
-  const color = getScoreColor(1 + (clamped / 100) * 3);
+  // 점수 팔레트는 정수 키 조회 — 반올림 없이는 전 구간이 미평가 회색으로 떨어진다.
+  const color = getScoreColor(Math.round(1 + (clamped / 100) * 3));
   const lowerNoActuals = direction === 'lower' && (achieved == null || hasActuals === false);
 
   return (
@@ -61,8 +62,8 @@ const KpiProgressBar = ({ achieved, target, unit, direction = 'higher', hasActua
           {lowerNoActuals ? '실적 미입력' : `${pct}%`}
         </span>
       </div>
-      <div style={{ height: compact ? 6 : 8, background: 'var(--bg-muted)', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${clamped}%`, background: color, borderRadius: 4, transition: 'width 0.4s' }} />
+      <div style={{ height: compact ? 6 : 8, background: 'var(--bg-muted)', borderRadius: 'var(--r-pill)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${clamped}%`, background: color, borderRadius: 'var(--r-pill)', transition: 'width 400ms cubic-bezier(0.16, 1, 0.3, 1)' }} />
       </div>
     </div>
   );

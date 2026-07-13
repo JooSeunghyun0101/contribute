@@ -42,7 +42,7 @@ export const NumBadge = ({ score, size = 28, tint = false, className }: Props) =
         color,
         lineHeight: 1,
         fontSize: valueSize,
-        boxShadow: score == null || tint ? 'none' : '0 1px 3px rgba(0,0,0,0.10)',
+        boxShadow: score == null || tint ? 'none' : 'var(--sh-sm)',
         verticalAlign: 'middle',
       }}
     >

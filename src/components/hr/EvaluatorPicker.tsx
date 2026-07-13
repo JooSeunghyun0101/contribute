@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronDown } from 'lucide-react';
 import type { Employee } from '@/types';
 
 interface Props {
@@ -207,7 +208,9 @@ const EvaluatorPicker = ({
           >
             {selectedLabel || placeholder}
           </span>
-          <span style={{ color: 'var(--fg-subtle)', flexShrink: 0 }}>▾</span>
+          <span style={{ color: 'var(--fg-subtle)', flexShrink: 0, display: 'inline-flex' }} aria-hidden>
+            <ChevronDown size={14} />
+          </span>
         </button>
       )}
 
@@ -222,8 +225,8 @@ const EvaluatorPicker = ({
             overflow: 'auto',
             background: 'var(--bg-card)',
             border: '1px solid var(--border)',
-            borderRadius: 8,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            borderRadius: 'var(--r-md)',
+            boxShadow: 'var(--sh-lg)',
           }}
         >
           {allowEmpty && (
@@ -232,6 +235,7 @@ const EvaluatorPicker = ({
               id={`${baseId}-opt-0`}
               data-idx={0}
               role="option"
+              className="row-hover"
               aria-selected={value === ''}
               onMouseDown={(e) => {
                 e.preventDefault();
@@ -262,6 +266,7 @@ const EvaluatorPicker = ({
                   id={`${baseId}-opt-${idx}`}
                   data-idx={idx}
                   role="option"
+                  className="row-hover"
                   aria-selected={opt.employee_id === value}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -289,8 +294,8 @@ const optionStyle = (selected: boolean, keyboardActive: boolean): React.CSSPrope
   textAlign: 'left',
   padding: '8px 12px',
   border: 'none',
-  borderBottom: '1px solid var(--border)',
-  background: selected ? 'var(--ok-orange-50)' : keyboardActive ? 'var(--bg-muted)' : 'transparent',
+  // 비활성 항목은 background 미지정 — .row-hover 의 마우스 hover 배경이 살아있게 한다.
+  background: selected ? 'var(--ok-orange-50)' : keyboardActive ? 'var(--bg-muted)' : undefined,
   // 키보드 화살표로 이동 중인 항목을 선택(주황 배경)과 구분되게 외곽선으로 강조.
   outline: keyboardActive ? '2px solid var(--ok-orange)' : 'none',
   outlineOffset: '-2px',

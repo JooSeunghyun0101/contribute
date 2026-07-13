@@ -29,12 +29,27 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      gap: 12,
+      gap: 14,
       textAlign: 'center',
       color: 'var(--fg)',
+      padding: '40px 24px',
     }}
   >
-    <AlertTriangle size={28} style={{ color: 'var(--danger)' }} aria-hidden />
+    <div
+      aria-hidden
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 48,
+        height: 48,
+        borderRadius: 'var(--r-pill)',
+        background: 'var(--danger-bg)',
+        color: 'var(--danger)',
+      }}
+    >
+      <AlertTriangle size={22} />
+    </div>
     <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.6 }}>{message}</div>
     {onRetry && (
       <button type="button" className="sd-btn sd-btn-outline sd-btn-sm" onClick={onRetry}>
@@ -59,12 +74,26 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ message, action, icon })
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      gap: 12,
+      gap: 14,
       textAlign: 'center',
       color: 'var(--fg-muted)',
+      padding: '40px 24px',
     }}
   >
-    {icon ?? <Inbox size={28} style={{ color: 'var(--fg-muted)' }} aria-hidden />}
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 48,
+        height: 48,
+        borderRadius: 'var(--r-pill)',
+        background: 'var(--bg-muted)',
+        color: 'var(--fg-subtle)',
+      }}
+    >
+      {icon ?? <Inbox size={22} aria-hidden />}
+    </div>
     <div style={{ fontSize: 'var(--fs-body)', lineHeight: 1.6 }}>{message}</div>
     {action}
   </div>

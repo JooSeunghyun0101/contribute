@@ -21,11 +21,11 @@ import {
 const COLOR_ACHIEVED = 'var(--score-4-bg)'; // 달성 — 점수 단계 팔레트(4점)
 const COLOR_MISSED = 'var(--score-2-bg)'; // 미달성 (2점 브라운)
 const COLOR_PENDING = 'var(--score-1-bg)'; // 미완료 (1점 그레이)
-// 달성률 라인 — 디자인 가이드 OK Yellow 계열.
-const RATE_COLOR = '#CA8A04'; // 올해 달성률 — 진한 골드(글자색과 동일)
-const RATE_PRIOR = '#E8C77A'; // 전년 달성률 — 연한 골드(명확히 구분)
-const RATE_TEXT = '#CA8A04'; // 노랑 글자 가독성용 골드(--warning/--chart-5)
-const PRIOR_RATE_TEXT = '#C9A85C';
+// 달성률 라인 — 차트 팔레트 토큰.
+const RATE_COLOR = 'var(--chart-3)'; // 올해 달성률 — 골드
+const RATE_PRIOR = 'var(--chart-2)'; // 전년 달성률 — 웜 그레이(명확히 구분·전년=중립)
+const RATE_TEXT = 'var(--warning)'; // 골드 글자 가독성용(AA-안전 텍스트 토큰)
+const PRIOR_RATE_TEXT = 'var(--fg-subtle)'; // 전년 수치 — 툴팁 전년 열과 동일 톤
 
 // 'bars' = 달성/미달성/미완료 누적 막대, 'rate' = 달성률 라인, 'both' = 둘 다.
 type Metric = 'bars' | 'rate' | 'both';
@@ -60,12 +60,12 @@ const makeTooltip = (comparisonLabel: string, showComparison: boolean) =>
     return (
       <div
         style={{
-          borderRadius: 10,
+          borderRadius: 'var(--r-md)',
           border: '1px solid var(--border)',
           background: 'var(--bg-card)',
           padding: '10px 12px',
           fontSize: 'var(--fs-sm)',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+          boxShadow: 'var(--sh-lg)',
           minWidth: 160,
         }}
       >
@@ -108,7 +108,7 @@ const makeTooltip = (comparisonLabel: string, showComparison: boolean) =>
           <span className="tnum" style={{ ...cell, marginTop: 4, color: RATE_TEXT }}>{fmtRate(p.achievementRate)}</span>
           {showComparison && <span className="tnum" style={{ ...cell, marginTop: 4, color: PRIOR_RATE_TEXT }}>{fmtRate(p.compareRate)}</span>}
         </div>
-        <div style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+        <div className="tnum" style={{ marginTop: 8, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
           평가 완료 {p.evaluatedCount}/{p.totalCount}명
         </div>
       </div>
@@ -136,21 +136,14 @@ function ChartControls({
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+      <div className="sd-seg">
         {METRIC_OPTIONS.map((opt) => (
           <button
             key={opt.id}
             type="button"
             onClick={() => onMetric(opt.id)}
-            style={{
-              padding: '4px 12px',
-              fontSize: 'var(--fs-xs)',
-              fontWeight: 700,
-              border: 'none',
-              cursor: 'pointer',
-              background: metric === opt.id ? 'var(--ok-orange)' : 'transparent',
-              color: metric === opt.id ? '#fff' : 'var(--fg-muted)',
-            }}
+            className={`sd-seg-item${metric === opt.id ? ' is-active' : ''}`}
+            style={{ padding: '3px 10px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
           >
             {opt.label}
           </button>
@@ -161,16 +154,8 @@ function ChartControls({
           type="button"
           onClick={onTogglePrior}
           aria-pressed={showPrior}
-          style={{
-            padding: '4px 10px',
-            fontSize: 'var(--fs-xs)',
-            fontWeight: 700,
-            borderRadius: 8,
-            cursor: 'pointer',
-            border: `1px solid ${showPrior ? 'var(--ok-orange)' : 'var(--border)'}`,
-            background: showPrior ? 'var(--ok-orange-50)' : 'transparent',
-            color: showPrior ? 'var(--ok-orange)' : 'var(--fg-muted)',
-          }}
+          className={`sd-filter-chip${showPrior ? ' is-active' : ''}`}
+          style={{ padding: '4px 10px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
         >
           전년 비교
         </button>

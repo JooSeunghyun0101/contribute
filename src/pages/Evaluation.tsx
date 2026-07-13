@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, PencilLine } from 'lucide-react';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
@@ -377,8 +377,10 @@ const Evaluation = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
-          <h2 className="text-xl sm:text-2xl font-bold mb-4">접근 권한이 없습니다</h2>
-          <p className="text-sm sm:text-base text-muted-foreground">
+          <h2 style={{ fontSize: 'var(--fs-h2)', fontWeight: 800, marginBottom: 12 }}>
+            접근 권한이 없습니다
+          </h2>
+          <p style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)' }}>
             평가자만 접근할 수 있는 페이지입니다.
           </p>
         </div>
@@ -390,7 +392,11 @@ const Evaluation = () => {
     return <div style={{ padding: 32 }}><LoadingState message="평가 데이터를 불러오는 중입니다…" /></div>;
   }
   if (!evaluationData) {
-    return <div style={{ padding: 32, color: 'var(--fg-muted)' }}>평가 데이터를 찾을 수 없습니다.</div>;
+    return (
+      <div style={{ padding: 32 }}>
+        <EmptyState message="평가 데이터를 찾을 수 없습니다." />
+      </div>
+    );
   }
 
   const toggleGroup = (groupKey: string) => {
@@ -642,6 +648,7 @@ const Evaluation = () => {
                   <ChevronLeft size={16} aria-hidden="true" />
                 </button>
                 <span
+                  className="tnum"
                   style={{
                     fontSize: 'var(--fs-xs)',
                     fontWeight: 700,
@@ -742,10 +749,11 @@ const Evaluation = () => {
       {(!isPeriodEditable || !isSubmittedForReview || !canEditEvaluation) && evaluatorEditMessage && (
         <div
           style={{
+            // 편집 불가 안내 = 시맨틱 warning 톤(단일 액센트 잠금 — 오렌지는 액션 전용)
             padding: '10px 32px',
-            background: 'var(--ok-orange-50)',
-            borderBottom: '1px solid var(--ok-orange-100)',
-            color: 'var(--ok-orange-700)',
+            background: 'var(--warning-bg)',
+            borderBottom: '1px solid var(--border)',
+            color: 'var(--warning)',
             fontSize: 'var(--fs-body)',
             fontWeight: 700,
           }}
@@ -759,7 +767,7 @@ const Evaluation = () => {
           padding: '24px 32px 32px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 16,
           overflow: 'auto',
         }}
       >
@@ -796,9 +804,7 @@ const Evaluation = () => {
         })}
 
         {evaluatorGroups.length === 0 && (
-          <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
-            표시할 평가 내용이 없습니다.
-          </div>
+          <EmptyState message="표시할 평가 내용이 없습니다." />
         )}
       </div>
       {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}

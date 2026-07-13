@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
+import { Pill, type PillTone } from '@/components/brand';
 import { formatDateTime } from '@/lib/dateFormat';
 import { useAuth } from '@/contexts/AuthContext';
 import { changeRequestService } from '@/lib/services';
@@ -15,11 +16,12 @@ const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
   cancelled: '취소',
 };
 
-const STATUS_STYLE: Record<ChangeRequestStatus, { bg: string; fg: string }> = {
-  pending: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange)' },
-  approved: { bg: 'var(--success-bg)', fg: 'var(--success)' },
-  rejected: { bg: 'var(--danger-bg)', fg: 'var(--danger)' },
-  cancelled: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)' },
+// 상태 배지 톤 — 공용 Pill(brand) 톤으로 통일
+const STATUS_TONE: Record<ChangeRequestStatus, PillTone> = {
+  pending: 'orange',
+  approved: 'success',
+  rejected: 'danger',
+  cancelled: 'neutral',
 };
 
 // P3-10: 날짜 표기 공용 컨벤션(dateFormat.ts)으로 통일 — YY.MM.DD → YYYY.MM.DD HH:mm.
@@ -244,7 +246,7 @@ const ChangeRequestsPage = () => {
         }
         filters={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div className="sd-seg">
               {([
                 { id: 'pending', label: `대기 ${pendingCount}` },
                 { id: 'processed', label: '처리됨' },
@@ -254,15 +256,8 @@ const ChangeRequestsPage = () => {
                   key={t.id}
                   type="button"
                   onClick={() => setFilter(t.id)}
-                  style={{
-                    padding: '6px 16px',
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 700,
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: filter === t.id ? 'var(--ok-orange)' : 'transparent',
-                    color: filter === t.id ? '#fff' : 'var(--fg-muted)',
-                  }}
+                  className={`sd-seg-item${filter === t.id ? ' is-active' : ''}`}
+                  style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}
                 >
                   {t.label}
                 </button>
@@ -270,16 +265,10 @@ const ChangeRequestsPage = () => {
             </div>
             {/* S6: 기간·이름 필터 */}
             <select
+              className="sd-input"
               value={periodFilter}
               onChange={(e) => setPeriodFilter(e.target.value)}
-              style={{
-                padding: '6px 10px',
-                fontSize: 'var(--fs-sm)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                background: 'var(--bg-card)',
-                color: 'var(--fg)',
-              }}
+              style={{ width: 'auto', padding: '6px 10px', fontSize: 'var(--fs-sm)' }}
             >
               <option value="all">전체 평가기간</option>
               {periodOptions.map(([key, label]) => (
@@ -289,18 +278,11 @@ const ChangeRequestsPage = () => {
               ))}
             </select>
             <input
+              className="sd-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="이름·사번 검색 (피평가자/평가자/요청자)"
-              style={{
-                padding: '6px 10px',
-                fontSize: 'var(--fs-sm)',
-                border: '1px solid var(--border)',
-                borderRadius: 8,
-                background: 'var(--bg-card)',
-                color: 'var(--fg)',
-                minWidth: 240,
-              }}
+              style={{ width: 'auto', padding: '6px 10px', fontSize: 'var(--fs-sm)', minWidth: 240 }}
             />
             {/* S6: 일괄 승인 — 화면에 보이는 대기 건 중 선택된 것만 */}
             <button
@@ -320,17 +302,17 @@ const ChangeRequestsPage = () => {
       />
 
       <div style={{ padding: '20px 32px' }}>
+        {loading ? (
+          <LoadingState message="불러오는 중…" />
+        ) : loadError ? (
+          <ErrorState
+            message="변경요청 목록을 불러오지 못했습니다."
+            onRetry={() => void load()}
+          />
+        ) : visible.length === 0 ? (
+          <EmptyState message="해당하는 변경요청이 없습니다." />
+        ) : (
         <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {loading ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
-          ) : loadError ? (
-            <ErrorState
-              message="변경요청 목록을 불러오지 못했습니다."
-              onRetry={() => void load()}
-            />
-          ) : visible.length === 0 ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>해당하는 변경요청이 없습니다.</div>
-          ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
                 <thead>
@@ -360,7 +342,7 @@ const ChangeRequestsPage = () => {
                   {visible.map((r) => {
                     const busy = actionId === r.id;
                     return (
-                      <tr key={r.id}>
+                      <tr key={r.id} className="row-hover">
                         <td style={td}>
                           {r.status === 'pending' && (
                             <input
@@ -371,7 +353,7 @@ const ChangeRequestsPage = () => {
                             />
                           )}
                         </td>
-                        <td style={td}>{fmtDateTime(r.created_at)}</td>
+                        <td style={td} className="tnum">{fmtDateTime(r.created_at)}</td>
                         <td style={td}>
                           <strong>{r.evaluatee_name ?? r.evaluatee_id}</strong>
                           {r.evaluatee_department && (
@@ -387,7 +369,7 @@ const ChangeRequestsPage = () => {
                           {r.evaluation_period_name ?? '-'}
                           {r.evaluation_year ? ` (${r.evaluation_year})` : ''}
                         </td>
-                        <td style={td}>
+                        <td style={td} className="tnum">
                           {r.segment_start_date
                             ? `${r.segment_start_date.slice(0, 10).replace(/-/g, '.')} ~ ${
                                 r.segment_end_date ? r.segment_end_date.slice(0, 10).replace(/-/g, '.') : '현재'
@@ -407,19 +389,7 @@ const ChangeRequestsPage = () => {
                           )}
                         </td>
                         <td style={td}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 10px',
-                              borderRadius: 999,
-                              fontSize: 'var(--fs-xs)',
-                              fontWeight: 700,
-                              background: STATUS_STYLE[r.status].bg,
-                              color: STATUS_STYLE[r.status].fg,
-                            }}
-                          >
-                            {STATUS_LABEL[r.status]}
-                          </span>
+                          <Pill tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Pill>
                         </td>
                         <td style={{ ...td, textAlign: 'right' }}>
                           {r.status === 'pending' ? (
@@ -452,8 +422,8 @@ const ChangeRequestsPage = () => {
                 </tbody>
               </table>
             </div>
-          )}
         </div>
+        )}
       </div>
     </div>
   );

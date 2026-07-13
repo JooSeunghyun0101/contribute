@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
+import './my-pages.css';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { NumBadge } from '@/components/brand';
 import { CelebrationOverlay, type CelebrationTrigger } from '@/components/ui/lottie-celebration-overlay';
@@ -83,10 +85,12 @@ const MyHome = () => {
     if (!achieved) return;
     event.currentTarget.animate(
       [
-        { transform: 'scale(1)', textShadow: '0 0 0 rgba(255, 190, 64, 0)' },
-        { transform: 'scale(1.08)', textShadow: '0 0 22px rgba(255, 196, 72, 0.75)' },
-        { transform: 'scale(0.99)', textShadow: '0 0 9px rgba(255, 196, 72, 0.45)' },
-        { transform: 'scale(1)', textShadow: '0 0 0 rgba(255, 190, 64, 0)' },
+        // 골드 글로우 — --ok-yellow-hsl 토큰(39 72% 56%) 기반. WAAPI 키프레임에서도 var() 는
+        // 요소의 계산값으로 해석된다(하드코딩 rgba 제거).
+        { transform: 'scale(1)', textShadow: '0 0 0 hsl(var(--ok-yellow-hsl) / 0)' },
+        { transform: 'scale(1.08)', textShadow: '0 0 22px hsl(var(--ok-yellow-hsl) / 0.75)' },
+        { transform: 'scale(0.99)', textShadow: '0 0 9px hsl(var(--ok-yellow-hsl) / 0.45)' },
+        { transform: 'scale(1)', textShadow: '0 0 0 hsl(var(--ok-yellow-hsl) / 0)' },
       ],
       { duration: 520, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
     );
@@ -235,7 +239,7 @@ const MyHome = () => {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 32 }}>
+      <div style={{ padding: '24px 32px 32px' }}>
         <LoadingState message="평가 데이터를 불러오는 중입니다…" />
       </div>
     );
@@ -307,7 +311,7 @@ const MyHome = () => {
               {achieved ? (
                 <button
                   type="button"
-                  className="tnum"
+                  className="tnum qc-celebrate-btn"
                   onClick={handleAchievementClick}
                   title="클릭하면 축하 폭죽이 터집니다."
                   style={{
@@ -346,18 +350,16 @@ const MyHome = () => {
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '20px 32px 24px',
+          padding: '24px 32px 32px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 16,
         }}
       >
         <CelebrationOverlay trigger={fireworkTrigger} />
 
       {!evaluationData ? (
-        <div className="sd-card" style={{ padding: 24, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-          평가 데이터가 없습니다.
-        </div>
+        <EmptyState message="평가 데이터가 없습니다." />
       ) : (
         <>
           {/* 최상단 한 줄 요약 — order 로 재배치되는 행들보다 위(-3)에 고정 */}
@@ -368,7 +370,7 @@ const MyHome = () => {
               alignItems: 'center',
               gap: 10,
               padding: '12px 16px',
-              borderRadius: 10,
+              borderRadius: 'var(--r-md)',
               background: 'var(--ok-orange-50)',
               border: '1px solid var(--ok-orange-100)',
             }}
@@ -382,15 +384,16 @@ const MyHome = () => {
             {summary.action === 'tasks' && (
               <Link
                 to="/my/tasks"
+                className="qc-link-arrow"
                 style={{
                   marginLeft: 'auto',
                   fontSize: 'var(--fs-sm)',
                   fontWeight: 800,
-                  color: 'var(--ok-orange)',
                   whiteSpace: 'nowrap',
                 }}
               >
-                내 과업으로 →
+                내 과업으로
+                <ArrowRight size={14} aria-hidden="true" />
               </Link>
             )}
           </div>
@@ -444,7 +447,7 @@ const MyHome = () => {
                       <div
                         style={{
                           height: 48,
-                          borderRadius: 8,
+                          borderRadius: 'var(--r-sm)',
                           background: 'var(--bg-muted)',
                           display: 'flex',
                           alignItems: 'center',
@@ -471,9 +474,10 @@ const MyHome = () => {
                         {...taskHighlightA11y(() => {
                           if (cellTask?.id) toggleActiveTask(cellTask.id);
                         }, cellActive)}
+                        className="kbd-focus qc-tint-hl"
                         style={{
                           height: 48,
-                          borderRadius: 8,
+                          borderRadius: 'var(--r-sm)',
                           background: bg,
                           display: 'flex',
                           flexDirection: 'column',
@@ -500,7 +504,7 @@ const MyHome = () => {
                           }}
                         >
                           {cellTask?.isAiTask && (
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px var(--bg-card)' }} />
                           )}
                           {label}
                         </span>
@@ -527,7 +531,7 @@ const MyHome = () => {
                     <div
                       style={{
                         height: 48,
-                        borderRadius: 8,
+                        borderRadius: 'var(--r-sm)',
                         background: 'var(--bg-card)',
                         border: '1px solid var(--border)',
                         padding: 3,
@@ -555,10 +559,11 @@ const MyHome = () => {
                             {...taskHighlightA11y(() => {
                               if (chipTask?.id) toggleActiveTask(chipTask.id);
                             }, chipActive)}
+                            className="kbd-focus qc-tint-hl"
                             style={{
                               flex: 1,
                               minHeight: 18,
-                              borderRadius: 5,
+                              borderRadius: 'var(--r-xs)',
                               background: bg,
                               display: 'flex',
                               alignItems: 'center',
@@ -576,7 +581,7 @@ const MyHome = () => {
                               style={{ opacity: 0.9, letterSpacing: '0.02em', display: 'inline-flex', alignItems: 'center', gap: 3 }}
                             >
                               {chipTask?.isAiTask && (
-                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)' }} />
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--ai-accent)', boxShadow: '0 0 0 1px var(--bg-card)' }} />
                               )}
                               {lab}
                             </span>
@@ -591,7 +596,7 @@ const MyHome = () => {
                           style={{
                             flex: 1,
                             minHeight: 18,
-                            borderRadius: 5,
+                            borderRadius: 'var(--r-xs)',
                             background: 'var(--bg-muted)',
                             border: '1px solid var(--border)',
                             display: 'flex',
@@ -730,6 +735,7 @@ const MyHome = () => {
                     <div
                       key={task.id}
                       {...taskHighlightA11y(() => toggleActiveTask(task.id), ganttActive)}
+                      className="kbd-focus qc-row-hl"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 64px',
@@ -744,7 +750,7 @@ const MyHome = () => {
                           position: 'relative',
                           height: 28,
                           background: 'var(--bg-muted)',
-                          borderRadius: 6,
+                          borderRadius: 'var(--r-xs)',
                           overflow: 'hidden',
                         }}
                       >
@@ -757,7 +763,7 @@ const MyHome = () => {
                               bottom: 0,
                               left: `${(i / GANTT_MONTHS) * 100}%`,
                               width: 1,
-                              background: 'rgba(0,0,0,0.08)',
+                              background: 'var(--border-strong)',
                             }}
                           />
                         ))}
@@ -769,7 +775,7 @@ const MyHome = () => {
                             left: `${Math.min(96, leftPct)}%`,
                             width: `${Math.max(4, widthPct)}%`,
                             background: getScoreTintBg(taskScore),
-                            borderRadius: 4,
+                            borderRadius: 'var(--r-xs)',
                             display: 'flex',
                             alignItems: 'center',
                             padding: '0 8px',
@@ -787,11 +793,11 @@ const MyHome = () => {
                                 flexShrink: 0,
                                 margin: '0 4px',
                                 padding: '0 4px',
-                                borderRadius: 999,
+                                borderRadius: 'var(--r-pill)',
                                 fontSize: 'var(--fs-2xs)',
                                 fontWeight: 800,
                                 color: 'var(--ai-accent)',
-                                background: '#fff',
+                                background: 'var(--bg-card)',
                               }}
                             >
                               AI
@@ -809,7 +815,7 @@ const MyHome = () => {
                               style={{
                                 width: 24,
                                 height: 24,
-                                borderRadius: 6,
+                                borderRadius: 'var(--r-xs)',
                                 background: getScoreTintBg(taskScore),
                                 color: getScoreTintFg(taskScore),
                                 fontWeight: 900,
@@ -845,11 +851,7 @@ const MyHome = () => {
                   );
                 })}
 
-                {!tasks.length && (
-                  <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                    등록된 과업이 없습니다.
-                  </div>
-                )}
+                {!tasks.length && <EmptyState message="등록된 과업이 없습니다." />}
               </div>
               </div>
             </div>
@@ -892,11 +894,9 @@ const MyHome = () => {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'var(--fg-muted)',
-                      fontSize: 'var(--fs-body)',
                     }}
                   >
-                    표시할 과업이 없습니다.
+                    <EmptyState message="표시할 과업이 없습니다." />
                   </div>
                 ) : (
                   <>
@@ -965,10 +965,11 @@ const MyHome = () => {
                         <Tooltip
                           formatter={(v: number) => [`${v}%`, '가중치']}
                           contentStyle={{
-                            borderRadius: 10,
+                            borderRadius: 'var(--r-md)',
                             border: '1px solid var(--border)',
                             fontSize: 'var(--fs-sm)',
                             background: 'var(--bg-card)',
+                            boxShadow: 'var(--sh-lg)',
                           }}
                         />
                       </PieChart>
@@ -1031,13 +1032,13 @@ const MyHome = () => {
                     <div
                       key={item.shortName}
                       {...taskHighlightA11y(() => toggleActiveTask(item.id), item.id === activeTaskId)}
+                      className="kbd-focus qc-legend-row"
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: 8,
                         padding: '4px 8px',
-                        borderRadius: 6,
-                        background: 'var(--bg-muted)',
+                        borderRadius: 'var(--r-xs)',
                         opacity: activeTaskId && item.id !== activeTaskId ? 0.4 : 1,
                         cursor: 'pointer',
                         minWidth: 0,
@@ -1080,7 +1081,7 @@ const MyHome = () => {
                           style={{
                             flexShrink: 0,
                             padding: '0 5px',
-                            borderRadius: 999,
+                            borderRadius: 'var(--r-pill)',
                             fontSize: 'var(--fs-2xs)',
                             fontWeight: 800,
                             color: 'var(--ai-accent)',
@@ -1105,7 +1106,7 @@ const MyHome = () => {
                             fontWeight: 700,
                             color: 'var(--fg-subtle)',
                             padding: '1px 5px',
-                            borderRadius: 4,
+                            borderRadius: 'var(--r-xs)',
                             background: 'var(--bg-card)',
                             border: '1px solid var(--border)',
                           }}

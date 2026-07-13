@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, X } from 'lucide-react';
+import { ArrowRight, Download, TrendingDown, TrendingUp, X } from 'lucide-react';
 import AggregateScoreTrendChart from '@/components/Evaluation/AggregateScoreTrendChart';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pill } from '@/components/brand';
 import AiSummaryReportModal from '@/components/Dashboard/AiSummaryReportModal';
@@ -399,17 +399,7 @@ const HrHome = () => {
                   key={lv}
                   type="button"
                   onClick={() => setSelectedLevel(lv)}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: 8,
-                    border: '1px solid',
-                    borderColor: selectedLevel === lv ? 'var(--ok-orange)' : 'var(--border)',
-                    background: selectedLevel === lv ? 'var(--ok-orange)' : 'transparent',
-                    color: selectedLevel === lv ? '#fff' : 'var(--fg)',
-                    fontSize: 'var(--fs-sm)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  className={`sd-filter-chip${selectedLevel === lv ? ' is-active' : ''}`}
                 >
                   {lv === 'all' ? '전체' : `Lv.${lv}`}
                 </button>
@@ -433,11 +423,17 @@ const HrHome = () => {
             value={`${summary.completedMembers}명 · ${summary.completionRate}%`}
             accent
             sub={
-              summary.completionDelta > 0
-                ? `전월 대비 ▲ +${summary.completionDelta}%p`
-                : summary.completionDelta < 0
-                  ? `전월 대비 ▼ ${summary.completionDelta}%p`
-                  : '전월 대비 변동 없음'
+              summary.completionDelta > 0 ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  전월 대비 <TrendingUp size={11} aria-hidden /> +{summary.completionDelta}%p
+                </span>
+              ) : summary.completionDelta < 0 ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  전월 대비 <TrendingDown size={11} aria-hidden /> {summary.completionDelta}%p
+                </span>
+              ) : (
+                '전월 대비 변동 없음'
+              )
             }
           />
           <KpiDivider />
@@ -559,26 +555,18 @@ const HrHome = () => {
                     style={{ color: 'var(--ok-orange)' }}
                     onClick={() => navigate('/hr/departments')}
                   >
-                    전체 보기 →
+                    전체 보기 <ArrowRight size={13} aria-hidden />
                   </button>
                 }
               >
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <div className="sd-seg" style={{ marginBottom: 10 }}>
                   {(['division', 'department', 'team'] as DeptLevel[]).map((lv) => (
                     <button
                       key={lv}
                       type="button"
                       onClick={() => setDeptLevel(lv)}
-                      style={{
-                        padding: '3px 12px',
-                        borderRadius: 7,
-                        fontSize: 'var(--fs-xs)',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        border: `1px solid ${deptLevel === lv ? 'var(--ok-orange)' : 'var(--border)'}`,
-                        background: deptLevel === lv ? 'var(--ok-orange-50)' : 'transparent',
-                        color: deptLevel === lv ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                      }}
+                      className={`sd-seg-item${deptLevel === lv ? ' is-active' : ''}`}
+                      style={{ padding: '3px 12px', fontSize: 'var(--fs-xs)', fontWeight: 700 }}
                     >
                       {DEPT_LEVEL_LABEL[lv]}
                     </button>
@@ -650,9 +638,10 @@ const KpiStat = ({
       className="tnum"
       style={{
         fontSize: 'var(--fs-h3)',
-        fontWeight: 900,
+        fontWeight: 800,
         lineHeight: 1,
-        color: emphasize ? 'var(--ok-orange)' : accent ? 'var(--ok-orange)' : 'var(--fg)',
+        // accent=브랜드 강조(오렌지), emphasize=주의 환기(위험 시맨틱) — 두 강조를 시각적으로 분리
+        color: emphasize ? 'var(--danger)' : accent ? 'var(--ok-orange)' : 'var(--fg)',
       }}
     >
       {value}
@@ -737,7 +726,8 @@ const DashboardMemberModal = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.45)',
+        // 오버레이 — 웜 잉크 틴트(--shadow-color) 45%. 하드코딩 rgba 대신 토큰 기반.
+        background: 'var(--overlay)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -748,7 +738,7 @@ const DashboardMemberModal = ({
       <div
         onClick={(e) => e.stopPropagation()}
         className="sd-card sd-card-lg"
-        style={{ width: 'min(1000px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}
+        style={{ width: 'min(1000px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', boxShadow: 'var(--sh-lg)' }}
       >
         <div
           style={{
@@ -762,7 +752,7 @@ const DashboardMemberModal = ({
         >
           <div>
             <div className="sd-label-mini">대상자 명단</div>
-            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{title}</h2>
+            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 800 }}>{title}</h2>
             <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{records.length}명</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -779,7 +769,9 @@ const DashboardMemberModal = ({
 
         <div style={{ overflow: 'auto', padding: '0 4px 4px' }}>
           {records.length === 0 ? (
-            <div style={{ padding: 24, color: 'var(--fg-muted)' }}>해당하는 대상자가 없습니다.</div>
+            <div style={{ padding: 20 }}>
+              <EmptyState message="해당하는 대상자가 없습니다." />
+            </div>
           ) : (
             <Table>
               <TableHeader style={{ background: 'var(--bg-muted)' }}>
@@ -800,7 +792,7 @@ const DashboardMemberModal = ({
                   const fin = isFinalizedRec(r);
                   return (
                     <TableRow key={r.employee.id}>
-                      <TableCell style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                      <TableCell className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                         {r.employee.employee_id}
                       </TableCell>
                       <TableCell style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{r.employee.name}</TableCell>

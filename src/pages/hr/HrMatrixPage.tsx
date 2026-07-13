@@ -186,14 +186,14 @@ const HrMatrixPage = () => {
                         marginTop: 2,
                         fontSize: 'var(--fs-xs)',
                         color: 'var(--fg-muted)',
-                        fontFamily: 'monospace',
+                        fontFamily: 'var(--font-mono)',
                       }}
                     >
                       {selectedPeriod.code}
                     </div>
                   </InfoRow>
                   <InfoRow label="적용 기간">
-                    <div style={{ fontWeight: 700 }}>
+                    <div className="tnum" style={{ fontWeight: 700 }}>
                       {formatDate(selectedPeriod.starts_on)}
                       {' ~ '}
                       {formatDate(selectedPeriod.ends_on)}
@@ -207,7 +207,7 @@ const HrMatrixPage = () => {
                 <div
                   style={{
                     padding: 12,
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     background: 'var(--bg-muted)',
                     border: '1px dashed var(--border)',
                     color: 'var(--fg-muted)',
@@ -224,11 +224,11 @@ const HrMatrixPage = () => {
               <div
                 style={{
                   padding: '12px 14px',
-                  borderRadius: 12,
-                  background: 'var(--ok-orange-50)',
-                  border: '1px solid var(--ok-orange-100)',
+                  borderRadius: 'var(--r-md)',
+                  background: 'var(--warning-bg)',
+                  border: '1px solid var(--warning)',
                   fontSize: 'var(--fs-sm)',
-                  color: 'var(--ok-orange-700)',
+                  color: 'var(--warning)',
                   lineHeight: 1.6,
                 }}
               >
@@ -250,7 +250,7 @@ const HrMatrixPage = () => {
             dirty={guideDirty}
             saving={savingGuide}
           />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20, marginTop: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
             <div>
               <div className="sd-label-mini" style={{ marginBottom: 10 }}>기여 방식</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -301,7 +301,7 @@ const HrMatrixPage = () => {
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 14,
+              gap: 16,
               marginTop: 14,
             }}
           >
@@ -334,7 +334,7 @@ const HrMatrixPage = () => {
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 14,
+              gap: 16,
               marginTop: 14,
             }}
           >
@@ -407,15 +407,16 @@ const SectionHeader = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
         {index !== undefined && (
           <span
+            className="tnum"
             style={{
               flexShrink: 0,
               width: 22,
               height: 22,
-              borderRadius: '50%',
-              background: 'var(--ok-orange)',
-              color: '#fff',
+              borderRadius: 'var(--r-pill)',
+              background: 'var(--ok-orange-solid)',
+              color: 'var(--primary-foreground)',
               fontSize: 'var(--fs-xs)',
-              fontWeight: 900,
+              fontWeight: 800,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -444,12 +445,6 @@ const SectionHeader = ({
         onClick={onSave}
         disabled={!dirty || saving}
         className="sd-btn sd-btn-primary sd-btn-sm"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          opacity: dirty && !saving ? 1 : 0.6,
-        }}
       >
         {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
         저장
@@ -509,7 +504,7 @@ const GrowthEditor = ({
   <div
     style={{
       padding: 14,
-      borderRadius: 10,
+      borderRadius: 'var(--r-md)',
       background: 'var(--bg-muted)',
       border: '1px solid var(--border)',
       display: 'flex',
@@ -522,12 +517,12 @@ const GrowthEditor = ({
         style={{
           minWidth: 56,
           padding: '6px 12px',
-          borderRadius: 8,
+          borderRadius: 'var(--r-sm)',
           background: 'var(--ok-orange-50)',
           color: 'var(--ok-orange-700)',
           border: '1px solid var(--ok-orange-100)',
           fontSize: 'var(--fs-body)',
-          fontWeight: 900,
+          fontWeight: 800,
           textAlign: 'center',
         }}
       >
@@ -570,7 +565,7 @@ const GapEditor = ({
     <div
       style={{
         padding: 14,
-        borderRadius: 10,
+        borderRadius: 'var(--r-md)',
         background: 'var(--bg-muted)',
         border: '1px solid var(--border)',
         display: 'flex',

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
-import { MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
+import { MATRIX_SCORE_COLORS, MATRIX_SCORE_TEXT_COLORS } from '@/lib/evaluationMatrix';
 import { X, Star, Target, Users, Award, Clock, TrendingUp } from 'lucide-react';
 
 interface EvaluationGuideProps {
@@ -15,7 +15,11 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
   const { matrix } = useEvaluationMatrix();
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+    // 모달 스크림 — 전 화면 공통 표준값(var(--overlay), 인라인 스타일 모달들과 통일)
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-2 sm:p-4"
+      style={{ background: 'var(--overlay)' }}
+    >
       <Card className="w-full max-w-5xl h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 px-4 sm:px-6 flex-shrink-0">
           <div>
@@ -170,8 +174,10 @@ const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
                   <div
                     className="h-10 rounded-lg flex items-center justify-center text-xs sm:text-sm font-bold"
                     style={{
-                      background: `${MATRIX_SCORE_COLORS[score]}22`,
-                      color: MATRIX_SCORE_COLORS[score],
+                      // 점수 팔레트가 CSS 변수(var(--score-*-bg))로 바뀌어 기존 `${hex}22` 알파
+                      // 접미 방식이 깨짐 — 매트릭스 셀과 동일하게 배경+전용 텍스트색 쌍을 쓴다.
+                      background: MATRIX_SCORE_COLORS[score],
+                      color: MATRIX_SCORE_TEXT_COLORS[score],
                     }}
                   >
                     {score}점

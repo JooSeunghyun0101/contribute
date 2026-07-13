@@ -67,7 +67,7 @@ export function FullScreenLoader({ message = '불러오는 중입니다…' }: {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 18,
-        background: 'rgba(17, 13, 11, 0.28)',
+        background: 'color-mix(in srgb, var(--surface-ink) 30%, transparent)',
         backdropFilter: 'blur(2px)',
         WebkitBackdropFilter: 'blur(2px)',
       }}
@@ -76,10 +76,10 @@ export function FullScreenLoader({ message = '불러오는 중입니다…' }: {
       {message && (
         <div
           style={{
-            color: '#F4EDE3',
+            color: 'var(--surface-ink-fg)',
             fontSize: 'var(--fs-body)',
             fontWeight: 600,
-            textShadow: '0 1px 8px rgba(0,0,0,0.5)',
+            textShadow: '0 1px 8px color-mix(in srgb, var(--surface-ink) 55%, transparent)',
           }}
         >
           {message}

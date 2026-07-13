@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useState, type CSSProperties } from 'react';
+import { CornerDownRight } from 'lucide-react';
+import { getScoreColor } from '@/lib/evaluationMatrix';
 import { kpiService } from '@/lib/services';
 import { ORG_KPI_ENABLED } from '@/lib/featureFlags';
 import type { KpiNode, KpiOrgLevel } from '@/types/kpi';
@@ -35,8 +37,9 @@ const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
         flexShrink: 0,
         width: 300,
         border: '1px solid var(--border)',
-        borderLeft: depth === 0 ? '4px solid var(--ok-orange)' : '1px solid var(--border)',
-        borderRadius: 10,
+        // 최상위 KPI 좌측 액센트 — KPI 관리 트리와 동일한 3px 규격으로 통일.
+        borderLeft: depth === 0 ? '3px solid var(--ok-orange)' : '1px solid var(--border)',
+        borderRadius: 'var(--r-md)',
         background: 'var(--bg-subtle)',
         padding: '9px 12px',
         display: 'flex',
@@ -56,7 +59,13 @@ const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
         }}
         title={depth > 0 ? `상위 KPI 의 하위 — ${path}` : path}
       >
-        {depth > 0 && <span style={{ marginRight: 4 }}>{'↳'.repeat(depth)}</span>}
+        {depth > 0 && (
+          <span style={{ marginRight: 4, display: 'inline-flex', verticalAlign: 'middle' }} aria-hidden>
+            {Array.from({ length: depth }, (_, i) => (
+              <CornerDownRight key={i} size={10} />
+            ))}
+          </span>
+        )}
         {path}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
@@ -78,13 +87,15 @@ const KpiTile = ({ node, depth }: { node: KpiNode; depth: number }) => {
           {pct}%
         </span>
       </div>
-      <div style={{ height: 5, borderRadius: 3, background: 'var(--bg-muted)', overflow: 'hidden' }}>
+      <div style={{ height: 5, borderRadius: 'var(--r-pill)', background: 'var(--bg-muted)', overflow: 'hidden' }}>
         <div
           style={{
             height: '100%',
             width: `${pct}%`,
-            background: pct >= 100 ? 'var(--ok-orange)' : 'var(--warning)',
-            borderRadius: 3,
+            // KpiProgressBar 와 동일한 점수 팔레트 매핑(0~100% → 1~4점, 정수 반올림) — KPI 진척색 체계 단일화.
+            // 점수 팔레트는 정수 키 조회라 반올림 없이는 전 구간이 미평가 회색으로 떨어진다.
+            background: getScoreColor(Math.round(1 + (Math.min(100, Math.max(0, pct)) / 100) * 3)),
+            borderRadius: 'var(--r-pill)',
           }}
         />
       </div>
@@ -148,14 +159,13 @@ export const OrgKpiSummaryCard = ({ periodId, style }: { periodId: string | null
         {rows.map(({ node, depth }, i) => (
           <Fragment key={node.id}>
             {depth === 0 && i > 0 && (
-              // 메인 KPI 그룹 경계 — 명확히 보이도록 진한 2px 세로선(2026-07-07 사용자)
+              // 메인 KPI 그룹 경계 — 명확히 보이도록 진한 세로선(2026-07-07 사용자)
               <div
                 style={{
                   flexShrink: 0,
                   width: 3,
                   background: 'var(--fg-muted)',
-                  opacity: 0.85,
-                  borderRadius: 2,
+                  borderRadius: 'var(--r-pill)',
                   margin: '0 8px',
                 }}
               />

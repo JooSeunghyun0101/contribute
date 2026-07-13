@@ -32,14 +32,17 @@ const Chip = ({ label, value, tone }: { label: string; value: number; tone: stri
       alignItems: 'center',
       gap: 6,
       padding: '4px 12px',
-      borderRadius: 999,
+      borderRadius: 'var(--r-pill)',
       background: 'var(--bg-muted)',
       fontSize: 'var(--fs-sm)',
       fontWeight: 700,
     }}
   >
-    <span style={{ color: tone }}>●</span>
-    {label} <strong>{value}</strong>
+    <span
+      aria-hidden
+      style={{ width: 8, height: 8, borderRadius: 'var(--r-pill)', background: tone, display: 'inline-block', flexShrink: 0 }}
+    />
+    {label} <strong className="tnum">{value}</strong>
   </span>
 );
 
@@ -79,12 +82,17 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, on
           <Chip label="동일" value={summary.unchanged} tone={STATUS_META.unchanged.color} />
           {summary.error > 0 && <Chip label="오류" value={summary.error} tone={STATUS_META.error.color} />}
           <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-sm)', fontWeight: 600 }}>
-            <input type="checkbox" checked={showUnchanged} onChange={() => setShowUnchanged((v) => !v)} />
+            <input
+              type="checkbox"
+              checked={showUnchanged}
+              onChange={() => setShowUnchanged((v) => !v)}
+              style={{ accentColor: 'var(--ok-orange)' }}
+            />
             동일 항목도 표시
           </label>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
             <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-muted)' }}>
               <tr>
@@ -100,7 +108,7 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, on
                 return (
                   <tr key={item.employeeId} style={{ borderTop: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 12px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 999, background: meta.bg, color: meta.color, fontWeight: 700 }}>
+                      <span style={{ padding: '2px 8px', borderRadius: 'var(--r-pill)', background: meta.bg, color: meta.color, fontWeight: 700 }}>
                         {meta.label}
                       </span>
                     </td>

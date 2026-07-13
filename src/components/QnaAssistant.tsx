@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { HelpCircle } from 'lucide-react';
 import { IconSparkle, IconSend } from '@/components/brand';
+import { Spinner } from '@/components/ui/spinner';
 import { FaqSection } from '@/components/FaqSection';
 import { useAuth } from '@/contexts/AuthContext';
 import type { EvaluatorQnaTurn } from '@/lib/gptOss';
@@ -198,7 +199,7 @@ export const QnaAssistant = ({
               display: 'flex',
               flexDirection: 'column',
               gap: 12,
-              background: 'linear-gradient(180deg, var(--bg-card) 0%, var(--bg-muted) 100%)',
+              background: 'var(--bg-muted)',
             }}
           >
             {messages.map((msg) => (
@@ -216,32 +217,14 @@ export const QnaAssistant = ({
                 placeholder={placeholder}
                 rows={2}
                 disabled={isSending}
-                style={{
-                  flex: 1,
-                  resize: 'none',
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-card)',
-                  fontSize: 'var(--fs-body)',
-                  lineHeight: 1.6,
-                  color: 'var(--fg)',
-                  fontFamily: 'inherit',
-                }}
+                className="sd-textarea"
+                style={{ flex: 1, resize: 'none', minHeight: 0, lineHeight: 1.6 }}
               />
               <button
                 type="button"
                 className="sd-btn sd-btn-primary"
                 onClick={() => send(input)}
                 disabled={!input.trim() || isSending}
-                style={{
-                  height: 44,
-                  paddingLeft: 16,
-                  paddingRight: 16,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
               >
                 <IconSend size={16} /> {isSending ? '전송 중…' : '전송'}
               </button>
@@ -289,10 +272,14 @@ export const QnaAssistant = ({
 const MessageBubble = ({ message }: { message: Message }) => {
   const isUser = message.role === 'user';
   const align = isUser ? 'flex-end' : 'flex-start';
-  const bg = message.error ? 'rgba(220,69,69,0.08)' : isUser ? 'var(--ok-orange)' : 'var(--bg-card)';
-  const color = message.error ? 'var(--danger)' : isUser ? '#fff' : 'var(--fg)';
+  const bg = message.error ? 'var(--danger-bg)' : isUser ? 'var(--ok-orange-solid)' : 'var(--bg-card)';
+  const color = message.error
+    ? 'var(--danger)'
+    : isUser
+      ? 'var(--primary-foreground)'
+      : 'var(--fg)';
   const border = message.error
-    ? '1px solid rgba(220,69,69,0.35)'
+    ? '1px solid var(--danger)'
     : isUser
       ? 'none'
       : '1px solid var(--border)';
@@ -319,20 +306,21 @@ const MessageBubble = ({ message }: { message: Message }) => {
           className={!isUser && !message.error ? 'ai-shine-border' : undefined}
           style={{
             padding: '10px 14px',
-            borderRadius: 14,
+            borderRadius: 'var(--r-lg)',
             background: bg,
             color,
             border,
             fontSize: 'var(--fs-body)',
             lineHeight: 1.7,
             whiteSpace: 'pre-wrap',
-            boxShadow: !isUser && !message.error ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            boxShadow: !isUser && !message.error ? 'var(--sh-sm)' : 'none',
             opacity: message.pending ? 0.7 : 1,
           }}
         >
           {message.content}
         </div>
         <div
+          className="tnum"
           style={{
             fontSize: 'var(--fs-micro)',
             color: 'var(--fg-subtle)',
@@ -340,7 +328,13 @@ const MessageBubble = ({ message }: { message: Message }) => {
             textAlign: isUser ? 'right' : 'left',
           }}
         >
-          {message.pending ? '⏳ 답변 생성 중' : formatTime()}
+          {message.pending ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Spinner size={11} aria-label="답변 생성 중" /> 답변 생성 중
+            </span>
+          ) : (
+            formatTime()
+          )}
         </div>
       </div>
     </div>

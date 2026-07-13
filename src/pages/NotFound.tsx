@@ -22,10 +22,7 @@ const NotFound = () => {
         <p className="text-sm text-muted-foreground mb-6">
           주소가 잘못되었거나 삭제·이동된 페이지입니다.
         </p>
-        <Link
-          to="/"
-          className="inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-        >
+        <Link to="/" className="sd-btn sd-btn-primary">
           홈으로 이동
         </Link>
       </div>

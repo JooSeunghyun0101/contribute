@@ -104,14 +104,15 @@ const MyTasksPage = () => {
       />
       {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}
 
+      {/* 페이지 본문 여백은 my/* 공통 리듬(24px 32px 32px · gap 16)으로 통일 */}
       <div
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '20px 24px 28px',
+          padding: '24px 32px 32px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 16,
         }}
       >
         {isLoading && <LoadingState message="평가 목록을 불러오는 중입니다…" />}

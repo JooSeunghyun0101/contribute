@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { parsePeopleSearchQuery, rankPeopleSearchResults } from '@/lib/gptOss';
 import { peopleSearchService, type PeopleSearchCandidate } from '@/lib/services';
@@ -81,7 +82,7 @@ const HrPeopleSearchPage = () => {
               style={{
                 flexShrink: 0,
                 padding: '2px 8px',
-                borderRadius: 999,
+                borderRadius: 'var(--r-pill)',
                 fontSize: 'var(--fs-2xs)',
                 fontWeight: 800,
                 color: 'var(--ai-accent)',
@@ -104,17 +105,7 @@ const HrPeopleSearchPage = () => {
             type="button"
             onClick={() => navigate(`/hr/evaluation-viewer?evaluatee=${encodeURIComponent(cand.employee_id)}`)}
             title={`${cand.name}님의 평가 열람`}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 'var(--fs-xs)',
-              fontWeight: 700,
-              border: '1px solid var(--ok-orange)',
-              background: 'var(--ok-orange-50)',
-              color: 'var(--ok-orange)',
-              whiteSpace: 'nowrap',
-            }}
+            className="sd-btn sd-btn-outline sd-btn-xs"
           >
             평가 보기
           </button>
@@ -142,11 +133,13 @@ const HrPeopleSearchPage = () => {
     if (results === null) return null;
     if (results.length === 0) {
       return (
-        <div className="sd-card" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-          {usedKeywords.length > 0
-            ? `'${usedKeywords.join(', ')}' 로 검색했지만 해당하는 인물을 찾지 못했습니다.`
-            : '검색 결과가 없습니다.'}
-        </div>
+        <EmptyState
+          message={
+            usedKeywords.length > 0
+              ? `'${usedKeywords.join(', ')}' 로 검색했지만 해당하는 인물을 찾지 못했습니다.`
+              : '검색 결과가 없습니다.'
+          }
+        />
       );
     }
     const idx = results.map((_, i) => i);
@@ -177,7 +170,7 @@ const HrPeopleSearchPage = () => {
         title="AI 인물 검색"
         subtitle="자연어로 강점·약점·업무능력을 검색해 대상자를 찾습니다"
       />
-      <div style={{ padding: '24px 32px 40px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ padding: '24px 32px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* 평가기간 다중 선택 */}
         <div className="sd-card" style={{ padding: 16 }}>
           <div className="sd-label-mini" style={{ marginBottom: 10 }}>평가기간 (다중 선택 가능)</div>
@@ -192,16 +185,7 @@ const HrPeopleSearchPage = () => {
                     key={p.id}
                     type="button"
                     onClick={() => togglePeriod(p.id)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: 999,
-                      cursor: 'pointer',
-                      fontSize: 'var(--fs-sm)',
-                      fontWeight: 600,
-                      border: `1px solid ${on ? 'var(--ok-orange)' : 'var(--border)'}`,
-                      background: on ? 'var(--ok-orange-50)' : 'var(--bg-card)',
-                      color: on ? 'var(--ok-orange)' : 'var(--fg)',
-                    }}
+                    className={`sd-filter-chip${on ? ' is-active' : ''}`}
                   >
                     {p.name}
                   </button>
@@ -221,17 +205,8 @@ const HrPeopleSearchPage = () => {
             }}
             placeholder="예: 협업과 소통이 뛰어난 사람 / 부서 내 AI 전파를 많이 하는 사람 / 문서화가 부족한 사람"
             rows={2}
-            style={{
-              width: '100%',
-              resize: 'vertical',
-              padding: '10px 12px',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-card)',
-              color: 'var(--fg)',
-              fontSize: 'var(--fs-body)',
-              lineHeight: 1.5,
-            }}
+            className="sd-textarea"
+            style={{ minHeight: 0, lineHeight: 1.5 }}
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
@@ -241,17 +216,17 @@ const HrPeopleSearchPage = () => {
               type="button"
               onClick={runSearch}
               disabled={!canSearch}
-              className="sd-btn-primary"
-              style={{ padding: '8px 20px', opacity: canSearch ? 1 : 0.5, cursor: canSearch ? 'pointer' : 'not-allowed' }}
+              className="sd-btn sd-btn-primary"
+              style={{ padding: '8px 20px' }}
             >
               {loading ? 'AI 검색 중…' : 'AI 검색'}
             </button>
           </div>
         </div>
 
-        {error && (
-          <div className="sd-card" style={{ color: 'var(--danger)', fontSize: 'var(--fs-sm)' }}>{error}</div>
-        )}
+        {error && <ErrorState message={error} />}
+
+        {loading && <LoadingState message="AI 검색 중…" />}
 
         {renderResults()}
       </div>

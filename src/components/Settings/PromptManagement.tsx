@@ -324,14 +324,17 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                     <button
                       key={prompt.key}
                       onClick={() => handleSelectPrompt(prompt)}
-                      className={`text-left p-3 rounded-md transition-colors ${
-                        selectedPrompt?.key === prompt.key
-                          ? 'bg-primary/10 border border-primary/20'
-                          : 'hover:bg-muted/50 border border-transparent'
+                      className={`text-left p-3 rounded-md transition-colors border ${
+                        selectedPrompt?.key === prompt.key ? '' : 'hover:bg-muted border-transparent'
                       }`}
+                      style={
+                        selectedPrompt?.key === prompt.key
+                          ? { background: 'var(--ok-orange-50)', borderColor: 'var(--ok-orange-200)' }
+                          : undefined
+                      }
                     >
                       <div className="font-medium text-sm mb-1">{promptLabel(prompt)}</div>
-                      <div className="text-[10px] text-muted-foreground/70 font-mono">{prompt.key}</div>
+                      <div className="text-[10px] text-muted-foreground opacity-70 font-mono">{prompt.key}</div>
                     </button>
                   ))}
                 </div>
@@ -360,7 +363,8 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                         {(PROMPT_USAGE[selectedPrompt.key] ?? []).map((u, i) => (
                           <span
                             key={i}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+                            style={{ background: 'var(--ok-orange-50)', color: 'var(--ok-orange-700)' }}
                             title={u.route ? `라우트: ${u.route}` : undefined}
                           >
                             {u.screen}
@@ -384,7 +388,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                       {isTesting ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
-                        <Play className="mr-2 h-4 w-4 text-emerald-500" />
+                        <Play className="mr-2 h-4 w-4" style={{ color: 'var(--success)' }} />
                       )}
                       테스트
                     </Button>
@@ -405,7 +409,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                       size="sm"
                       onClick={handleDelete}
                       disabled={isDeleting}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="text-destructive hover:text-destructive hover:bg-[var(--danger-bg)]"
                     >
                       {isDeleting ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -443,7 +447,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                 </div>
 
                 {(PROMPT_AUTO_DATA[selectedPrompt.key] ?? []).length > 0 && (
-                  <div className="rounded-md border border-border bg-muted/40 p-3">
+                  <div className="rounded-md border border-border bg-[var(--bg-subtle)] p-3">
                     <div className="text-xs font-semibold mb-1.5 flex items-center gap-1.5">
                       <Bot className="h-3.5 w-3.5" /> 이 프롬프트에 자동 첨부되는 데이터
                     </div>
@@ -452,7 +456,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                         <li key={i}>{d}</li>
                       ))}
                     </ul>
-                    <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                    <p className="text-[11px] text-muted-foreground opacity-70 mt-1.5">
                       위 데이터는 저장된 지시문 <b>뒤에 코드가 자동으로 붙여서</b> AI 에 전달됩니다. 프롬프트 안에 별도 변수
                       표기는 필요 없습니다.
                     </p>
@@ -474,7 +478,7 @@ export const PromptManagement: React.FC<PromptManagementProps> = ({ onClose, sho
                 </div>
 
                 {testResult && (
-                  <div className="mt-4 p-4 rounded-md bg-muted/50 border border-border">
+                  <div className="mt-4 p-4 rounded-md bg-[var(--bg-subtle)] border border-border">
                     <h4 className="font-medium flex items-center gap-2 mb-2 text-sm">
                       <Bot className="h-4 w-4" /> 테스트 결과
                     </h4>

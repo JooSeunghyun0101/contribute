@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, Plus, Save, Trash2 } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Plus, Save, Trash2 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/state-views';
+import './my-pages.css';
 import MatrixGrid from '@/components/Evaluation/MatrixGrid';
 import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
 import { AccordionStats } from '@/components/Evaluation/EvaluatorReview';
@@ -247,6 +249,13 @@ const EvaluationAccordionCard = ({
   const aiTaskRatio = draftTotalWeight > 0 ? draftAiWeight / draftTotalWeight : 0;
   const aiRuleSatisfied = (user?.aiRuleExempt ?? false) || aiTaskRatio >= 0.5;
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
+  // getWeightStatus 의 rgba 하드코딩 배경/보더를 새 시맨틱 파스텔 토큰으로 매핑(판정 로직·톤은 헬퍼 그대로).
+  const weightBoxVisual =
+    weightStatus.tone === 'success'
+      ? { background: 'var(--success-bg)', border: '1px solid transparent' }
+      : weightStatus.tone === 'danger'
+        ? { background: 'var(--danger-bg)', border: '1px solid var(--danger)' }
+        : { background: 'var(--bg-muted)', border: '1px solid transparent' };
   const hasTitle = draft.title.trim().length > 0;
   const lockedInputStyle = !canEditTasks ? { opacity: 0.68, cursor: 'not-allowed' } : {};
 
@@ -637,8 +646,9 @@ const EvaluationAccordionCard = ({
     <section
       style={{
         border: `1px solid ${expanded ? accentColor : 'var(--border)'}`,
-        borderRadius: 10,
+        borderRadius: 'var(--r-lg)',
         background: 'var(--bg-card)',
+        boxShadow: 'var(--sh-sm)',
         overflow: 'hidden',
       }}
     >
@@ -647,6 +657,7 @@ const EvaluationAccordionCard = ({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        className="qc-acc-header"
         style={{
           width: '100%',
           minHeight: 72,
@@ -656,7 +667,6 @@ const EvaluationAccordionCard = ({
           justifyContent: 'space-between',
           gap: 20,
           border: 'none',
-          background: 'transparent',
           cursor: 'pointer',
           textAlign: 'left',
         }}
@@ -717,7 +727,7 @@ const EvaluationAccordionCard = ({
                   <div className="sd-label-mini">과업 목록</div>
                   <h3 style={{ marginTop: 2, fontSize: 'var(--fs-h4)' }}>
                     내 과업{' '}
-                    <span style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 'var(--fs-body)' }}>
+                    <span className="tnum" style={{ color: 'var(--fg-muted)', fontWeight: 500, fontSize: 'var(--fs-body)' }}>
                       {tasks.length}건
                     </span>
                   </h3>
@@ -736,9 +746,9 @@ const EvaluationAccordionCard = ({
                 style={{
                   marginTop: 10,
                   padding: '10px 12px',
-                  background: weightStatus.background,
-                  border: weightStatus.border,
-                  borderRadius: 8,
+                  background: weightBoxVisual.background,
+                  border: weightBoxVisual.border,
+                  borderRadius: 'var(--r-sm)',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 8,
@@ -786,7 +796,7 @@ const EvaluationAccordionCard = ({
                   style={{
                     marginTop: 8,
                     padding: '8px 10px',
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     background: 'var(--ok-orange-50)',
                     border: '1px solid var(--ok-orange-100)',
                     color: 'var(--ok-orange-700)',
@@ -803,20 +813,10 @@ const EvaluationAccordionCard = ({
                   {isTaskEditingLocked && (
                     <button
                       type="button"
+                      className="sd-btn sd-btn-primary sd-btn-xs"
                       onClick={handleRequestReturn}
                       disabled={isRequestingReturn}
-                      style={{
-                        alignSelf: 'flex-start',
-                        padding: '5px 10px',
-                        background: 'var(--ok-orange)',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: 6,
-                        fontSize: 'var(--fs-xs)',
-                        fontWeight: 700,
-                        cursor: isRequestingReturn ? 'not-allowed' : 'pointer',
-                        opacity: isRequestingReturn ? 0.7 : 1,
-                      }}
+                      style={{ alignSelf: 'flex-start' }}
                     >
                       {isRequestingReturn ? '요청 중…' : '평가자에게 수정 요청'}
                     </button>
@@ -840,14 +840,14 @@ const EvaluationAccordionCard = ({
                     <button
                       key={task.id}
                       onClick={() => handleSelectTask(task.id)}
+                      // 선택 항목 = 흰색(중앙 본문과 이어짐) + 왼쪽 액센트 바. 비선택은 muted 위 투명.
+                      // 배경·액센트 바는 .qc-task-row 클래스로 관리(hover 상태가 인라인에 가려지지 않게).
+                      className={`qc-task-row${active ? ' is-active' : ''}`}
                       style={{
                         width: '100%',
                         padding: '14px 20px',
                         borderBottom: '1px solid var(--border)',
                         cursor: 'pointer',
-                        // 선택 항목 = 흰색(중앙 본문과 이어짐) + 왼쪽 액센트 바. 비선택은 muted 위 투명.
-                        background: active ? 'var(--bg-card)' : 'transparent',
-                        borderLeft: active ? '3px solid var(--ok-orange)' : '3px solid transparent',
                         textAlign: 'left',
                       }}
                     >
@@ -861,7 +861,7 @@ const EvaluationAccordionCard = ({
                             <span
                               style={{
                                 padding: '1px 7px',
-                                borderRadius: 999,
+                                borderRadius: 'var(--r-pill)',
                                 fontSize: 'var(--fs-2xs)',
                                 fontWeight: 800,
                                 color: 'var(--fg-muted)',
@@ -895,8 +895,8 @@ const EvaluationAccordionCard = ({
                   );
                 })}
               {!isLoading && tasks.length === 0 && (
-                <div style={{ padding: 20, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                  등록된 과업이 없습니다. 과업 추가로 시작하세요.
+                <div style={{ padding: 16 }}>
+                  <EmptyState message="등록된 과업이 없습니다. 과업 추가로 시작하세요." />
                 </div>
               )}
             </div>
@@ -904,8 +904,8 @@ const EvaluationAccordionCard = ({
 
           <section style={{ flex: 1, overflow: 'auto' }}>
             {mode === 'view' && !selectedTask ? (
-              <div style={{ padding: '32px', color: 'var(--fg-muted)' }}>
-                표시할 과업이 없습니다. 좌측의 <b>과업 추가</b>로 새 과업을 추가해 주세요.
+              <div style={{ padding: 32 }}>
+                <EmptyState message="표시할 과업이 없습니다. 좌측의 과업 추가로 새 과업을 추가해 주세요." />
               </div>
             ) : (
               <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -1001,8 +1001,8 @@ const EvaluationAccordionCard = ({
                             : taskEditMessage ?? undefined
                         }
                         style={{
-                          color: 'var(--danger, #B91C1C)',
-                          borderColor: 'rgba(220,69,69,0.45)',
+                          color: 'var(--danger)',
+                          borderColor: 'var(--danger)',
                         }}
                       >
                         <Trash2 size={14} aria-hidden="true" />
@@ -1022,7 +1022,7 @@ const EvaluationAccordionCard = ({
                       letterSpacing: 0,
                       width: '100%',
                       padding: '8px 12px',
-                      borderRadius: 8,
+                      borderRadius: 'var(--r-sm)',
                       ...lockedInputStyle,
                     }}
                   />
@@ -1043,6 +1043,8 @@ const EvaluationAccordionCard = ({
                       checked={draft.isAiTask}
                       onChange={(e) => setDraft({ ...draft, isAiTask: e.target.checked })}
                       disabled={!canEditTasks}
+                      // 네이티브 체크박스 색만 브랜드 액센트로(accent-color) — shadcn 교체는 핸들러 변경이라 보류.
+                      style={{ accentColor: 'var(--ok-orange)' }}
                     />
                     AI 과업
                   </label>
@@ -1083,7 +1085,7 @@ const EvaluationAccordionCard = ({
                             width: '100%',
                             minHeight: 158,
                             padding: '10px 12px',
-                            borderRadius: 8,
+                            borderRadius: 'var(--r-sm)',
                             border: '1px solid var(--border)',
                             background: 'var(--bg-card)',
                             fontSize: 'var(--fs-body)',
@@ -1105,7 +1107,7 @@ const EvaluationAccordionCard = ({
                           style={{
                             minHeight: 158,
                             padding: '12px 14px',
-                            borderRadius: 8,
+                            borderRadius: 'var(--r-sm)',
                             border: '1px solid var(--border)',
                             background: 'var(--bg-muted)',
                             color: 'var(--fg)',
@@ -1135,7 +1137,7 @@ const EvaluationAccordionCard = ({
                           gap: 10,
                         }}
                       >
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
+                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}>
                           <div className="sd-label-mini">가중치 (%)</div>
                           <input
                             type="number"
@@ -1153,9 +1155,9 @@ const EvaluationAccordionCard = ({
                               marginTop: 4,
                               width: '100%',
                               padding: '4px 6px',
-                              borderRadius: 6,
+                              borderRadius: 'var(--r-xs)',
                               border: `1px solid ${
-                                isOverWeight ? 'rgba(220,69,69,0.55)' : 'var(--border)'
+                                isOverWeight ? 'var(--danger)' : 'var(--border)'
                               }`,
                               fontWeight: 700,
                               fontSize: 'var(--fs-body)',
@@ -1165,7 +1167,7 @@ const EvaluationAccordionCard = ({
                             }}
                           />
                         </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 8, minWidth: 0 }}>
+                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}>
                           <div className="sd-label-mini">기간</div>
                           <DateRangePicker
                             startValue={draft.startDate}
@@ -1198,17 +1200,7 @@ const EvaluationAccordionCard = ({
                           )}
                         </div>
                         {!selectedTask.feedbackHistory?.length ? (
-                          <div
-                            style={{
-                              padding: '32px 20px',
-                              textAlign: 'center',
-                              color: 'var(--fg-subtle)',
-                              background: 'var(--bg-muted)',
-                              borderRadius: 10,
-                            }}
-                          >
-                            피드백 이력이 아직 없습니다.
-                          </div>
+                          <EmptyState message="피드백 이력이 아직 없습니다." />
                         ) : (
                           <FeedbackHistoryList
                             key={selectedTask.id}
@@ -1240,12 +1232,13 @@ const EvaluationAccordionCard = ({
                         >
                           <div className="sd-label-mini">현재 점수</div>
                           {selectedScore != null && (
+                            // 점수 팔레트 글자색(--score-N-fg)은 '틴트 배경 위' 전용(2·4점은 흰색)이라
+                            // 맨 카드 위 텍스트에는 쓰지 않는다 — 기본 전경색으로 렌더(사용자 결정).
                             <span
                               className="tnum"
                               style={{
                                 fontSize: 'var(--fs-h2)',
                                 fontWeight: 900,
-                                color: getScoreTintFg(selectedScore),
                                 lineHeight: 1,
                               }}
                             >
@@ -1299,7 +1292,7 @@ const EvaluationAccordionCard = ({
                                       <div
                                         style={{
                                           height: 36,
-                                          borderRadius: 6,
+                                          borderRadius: 'var(--r-xs)',
                                           background: bg,
                                           display: 'flex',
                                           alignItems: 'center',
@@ -1307,8 +1300,11 @@ const EvaluationAccordionCard = ({
                                           color,
                                           fontWeight: selected ? 900 : 700,
                                           fontSize: selected ? 'var(--fs-h4)' : 'var(--fs-body)',
-                                          boxShadow: selected ? '0 0 0 2px rgba(245,80,0,0.25)' : 'none',
-                                          transition: 'all 0.15s',
+                                          boxShadow: selected
+                                            ? '0 0 0 2px hsl(var(--ok-orange-hsl) / 0.25)'
+                                            : 'none',
+                                          transition:
+                                            'background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), color 180ms, box-shadow 180ms',
                                           cursor: 'help',
                                         }}
                                       >
@@ -1341,7 +1337,7 @@ const EvaluationAccordionCard = ({
                                   marginTop: 14,
                                   padding: '10px 12px',
                                   background: 'var(--bg-muted)',
-                                  borderRadius: 8,
+                                  borderRadius: 'var(--r-sm)',
                                   fontSize: 'var(--fs-sm)',
                                   color: 'var(--fg-muted)',
                                   textAlign: 'left',
@@ -1358,9 +1354,9 @@ const EvaluationAccordionCard = ({
                                 marginTop: 14,
                                 padding: '10px 12px',
                                 background: 'var(--ok-orange-50)',
-                                borderRadius: 8,
+                                borderRadius: 'var(--r-sm)',
                                 fontSize: 'var(--fs-sm)',
-                                color: 'var(--ok-brown)',
+                                color: 'var(--fg)',
                                 textAlign: 'left',
                                 lineHeight: 1.55,
                               }}
@@ -1390,7 +1386,7 @@ const FeedbackEntryItem = ({ item, isLatest }: { item: FeedbackHistoryItem; isLa
     style={{
       padding: 14,
       border: '1px solid var(--border)',
-      borderRadius: 10,
+      borderRadius: 'var(--r-md)',
       position: 'relative',
     }}
   >
@@ -1429,23 +1425,21 @@ const FeedbackHistoryList = ({ entries }: { entries: FeedbackHistoryItem[] }) =>
           <button
             type="button"
             onClick={() => setIsExpanded((v) => !v)}
+            // 손수 만든 pill 토글 → 공용 .sd-filter-chip(hover/focus 상태 포함), 글리프 ▲/▼ → lucide.
+            className="sd-filter-chip"
             style={{
               alignSelf: 'flex-start',
-              padding: '5px 12px',
-              borderRadius: 14,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-muted)',
-              fontSize: 'var(--fs-xs)',
-              fontWeight: 700,
-              color: 'var(--fg-muted)',
-              cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
             }}
           >
             {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${older.length}건 펼치기`}
-            <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
+            {isExpanded ? (
+              <ChevronUp size={12} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={12} aria-hidden="true" />
+            )}
           </button>
 
           {isExpanded &&

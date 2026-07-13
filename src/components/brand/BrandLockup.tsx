@@ -8,8 +8,9 @@ export const BrandLockup = ({ compact = false, tone = 'dark' }: Props) => {
   const size = compact ? 38 : 48;
   const topFontSize = compact ? 15 : 19;
   const bottomFontSize = compact ? 9 : 11;
-  const textColor = tone === 'light' ? '#F4EDE3' : 'var(--fg)';
-  const subColor = tone === 'light' ? '#D6C9BC' : 'var(--fg-muted)';
+  // tone='light' 는 로그인 다크 배경 전용 — 테마 토큰이 아닌 로그인 팔레트 고정값을 쓴다.
+  const textColor = tone === 'light' ? '#F5F1EB' : 'var(--fg)';
+  const subColor = tone === 'light' ? '#CDC4B9' : 'var(--fg-muted)';
 
   return (
     <div

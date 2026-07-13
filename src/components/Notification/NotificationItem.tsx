@@ -86,7 +86,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
     <button
       type="button"
       onClick={handleClick}
-      className={`flex w-full items-start gap-3 px-3 py-3 text-left transition-colors last:border-b-0${
+      className={`kbd-focus flex w-full items-start gap-3 px-3 py-3 text-left transition-colors last:border-b-0${
         clickable ? ' hover:bg-[var(--bg-muted)]' : ''
       }`}
       style={{
@@ -97,8 +97,9 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
       <div
         className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full"
         style={{
-          background: isUnread ? 'var(--ok-orange)' : 'var(--bg-muted)',
-          color: isUnread ? '#fff' : 'var(--fg-muted)',
+          // 읽지 않음 = 솔리드 대신 옅은 오렌지 틴트(행마다 진한 원은 과함)
+          background: isUnread ? 'var(--ok-orange-100)' : 'var(--bg-muted)',
+          color: isUnread ? 'var(--ok-orange-700)' : 'var(--fg-muted)',
           border: isUnread ? 'none' : '1px solid var(--border)',
         }}
       >
@@ -127,7 +128,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
         >
           {notification.message}
         </p>
-        <p className="text-[11px]" style={{ color: 'var(--fg-subtle, var(--fg-muted))' }}>
+        <p className="text-[11px]" style={{ color: 'var(--fg-subtle)' }}>
           {notification.senderName} · {formatRelativeTime(notification.createdAt)}
         </p>
       </div>

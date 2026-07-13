@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/state-views';
 import { useToast } from '@/hooks/use-toast';
 import {
   passwordResetService,
@@ -148,9 +149,7 @@ const PasswordResetManager = () => {
         </div>
 
         {!loading && requests.length === 0 && (
-          <div style={{ padding: '18px 4px', color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)' }}>
-            대기 중인 비밀번호 초기화 요청이 없습니다.
-          </div>
+          <EmptyState message="대기 중인 비밀번호 초기화 요청이 없습니다." />
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -159,7 +158,7 @@ const PasswordResetManager = () => {
               key={req.id}
               style={{
                 padding: 14,
-                borderRadius: 10,
+                borderRadius: 'var(--r-md)',
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border)',
                 display: 'flex',
@@ -178,10 +177,9 @@ const PasswordResetManager = () => {
               </div>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                 <button
-                  className="sd-btn sd-btn-sm"
+                  className="sd-btn sd-btn-primary sd-btn-sm"
                   disabled={busyId !== null}
                   onClick={() => handleApprove(req)}
-                  style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
                 >
                   {busyId === req.id ? '처리 중…' : '승인'}
                 </button>
@@ -224,10 +222,9 @@ const PasswordResetManager = () => {
               spellCheck={false}
             />
             <button
-              className="sd-btn sd-btn-sm"
+              className="sd-btn sd-btn-primary sd-btn-sm"
               disabled={directBusy || !directId.trim()}
               onClick={handleDirect}
-              style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none', fontWeight: 700 }}
             >
               {directBusy ? '초기화 중…' : '사번으로 초기화'}
             </button>
@@ -237,12 +234,12 @@ const PasswordResetManager = () => {
             <div style={{ fontSize: 'var(--fs-sm)', minHeight: 18 }}>
               {lookupState === 'checking' && <span style={{ color: 'var(--fg-muted)' }}>대상 확인 중…</span>}
               {lookupState === 'found' && directName && (
-                <span style={{ color: '#2E7D57', fontWeight: 700 }}>
+                <span style={{ color: 'var(--success)', fontWeight: 700 }}>
                   대상: {directName}({directId.trim()})
                 </span>
               )}
               {lookupState === 'notfound' && (
-                <span style={{ color: 'var(--danger, #CB3A2C)', fontWeight: 700 }}>
+                <span style={{ color: 'var(--danger)', fontWeight: 700 }}>
                   사번 {directId.trim()} 에 해당하는 직원을 찾을 수 없습니다.
                 </span>
               )}

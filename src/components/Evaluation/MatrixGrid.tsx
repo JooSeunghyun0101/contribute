@@ -76,7 +76,18 @@ export const MatrixGrid = ({
       {MATRIX_METHODS.flatMap((method, methodIndex) => [
         <Tooltip key={`method-${method}`}>
           <TooltipTrigger asChild>
-            <div style={{ display: 'flex', alignItems: 'stretch', cursor: 'help' }}>
+            {/* 점선 밑줄 = hover 설명(툴팁) 가능 어포던스 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                cursor: 'help',
+                textDecorationLine: 'underline',
+                textDecorationStyle: 'dotted',
+                textDecorationColor: 'var(--fg-subtle)',
+                textUnderlineOffset: '3px',
+              }}
+            >
               {renderMethodLabel(method, methodIndex)}
             </div>
           </TooltipTrigger>
@@ -100,7 +111,17 @@ export const MatrixGrid = ({
       {MATRIX_SCOPES.map((scope, scopeIndex) => (
         <Tooltip key={`scope-${scope}`}>
           <TooltipTrigger asChild>
-            <div style={{ cursor: 'help' }}>{renderScopeLabel(scope, scopeIndex)}</div>
+            <div
+              style={{
+                cursor: 'help',
+                textDecorationLine: 'underline',
+                textDecorationStyle: 'dotted',
+                textDecorationColor: 'var(--fg-subtle)',
+                textUnderlineOffset: '3px',
+              }}
+            >
+              {renderScopeLabel(scope, scopeIndex)}
+            </div>
           </TooltipTrigger>
           <TooltipContent side="top">
             <MethodScopeGuideContent kind="scope" term={scope} />

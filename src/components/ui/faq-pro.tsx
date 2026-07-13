@@ -4,10 +4,12 @@ import { ChevronDown, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 
+import { EmptyState } from "@/components/ui/state-views";
 import { cn } from "@/lib/utils";
 
-const componentThemeClassName =
-  "[--ic-background:#ffffff] [--ic-foreground:#111111] [--ic-primary:#111111] [--ic-secondary:#646b75] [--ic-surface-border:#e9edf2] [--ic-border:#e3e7ec] [--ic-card:#ffffff] [--ic-card-foreground:#111111] [--ic-muted:#f5f7fa] [--ic-muted-foreground:#6d7480] [--ic-accent:#f3f5f8] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--ic-accent-foreground:#111111] [--ic-input:#e3e7ec] [--ic-ring:rgba(17,17,17,0.16)] [--ic-destructive:#dc2626] [--ic-paper:#fcfcfd] [--ic-popover-foreground:#111111] [--ic-brand:#0ea5e9] [--ic-brand-soft:#bae6fd] [--ic-shadow-soft:0_18px_38px_-24px_rgba(15,23,42,0.35)] [--ic-chart-1:oklch(0.52_0.19_254)] [--ic-chart-2:oklch(0.74_0.11_232)] [--ic-chart-3:oklch(0.42_0.16_262)] [--ic-chart-4:oklch(0.84_0.07_228)] [--ic-chart-5:oklch(0.62_0.14_240)] [--color-background:var(--ic-background)] [--color-foreground:var(--ic-foreground)] [--color-primary:var(--ic-primary)] [--color-secondary:var(--ic-secondary)] [--color-border:var(--ic-border)] [--color-card:var(--ic-card)] [--color-card-foreground:var(--ic-card-foreground)] [--color-muted:var(--ic-muted)] [--color-muted-foreground:var(--ic-muted-foreground)] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] [--color-input:var(--ic-input)] [--color-ring:var(--ic-ring)] [--color-destructive:var(--ic-destructive)] [--color-paper:var(--ic-paper)] [--color-popover-foreground:var(--ic-popover-foreground)] [--color-brand:var(--ic-brand)] [--color-brand-soft:var(--ic-brand-soft)] [--color-chart-1:var(--ic-chart-1)] [--color-chart-2:var(--ic-chart-2)] [--color-chart-3:var(--ic-chart-3)] [--color-chart-4:var(--ic-chart-4)] [--color-chart-5:var(--ic-chart-5)] dark:[--ic-background:#111111] dark:[--ic-foreground:#f6f3ec] dark:[--ic-primary:#f6f3ec] dark:[--ic-secondary:#cbc6bb] dark:[--ic-surface-border:#2a2a25] dark:[--ic-border:#2b2a25] dark:[--ic-card:#111111] dark:[--ic-card-foreground:#f6f3ec] dark:[--ic-muted:#171716] dark:[--ic-muted-foreground:#9a958a] dark:[--ic-accent:#1a1a18] [--color-accent:var(--ic-accent)] [--color-accent-foreground:var(--ic-accent-foreground)] dark:[--ic-accent-foreground:#f6f3ec] dark:[--ic-input:#2b2a25] dark:[--ic-ring:rgba(246,243,236,0.18)] dark:[--ic-destructive:#f87171] dark:[--ic-paper:#171716] dark:[--ic-popover-foreground:#f6f3ec] dark:[--ic-brand:#38bdf8] dark:[--ic-brand-soft:#0c4a6e] dark:[--ic-shadow-soft:0_20px_44px_-28px_rgba(0,0,0,0.6)] dark:[--ic-chart-1:oklch(0.68_0.17_250)] dark:[--ic-chart-2:oklch(0.82_0.09_225)] dark:[--ic-chart-3:oklch(0.58_0.15_260)] dark:[--ic-chart-4:oklch(0.75_0.12_235)] dark:[--ic-chart-5:oklch(0.88_0.06_220)]";
+/* 구 임베디드 --ic-* / --color-* 팔레트 월(쿨그레이+스카이블루)은 제거 —
+   Tailwind v3 설정은 var(--muted) 등 앱 토큰을 직접 읽으므로 시맨틱 클래스가
+   그대로 "Quiet Craft" 토큰으로 렌더된다. */
 
 const PANEL_EASE = [0.16, 1, 0.3, 1] as const;
 const EXPAND_SPRING = {
@@ -55,7 +57,7 @@ function highlightText(text: string, query: string) {
     if (part.toLowerCase() === normalizedQuery.toLowerCase()) {
       return (
         <mark
-          className="rounded-sm bg-amber-200/90 px-0.5 text-foreground dark:bg-amber-400/40"
+          className="rounded-xs bg-warning-bg px-0.5 text-foreground"
           key={index}
         >
           {part}
@@ -106,7 +108,7 @@ function FaqProRow({
   triggerId,
 }: FaqProRowProps) {
   return (
-    <div className="overflow-hidden rounded-2xl bg-muted/70 dark:bg-muted/50">
+    <div className="overflow-hidden rounded-lg bg-muted">
       <button
         aria-controls={panelId}
         aria-expanded={isOpen}
@@ -222,18 +224,14 @@ function FaqPro({
 
   return (
     <div
-      className={cn(
-        componentThemeClassName,
-        "mx-auto flex w-full max-w-2xl flex-col gap-3",
-        className
-      )}
+      className={cn("mx-auto flex w-full max-w-2xl flex-col gap-3", className)}
     >
       <div className="relative">
         <input
           aria-label={searchPlaceholder}
           className={cn(
-            "h-12 w-full appearance-none rounded-full border-[0.5px] border-border bg-card px-5 pr-11 text-[15px] text-foreground",
-            "shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:shadow-none focus-visible:outline-none focus-visible:ring-0",
+            "h-12 w-full appearance-none rounded-sm border border-border bg-card px-5 pr-11 text-[15px] text-foreground",
+            "outline-none transition-shadow focus-visible:border-input focus-visible:shadow-sh-focus",
             "placeholder:text-muted-foreground",
             "[&::-webkit-search-cancel-button]:appearance-none",
             "[&::-webkit-search-decoration]:appearance-none"
@@ -278,14 +276,9 @@ function FaqPro({
               </motion.div>
             ))
           ) : (
-            <motion.p
-              animate={{ opacity: 1 }}
-              className="px-2 py-8 text-center text-[14px] text-muted-foreground"
-              initial={{ opacity: 0 }}
-              key="empty"
-            >
-              No FAQs match your search.
-            </motion.p>
+            <motion.div animate={{ opacity: 1 }} initial={{ opacity: 0 }} key="empty">
+              <EmptyState message="검색과 일치하는 FAQ가 없습니다." />
+            </motion.div>
           )}
         </AnimatePresence>
       </div>

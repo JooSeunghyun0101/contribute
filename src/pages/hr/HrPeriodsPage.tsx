@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, CalendarDays, CheckCircle2, LockKeyhole, LockKeyholeOpen, Pencil, Plus, RefreshCw, Star, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { SpiralLoader } from '@/components/ui/loader';
+import { Pill, type PillTone } from '@/components/brand';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import { evaluationPeriodService } from '@/lib/services';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import type { EvaluationPeriod, EvaluationPeriodStatus } from '@/types';
@@ -38,11 +39,12 @@ const STATUS_LABEL: Record<EvaluationPeriodStatus, string> = {
   locked: '잠금',
 };
 
-const STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: string; border: string }> = {
-  draft: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)', border: 'var(--border)' },
-  active: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange-700)', border: 'var(--ok-orange-100)' },
-  closed: { bg: 'var(--success-bg)', fg: 'var(--success)', border: 'var(--ok-yellow-300)' },
-  locked: { bg: 'var(--bg-subtle)', fg: 'var(--fg-muted)', border: 'var(--border-strong)' },
+// 상태 배지 톤 — 공용 Pill(brand) 톤으로 통일 (Home 대시보드의 상태 톤 매핑과 동일 원칙)
+const STATUS_TONE: Record<EvaluationPeriodStatus, PillTone> = {
+  draft: 'neutral',
+  active: 'orange',
+  closed: 'success',
+  locked: 'info',
 };
 
 const formatDate = (value: string | null) => (value ? value.slice(0, 10).replace(/-/g, '.') : '-');
@@ -68,41 +70,14 @@ const normalizeYearInput = (value: string) => value.replace(/\D/g, '').slice(0, 
 
 const isValidYearInput = (value: string) => /^\d{4}$/.test(value);
 
-const StatusBadge = ({ status }: { status: EvaluationPeriodStatus }) => {
-  const style = STATUS_STYLE[status];
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        minWidth: 66,
-        justifyContent: 'center',
-        padding: '4px 10px',
-        borderRadius: 999,
-        border: `1px solid ${style.border}`,
-        background: style.bg,
-        color: style.fg,
-        fontSize: 'var(--fs-sm)',
-        fontWeight: 800,
-      }}
-    >
-      {STATUS_LABEL[status]}
-    </span>
-  );
-};
+const StatusBadge = ({ status }: { status: EvaluationPeriodStatus }) => (
+  <Pill tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Pill>
+);
 
 const SummaryBox = ({ label, value }: { label: string; value: string | number }) => (
-  <div
-    style={{
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      background: 'var(--bg-card)',
-      padding: '16px 18px',
-      minHeight: 82,
-    }}
-  >
+  <div className="sd-card" style={{ padding: '16px 18px', minHeight: 82 }}>
     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>{label}</div>
-    <div style={{ marginTop: 8, fontSize: 'var(--fs-h2)', lineHeight: 1.1, fontWeight: 900 }}>{value}</div>
+    <div className="tnum" style={{ marginTop: 8, fontSize: 'var(--fs-h2)', lineHeight: 1.1, fontWeight: 800 }}>{value}</div>
   </div>
 );
 
@@ -412,7 +387,7 @@ const HrPeriodsPage = () => {
           <section className="sd-card sd-card-lg">
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <CalendarDays size={18} color="var(--ok-orange)" />
-              <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 900 }}>새 평가기간</h2>
+              <h2 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800 }}>새 평가기간</h2>
             </div>
 
             <div
@@ -485,13 +460,12 @@ const HrPeriodsPage = () => {
           </section>
         )}
 
-        <section className="sd-card sd-card-lg" style={{ padding: 0, overflow: 'hidden' }}>
-          {isLoading ? (
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)' }}>
-              <SpiralLoader size={32} />
-              평가기간을 불러오는 중입니다.
-            </div>
-          ) : (
+        {isLoading ? (
+          <LoadingState message="평가기간을 불러오는 중입니다." />
+        ) : !periods.length ? (
+          <EmptyState message="등록된 평가기간이 없습니다." />
+        ) : (
+          <section className="sd-card sd-card-lg" style={{ padding: 0, overflow: 'hidden' }}>
             <Table>
               <TableHeader style={{ background: 'var(--bg-muted)' }}>
                 <TableRow>
@@ -517,7 +491,7 @@ const HrPeriodsPage = () => {
                   const rowBusy = isPending || isSavingEdit || isSettingDefault || isDeleting;
 
                   return (
-                    <TableRow key={period.id}>
+                    <TableRow key={period.id} className="row-hover">
                       <TableCell>
                         {isEditing && editDraft ? (
                           <input
@@ -531,13 +505,13 @@ const HrPeriodsPage = () => {
                         ) : (
                           <>
                             <strong>{period.name}</strong>
-                            <div style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
+                            <div className="tnum" style={{ marginTop: 4, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
                               생성 {formatDate(period.created_at)}
                             </div>
                           </>
                         )}
                       </TableCell>
-                      <TableCell style={{ fontFamily: 'monospace', fontSize: 'var(--fs-sm)' }}>
+                      <TableCell style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-sm)' }}>
                         {isEditing && editDraft ? (
                           <input
                             className="sd-input"
@@ -545,7 +519,7 @@ const HrPeriodsPage = () => {
                             onChange={(event) =>
                               setEditDraft((prev) => (prev ? { ...prev, code: event.target.value } : prev))
                             }
-                            style={{ minWidth: 130, fontFamily: 'monospace' }}
+                            style={{ minWidth: 130, fontFamily: 'var(--font-mono)' }}
                           />
                         ) : (
                           period.code
@@ -569,7 +543,7 @@ const HrPeriodsPage = () => {
                           period.evaluation_year
                         )}
                       </TableCell>
-                      <TableCell colSpan={isEditing && editDraft ? 2 : undefined}>
+                      <TableCell colSpan={isEditing && editDraft ? 2 : undefined} className="tnum">
                         {isEditing && editDraft ? (
                           <DateRangePicker
                             startValue={editDraft.starts_on}
@@ -588,7 +562,7 @@ const HrPeriodsPage = () => {
                         )}
                       </TableCell>
                       {!(isEditing && editDraft) && (
-                        <TableCell>
+                        <TableCell className="tnum">
                           {formatDate(period.ends_on)}
                         </TableCell>
                       )}
@@ -597,23 +571,10 @@ const HrPeriodsPage = () => {
                       </TableCell>
                       <TableCell>
                         {period.is_default ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              background: 'var(--ok-orange-50)',
-                              color: 'var(--ok-orange-700)',
-                              border: '1px solid var(--ok-orange-100)',
-                              fontSize: 'var(--fs-sm)',
-                              fontWeight: 800,
-                            }}
-                          >
-                            <Star size={12} fill="currentColor" />
+                          <Pill tone="orange">
+                            <Star size={12} fill="currentColor" aria-hidden />
                             기본
-                          </span>
+                          </Pill>
                         ) : (
                           <button
                             className="sd-btn sd-btn-ghost sd-btn-xs"
@@ -700,7 +661,7 @@ const HrPeriodsPage = () => {
                                       ? '잠금된 평가기간은 삭제할 수 없습니다.'
                                       : '평가 데이터가 없는 평가기간을 삭제합니다.'
                                 }
-                                style={{ color: 'var(--danger, #B91C1C)' }}
+                                style={{ color: 'var(--danger)' }}
                               >
                                 <Trash2 size={14} />
                                 {isDeleting ? '삭제 중' : '삭제'}
@@ -713,17 +674,10 @@ const HrPeriodsPage = () => {
                   );
                 })}
 
-                {!periods.length && (
-                  <TableRow>
-                    <TableCell colSpan={8} style={{ color: 'var(--fg-muted)' }}>
-                      등록된 평가기간이 없습니다.
-                    </TableCell>
-                  </TableRow>
-                )}
               </TableBody>
             </Table>
-          )}
-        </section>
+          </section>
+        )}
       </div>
     </>
   );

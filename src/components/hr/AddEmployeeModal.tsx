@@ -166,6 +166,7 @@ const AddEmployeeModal = ({ evaluatorOptions, isSaving, onSubmit, onClose }: Pro
                   type="checkbox"
                   checked={roles.includes(role.id)}
                   onChange={() => toggleRole(role.id)}
+                  style={{ accentColor: 'var(--ok-orange)' }}
                 />
                 {role.label}
               </label>

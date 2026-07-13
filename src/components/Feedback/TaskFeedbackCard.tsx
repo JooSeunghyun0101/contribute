@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { AccordionMotion } from '@/components/ui/accordion-motion';
 import {
   getScoreColor,
@@ -94,14 +95,14 @@ const TaskFeedbackCard = ({
             right: 18,
             minWidth: 64,
             padding: '6px 14px',
-            borderRadius: 10,
+            borderRadius: 'var(--r-md)',
             background: scoreBg,
             color: scoreFg,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             gap: 1,
-            boxShadow: tint ? 'none' : '0 2px 6px rgba(0,0,0,0.08)',
+            boxShadow: tint ? 'none' : 'var(--sh-sm)',
           }}
         >
           <span
@@ -131,7 +132,7 @@ const TaskFeedbackCard = ({
           alignItems: 'center',
           gap: 10,
           background: 'var(--bg-muted)',
-          borderRadius: 8,
+          borderRadius: 'var(--r-sm)',
           padding: '8px 12px',
           marginBottom: 14,
           marginRight: score != null ? 92 : 0,
@@ -146,7 +147,7 @@ const TaskFeedbackCard = ({
               color: 'var(--fg-muted)',
               background: 'var(--bg-card)',
               border: '1px solid var(--border)',
-              borderRadius: 4,
+              borderRadius: 'var(--r-xs)',
               padding: '2px 7px',
               whiteSpace: 'nowrap',
             }}
@@ -161,7 +162,7 @@ const TaskFeedbackCard = ({
                 fontWeight: 800,
                 color: 'var(--bg-card)',
                 background: 'var(--ok-brown)',
-                borderRadius: 4,
+                borderRadius: 'var(--r-xs)',
                 padding: '2px 7px',
               }}
             >
@@ -176,7 +177,7 @@ const TaskFeedbackCard = ({
               fontWeight: 800,
               color: 'var(--ai-accent)',
               background: 'var(--ai-accent-bg)',
-              borderRadius: 4,
+              borderRadius: 'var(--r-xs)',
               padding: '2px 7px',
             }}
           >
@@ -209,23 +210,19 @@ const TaskFeedbackCard = ({
           <button
             type="button"
             onClick={() => setIsExpanded((v) => !v)}
+            className="sd-btn sd-btn-ghost sd-btn-xs"
             style={{
               marginTop: 14,
               padding: '5px 12px',
-              borderRadius: 14,
+              borderRadius: 'var(--r-pill)',
               border: '1px solid var(--border)',
-              background: 'var(--bg-muted)',
               fontSize: 'var(--fs-xs)',
               fontWeight: 700,
-              color: 'var(--fg-muted)',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
               gap: 4,
             }}
           >
             {isExpanded ? '이전 피드백 접기' : `이전 피드백 ${older.length}건 펼치기`}
-            <span style={{ fontSize: 'var(--fs-2xs)' }}>{isExpanded ? '▲' : '▼'}</span>
+            {isExpanded ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
           </button>
 
           <AccordionMotion isOpen={isExpanded}>

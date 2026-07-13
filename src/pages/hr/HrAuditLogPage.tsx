@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { Pill } from '@/components/brand';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import { auditLogService, type AuditLogRow } from '@/lib/services';
 import { downloadAuditLogWorkbook } from '@/utils/hrDataExport';
 import { useToast } from '@/hooks/use-toast';
@@ -323,7 +325,7 @@ const HrAuditLogPage = () => {
               borderBottom: '1px solid var(--border)',
             }}
           >
-            <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+            <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
               전체 {total.toLocaleString()}건{total > 0 ? ` · ${from.toLocaleString()}–${to.toLocaleString()}` : ''}
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -337,9 +339,13 @@ const HrAuditLogPage = () => {
           </div>
 
           {loading ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
+            <div style={{ padding: 16 }}>
+              <LoadingState message="불러오는 중…" />
+            </div>
           ) : rows.length === 0 ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>해당하는 감사 로그가 없습니다.</div>
+            <div style={{ padding: 16 }}>
+              <EmptyState message="해당하는 감사 로그가 없습니다." />
+            </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
@@ -357,34 +363,23 @@ const HrAuditLogPage = () => {
                   {rows.map((r) => {
                     const diff = buildDiff(r.previous_value, r.new_value);
                     return (
-                      <tr key={r.id}>
-                        <td style={{ ...td, color: 'var(--fg-muted)' }}>{fmtDateTime(r.created_at)}</td>
+                      <tr key={r.id} className="row-hover">
+                        <td style={{ ...td, color: 'var(--fg-muted)' }} className="tnum">{fmtDateTime(r.created_at)}</td>
                         <td style={td}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 10px',
-                              borderRadius: 999,
-                              fontSize: 'var(--fs-xs)',
-                              fontWeight: 700,
-                              background: 'var(--ok-orange-50)',
-                              color: 'var(--ok-brown)',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
+                          <Pill tone="orange" className="whitespace-nowrap">
                             {actionLabel(r.action_type)}
-                          </span>
+                          </Pill>
                         </td>
                         <td style={td}>
                           <strong>{r.actor_name ?? r.actor_id ?? '-'}</strong>
                           {r.actor_id && (
-                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}>{r.actor_id}</div>
+                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{r.actor_id}</div>
                           )}
                         </td>
                         <td style={td}>
                           <strong>{r.target_employee_name ?? r.target_employee_id ?? '-'}</strong>
                           {r.target_employee_id && (
-                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}>
+                            <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>
                               {r.target_employee_id}
                             </div>
                           )}

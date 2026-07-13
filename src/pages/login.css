@@ -1,0 +1,173 @@
+/* ── 로그인 화면 전용 스타일 ─────────────────────────────────────────────
+   로그인은 앱 토큰(라이트/다크)과 무관하게 항상 다크 웜 뉴트럴 — 셰이더(검정)와
+   이어지는 전용 팔레트를 .login-page 스코프 변수로 잠근다.
+   버튼 hover/active/focus-visible 상태를 클래스로 제공(인라인 스타일 대체). */
+.login-page {
+  --lg-bg: #110E0C;
+  --lg-panel: #181411;
+  --lg-input: #221D19;
+  --lg-border: #322A24;
+  --lg-border-soft: #2A241F;
+  --lg-text: #F5F1EB;
+  --lg-text-soft: #CDC4B9;
+  --lg-text-subtle: #948B80;
+  --lg-orange: #F55000;
+  --lg-orange-soft: #FFB68A;
+
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  color: var(--lg-text);
+  background:
+    radial-gradient(1100px 560px at 12% 18%, rgba(245, 80, 0, 0.13), transparent 60%),
+    radial-gradient(900px 520px at 88% 100%, rgba(255, 157, 0, 0.07), transparent 60%),
+    var(--lg-bg);
+}
+
+/* 우측 패널 */
+.login-panel {
+  width: 100%;
+  padding: 72px 56px;
+  background: var(--lg-panel);
+  border-left: 1px solid var(--lg-border-soft);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.login-eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lg-orange-soft);
+}
+
+.login-title {
+  font-size: var(--fs-h1);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin-top: 8px;
+  color: var(--lg-text);
+}
+
+.login-sub {
+  margin-top: 10px;
+  color: var(--lg-text-soft);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+}
+
+.login-label {
+  color: var(--lg-text-soft);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* 입력 — sd-input 을 다크 팔레트로 덮는 로그인 전용 변형 */
+.login-input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--lg-border);
+  background: var(--lg-input);
+  color: var(--lg-text);
+  font: inherit;
+  font-size: var(--fs-body);
+  outline: none;
+  transition: border-color 160ms, box-shadow 160ms, background-color 160ms;
+}
+.login-input::placeholder { color: var(--lg-text-subtle); }
+.login-input:hover { border-color: #45392F; }
+.login-input:focus {
+  border-color: var(--lg-orange);
+  box-shadow: 0 0 0 3px rgba(245, 80, 0, 0.22);
+}
+
+/* 알림 배너 */
+.login-alert {
+  margin-top: 16px;
+  padding: 11px 14px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+.login-alert-error {
+  background: rgba(233, 112, 106, 0.10);
+  border: 1px solid rgba(233, 112, 106, 0.35);
+  color: #F2ABA6;
+}
+.login-alert-info {
+  background: rgba(147, 194, 155, 0.10);
+  border: 1px solid rgba(147, 194, 155, 0.32);
+  color: #B3D9BB;
+}
+
+/* 주 CTA — 단색 오렌지, hover 시 브랜드 비비드로 상승 */
+.login-cta {
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  /* 채움 오렌지는 흰 글씨 AA(4.9:1) 기준 #C74300 — hover 만 비비드로 상승(일시 상태) */
+  background: #C74300;
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--fs-body);
+  border-radius: var(--r-sm);
+  border: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 8px 22px rgba(245, 80, 0, 0.22);
+  transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms, transform 120ms;
+}
+.login-cta:hover { background: #E04A00; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 26px rgba(245, 80, 0, 0.30); }
+.login-cta:active { background: #A83800; transform: translateY(1px); }
+.login-cta:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245, 80, 0, 0.35); }
+.login-cta:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+/* 보조(고스트) 버튼 */
+.login-btn-ghost {
+  height: 42px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--lg-text-subtle);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--lg-border);
+  cursor: pointer;
+  transition: color 160ms, border-color 160ms, background-color 160ms;
+}
+.login-btn-ghost:hover { color: var(--lg-text-soft); border-color: #45392F; background: rgba(255, 255, 255, 0.03); }
+.login-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245, 80, 0, 0.28); }
+.login-btn-ghost:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* 텍스트 링크(초기화 요청 토글) */
+.login-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--lg-text-subtle);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 160ms;
+}
+.login-link:hover { color: var(--lg-text-soft); }
+.login-link:focus-visible { outline: 2px solid rgba(245, 80, 0, 0.5); outline-offset: 2px; border-radius: 2px; }
+
+/* 하단 팁 박스 */
+.login-tip {
+  margin-top: 32px;
+  padding: 14px 16px;
+  background: rgba(245, 80, 0, 0.07);
+  border: 1px solid rgba(245, 80, 0, 0.16);
+  border-radius: var(--r-md);
+}

@@ -2,7 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState, LoadingState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
+import './hr-pages.css';
 import { IconSearch, Pill } from '@/components/brand';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
@@ -58,6 +59,14 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 // 완료 판정 단일 기준(src/lib/evaluationStatus.ts) — 완료 = 평가자 확정(completed/locked).
 const isEvaluationFinalized = (record: EmployeeEvaluationRecord) =>
   isFinalizedEvaluationStatus(record.reviewStatus);
+
+// 달성 스택바 시맨틱 팔레트(헤더 범례·행 바·모달 바 공용) — 주황=달성, 노랑=미달성, 회색=미평가.
+// 범례 카피·엑셀 내보내기와 의미가 묶여 있으므로 색-의미 매핑은 변경 금지.
+const ACH_COLORS = {
+  achieved: 'var(--ok-orange)',
+  missed: 'var(--warning)',
+  pending: 'var(--border)',
+} as const;
 
 // 그룹핑·필터·표 org 표시는 '그 평가 기간'의 조직 기준(evaluatee_org_*), 없으면 현재 employee.org_* 폴백.
 const recordOrg = (record: EmployeeEvaluationRecord) =>
@@ -484,21 +493,10 @@ const HrDepartmentsPage = () => {
                 type="button"
                 onClick={() => setDeptFilter(null)}
                 title="부서 필터 해제"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 10px',
-                  borderRadius: 8,
-                  border: '1px solid var(--ok-orange-100)',
-                  background: 'var(--ok-orange-50)',
-                  color: 'var(--ok-brown)',
-                  fontSize: 'var(--fs-sm)',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
+                className="sd-filter-chip is-active"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
-                부서: {deptFilter} ✕
+                부서: {deptFilter} <X size={12} aria-hidden="true" />
               </button>
             )}
 
@@ -532,16 +530,7 @@ const HrDepartmentsPage = () => {
               onClick={() => setGroupBySection((v) => !v)}
               aria-pressed={groupBySection}
               title="상위 조직별로 카드를 묶어 봅니다. 끄면 전체를 한 번에 정렬합니다."
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                fontSize: 'var(--fs-sm)',
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
-                background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
-                color: groupBySection ? 'var(--ok-orange)' : 'var(--fg-muted)',
-              }}
+              className={`sd-filter-chip${groupBySection ? ' is-active' : ''}`}
             >
               상위조직 묶기 {groupBySection ? 'ON' : 'OFF'}
             </button>
@@ -578,7 +567,7 @@ const HrDepartmentsPage = () => {
         }
       />
 
-      <div className="flex flex-col gap-5" style={{ padding: '24px 32px 32px' }}>
+      <div style={{ padding: '24px 32px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         {isLoading ? (
           <LoadingState message="부서 데이터를 불러오는 중입니다." />
         ) : error ? (
@@ -617,9 +606,9 @@ const HrDepartmentsPage = () => {
                         달성 현황
                         <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 500 }}>
                           {[
-                            { label: '달성', color: 'var(--ok-orange)' },
-                            { label: '미달성', color: 'var(--warning)' },
-                            { label: '미평가', color: 'var(--border)' },
+                            { label: '달성', color: ACH_COLORS.achieved },
+                            { label: '미달성', color: ACH_COLORS.missed },
+                            { label: '미평가', color: ACH_COLORS.pending },
                           ].map((leg) => (
                             <span key={leg.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                               <span style={{ width: 7, height: 7, borderRadius: 2, background: leg.color, display: 'inline-block' }} />
@@ -638,7 +627,7 @@ const HrDepartmentsPage = () => {
                         {groupBySection && (
                           <TableRow style={{ background: 'var(--bg-muted)' }}>
                             <TableCell colSpan={5} style={{ padding: '8px 16px' }}>
-                              <span style={{ fontWeight: 900, color: 'var(--ok-brown)' }}>{parent}</span>
+                              <span style={{ fontWeight: 700, color: 'var(--fg)' }}>{parent}</span>
                               <span style={{ marginLeft: 10, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                                 {(() => {
                                   const counts = depts.reduce<Record<string, number>>((acc, d) => {
@@ -665,14 +654,15 @@ const HrDepartmentsPage = () => {
                           );
                           const denom = department.totalMembers || 1;
                           const segments = [
-                            { key: 'achieved', count: department.achievedMembers, color: 'var(--ok-orange)', label: '달성' },
-                            { key: 'missed', count: missedMembers, color: 'var(--warning)', label: '미달성' },
-                            { key: 'pending', count: pendingMembers, color: 'var(--border)', label: '미평가' },
+                            { key: 'achieved', count: department.achievedMembers, color: ACH_COLORS.achieved, label: '달성' },
+                            { key: 'missed', count: missedMembers, color: ACH_COLORS.missed, label: '미달성' },
+                            { key: 'pending', count: pendingMembers, color: ACH_COLORS.pending, label: '미평가' },
                           ];
                           return (
                             <TableRow
                               key={department.groupKey}
                               onClick={() => setOpenDepartment(department.groupKey)}
+                              className="row-hover"
                               style={{ cursor: 'pointer' }}
                               title="클릭하면 부서원 상세를 봅니다."
                             >
@@ -698,7 +688,7 @@ const HrDepartmentsPage = () => {
                                         color: 'var(--ok-orange-700)',
                                         background: 'var(--ok-orange-50)',
                                         border: '1px solid var(--ok-orange-100)',
-                                        borderRadius: 6,
+                                        borderRadius: 'var(--r-xs)',
                                         padding: '1px 6px',
                                       }}
                                     >
@@ -748,7 +738,7 @@ const HrDepartmentsPage = () => {
                                       flexShrink: 0,
                                       display: 'flex',
                                       height: 8,
-                                      borderRadius: 4,
+                                      borderRadius: 'var(--r-pill)',
                                       overflow: 'hidden',
                                       background: 'var(--bg-muted)',
                                     }}
@@ -804,11 +794,13 @@ const HrDepartmentsPage = () => {
             )}
 
             {!visibleDepartments.length && (
-              <div className="sd-card">
-                {departments.length === 0
-                  ? '표시할 부서 데이터가 없습니다.'
-                  : '검색 조건에 맞는 부서가 없습니다.'}
-              </div>
+              <EmptyState
+                message={
+                  departments.length === 0
+                    ? '표시할 부서 데이터가 없습니다.'
+                    : '검색 조건에 맞는 부서가 없습니다.'
+                }
+              />
             )}
           </>
         )}
@@ -878,9 +870,9 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
     .map((lv) => ({ lv, n: records.filter((r) => (r.employee.growth_level ?? 1) === lv).length }))
     .filter((x) => x.n > 0);
   const achSegments = [
-    { key: 'a', label: '달성', n: achieved, color: 'var(--ok-orange)' },
-    { key: 'm', label: '미달성', n: missed, color: 'var(--warning)' },
-    { key: 'p', label: '미평가', n: pending, color: 'var(--border)' },
+    { key: 'a', label: '달성', n: achieved, color: ACH_COLORS.achieved },
+    { key: 'm', label: '미달성', n: missed, color: ACH_COLORS.missed },
+    { key: 'p', label: '미평가', n: pending, color: ACH_COLORS.pending },
   ];
 
   const handleDownload = () => {
@@ -924,7 +916,8 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.45)',
+        // 오버레이 스크림 — 웜 잉크 토큰(--surface-ink) 기반. 라이트/다크 모두 어두운 스크림 유지.
+        background: 'var(--overlay)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -943,6 +936,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
           gap: 16,
           padding: 0,
           overflow: 'hidden',
+          boxShadow: 'var(--sh-lg)',
         }}
       >
         <div
@@ -960,7 +954,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
               {levelLabel}
               {parentPath && <span style={{ color: 'var(--fg-subtle)', fontWeight: 700 }}> · {parentPath}</span>}
             </div>
-            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 900 }}>{name}</h2>
+            <h2 style={{ marginTop: 2, fontSize: 'var(--fs-h3)', fontWeight: 800 }}>{name}</h2>
             <div style={{ marginTop: 6, fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
               대상자 {total}명
             </div>
@@ -992,12 +986,12 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
               flexWrap: 'wrap',
             }}
           >
-            <ModalStat label="완료율" value={`${completionRate}%`} sub={`${finalized}/${total}`} bar={completionRate} barColor="var(--ok-orange)" />
+            <ModalStat label="완료율" value={`${completionRate}%`} sub={`${finalized}/${total}`} bar={completionRate} barColor={ACH_COLORS.achieved} />
             <ModalStat label="목표 달성" value={`${achievementRate}%`} sub={`${achieved}명`} bar={achievementRate} barColor="var(--warning)" />
             <ModalStat label="평균 점수" value={averageScore} sub="완료자 기준" />
             <div style={{ flex: '1 1 240px', minWidth: 200 }}>
               <div className="sd-label-mini" style={{ marginBottom: 6 }}>달성 현황</div>
-              <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: 'var(--bg-muted)' }}>
+              <div style={{ display: 'flex', height: 10, borderRadius: 'var(--r-pill)', overflow: 'hidden', background: 'var(--bg-muted)' }}>
                 {achSegments.map((s) =>
                   s.n > 0 ? (
                     <div
@@ -1031,7 +1025,7 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                         fontSize: 'var(--fs-xs)',
                         fontWeight: 700,
                         padding: '2px 8px',
-                        borderRadius: 999,
+                        borderRadius: 'var(--r-pill)',
                         background: 'var(--bg-muted)',
                         border: '1px solid var(--border)',
                       }}
@@ -1077,7 +1071,8 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                   return (
                     <TableRow key={record.employee.id}>
                       <TableCell
-                        style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}
+                        className="mono"
+                        style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}
                       >
                         {record.employee.employee_id}
                       </TableCell>
@@ -1088,17 +1083,8 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                             navigate(`/hr/evaluation-viewer?evaluatee=${encodeURIComponent(record.employee.employee_id)}`)
                           }
                           title="이 피평가자의 평가 내역(읽기 전용) 열람"
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            padding: 0,
-                            font: 'inherit',
-                            fontWeight: 800,
-                            color: 'var(--ok-orange)',
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            textUnderlineOffset: 2,
-                          }}
+                          className="sd-link-btn"
+                          style={{ fontWeight: 800 }}
                         >
                           {record.employee.name}
                         </button>
@@ -1130,13 +1116,13 @@ const DepartmentMembersModal = ({ name, levelLabel, parentPath, records, evaluat
                       </TableCell>
                       <TableCell style={{ minWidth: 120 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--bg-muted)', overflow: 'hidden', minWidth: 56 }}>
+                          <div style={{ flex: 1, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--bg-muted)', overflow: 'hidden', minWidth: 56 }}>
                             <div
                               style={{
                                 height: '100%',
                                 width: `${record.progress}%`,
-                                background: record.progress >= 100 ? 'var(--ok-orange)' : 'var(--warning)',
-                                borderRadius: 3,
+                                background: record.progress >= 100 ? ACH_COLORS.achieved : ACH_COLORS.missed,
+                                borderRadius: 'var(--r-pill)',
                               }}
                             />
                           </div>
@@ -1197,13 +1183,13 @@ const ModalStat = ({
 }) => (
   <div style={{ minWidth: 92 }}>
     <div className="sd-label-mini">{label}</div>
-    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, marginTop: 2, lineHeight: 1 }}>
+    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 800, marginTop: 2, lineHeight: 1 }}>
       {value}
     </div>
     {sub && <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>{sub}</div>}
     {bar !== undefined && (
-      <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: 'var(--bg-muted)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${bar}%`, background: barColor ?? 'var(--ok-orange)', borderRadius: 3 }} />
+      <div style={{ marginTop: 6, height: 6, borderRadius: 'var(--r-pill)', background: 'var(--bg-muted)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${bar}%`, background: barColor ?? 'var(--ok-orange)', borderRadius: 'var(--r-pill)' }} />
       </div>
     )}
   </div>

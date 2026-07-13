@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
-import { LoadingState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { Pill } from '@/components/brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -313,23 +313,23 @@ export const EvaluationReadonlyView = ({
     return <LoadingState message="평가 데이터를 불러오는 중입니다…" />;
   }
   if (error) {
-    return <div className="sd-card" style={{ color: 'var(--danger)' }}>{error}</div>;
+    return <ErrorState message={error} />;
   }
   if (groups.length === 0) {
-    return <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>선택한 기간에 이 피평가자의 평가가 없습니다.</div>;
+    return <EmptyState message="선택한 기간에 이 피평가자의 평가가 없습니다." />;
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 피평가자 요약 */}
       {meta && (
         <div className="sd-card" style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-          <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 900 }}>
+          <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 800 }}>
             {meta.name}{' '}
             <span style={{ fontWeight: 600, color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>{meta.position}</span>
           </h2>
           <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>{meta.department}</span>
-          <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>Lv.{meta.growthLevel}</span>
+          <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>Lv.{meta.growthLevel}</span>
           {groups.length > 1 && <Pill tone="info">평가자 {groups.length}명 (이동)</Pill>}
           {enableEditRequest && (
             <button

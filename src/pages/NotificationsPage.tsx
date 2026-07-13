@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
 import NotificationItem from '@/components/Notification/NotificationItem';
+import { FilterChip } from '@/components/brand/FilterChip';
+import { EmptyState } from '@/components/ui/state-views';
 import { useNotifications } from '@/contexts/NotificationContextDB';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -139,11 +141,7 @@ const NotificationsPage = () => {
               </button>
             )}
             {notifications.length > 0 && (
-              <button
-                onClick={handleClearAll}
-                className="sd-btn sd-btn-outline sd-btn-sm"
-                style={{ color: 'var(--danger)' }}
-              >
+              <button onClick={handleClearAll} className="sd-btn sd-btn-danger sd-btn-sm">
                 전체 삭제
               </button>
             )}
@@ -153,31 +151,16 @@ const NotificationsPage = () => {
           <>
             {/* 역할별 분리 탭 — 보유 역할이 2개 이상일 때만 */}
             {showRoleTabs && (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                }}
-              >
+              <div className="sd-seg">
                 {roleTabs.map((r) => (
                   <button
                     key={r}
                     onClick={() => setRoleFilter(r)}
-                    style={{
-                      padding: '6px 16px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontWeight: 700,
-                      fontSize: 'var(--fs-sm)',
-                      background: roleFilter === r ? 'var(--ok-orange)' : 'transparent',
-                      color: roleFilter === r ? '#fff' : 'var(--fg-muted)',
-                    }}
+                    className={`sd-seg-item${roleFilter === r ? ' is-active' : ''}`}
                   >
                     {ROLE_LABEL[r]}
                     {(roleUnread[r] ?? 0) > 0 && (
-                      <span style={{ marginLeft: 6 }}>{roleUnread[r]}</span>
+                      <span className="tnum" style={{ marginLeft: 6 }}>{roleUnread[r]}</span>
                     )}
                   </button>
                 ))}
@@ -186,23 +169,10 @@ const NotificationsPage = () => {
 
             <div style={{ display: 'flex', gap: 6 }}>
               {filters.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setFilter(f.id)}
-                  style={{
-                    padding: '5px 14px',
-                    borderRadius: 8,
-                    border: '1px solid',
-                    borderColor: filter === f.id ? 'var(--ok-orange)' : 'var(--border)',
-                    background: filter === f.id ? 'var(--ok-orange)' : 'transparent',
-                    color: filter === f.id ? '#fff' : 'var(--fg)',
-                    fontSize: 'var(--fs-body)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {f.label} {f.count > 0 && <span style={{ marginLeft: 4 }}>{f.count}</span>}
-                </button>
+                <FilterChip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)}>
+                  {f.label}{' '}
+                  {f.count > 0 && <span className="tnum" style={{ marginLeft: 4 }}>{f.count}</span>}
+                </FilterChip>
               ))}
             </div>
           </>
@@ -210,26 +180,19 @@ const NotificationsPage = () => {
       />
 
       <div style={{ padding: '24px 32px 32px' }}>
-        <div
-          className="sd-card"
-          style={{
-            padding: 0,
-            overflow: 'hidden',
-          }}
-        >
-          {visible.length === 0 ? (
-            <div
-              style={{
-                padding: '48px 18px',
-                textAlign: 'center',
-                color: 'var(--fg-muted)',
-                fontSize: 'var(--fs-body)',
-              }}
-            >
-              {filter === 'unread' ? '읽지 않은 알림이 없습니다.' : '알림이 없습니다.'}
-            </div>
-          ) : (
-            visible.map((n) => (
+        {visible.length === 0 ? (
+          <EmptyState
+            message={filter === 'unread' ? '읽지 않은 알림이 없습니다.' : '알림이 없습니다.'}
+          />
+        ) : (
+          <div
+            className="sd-card"
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+            }}
+          >
+            {visible.map((n) => (
               <NotificationItem
                 key={n.id}
                 notification={n}
@@ -237,9 +200,9 @@ const NotificationsPage = () => {
                 currentRole={tabRole}
                 onNavigate={handleItemNavigate}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* HR이 등록한 FAQ를 전 직원에게 노출 (FAQ 없으면 자동 숨김) */}
         <FaqSection />

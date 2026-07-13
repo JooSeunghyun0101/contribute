@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState, LoadingState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { FilterChip } from '@/components/brand';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
 import { AiKeywordChips } from '@/components/ui/AiKeywordChips';
@@ -183,15 +183,7 @@ const EvaluatorFeedbackPage = () => {
         filters={
           !isLoading && !error && employeeOptions.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <span
-                style={{
-                  fontSize: 'var(--fs-xs)',
-                  fontWeight: 800,
-                  color: 'var(--fg-subtle)',
-                  letterSpacing: '0.06em',
-                  marginRight: 2,
-                }}
-              >
+              <span className="sd-label-mini" style={{ marginRight: 2 }}>
                 팀원
               </span>
               <FilterChip
@@ -224,9 +216,7 @@ const EvaluatorFeedbackPage = () => {
             {/* ── Left: task-grouped cards (per employee section) ── */}
             <div className="flex flex-col gap-5">
               {visibleBundles.length === 0 ? (
-                <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-                  표시할 피드백 내역이 없습니다.
-                </div>
+                <EmptyState message="표시할 피드백 내역이 없습니다." />
               ) : (
                 visibleBundles.map((bundle) => {
                   const visibleCards = bundle.cards.filter((card) => card.entries.length > 0);
@@ -234,15 +224,10 @@ const EvaluatorFeedbackPage = () => {
                     // 피평가자별로 독립된 카드로 분리해 구분이 명확하게 보이도록 한다.
                     <section
                       key={bundle.employeeId}
-                      style={{
-                        border: '1px solid var(--border)',
-                        borderRadius: 12,
-                        overflow: 'hidden',
-                        background: 'var(--bg-card)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                      }}
+                      className="sd-card"
+                      style={{ padding: 0, overflow: 'hidden' }}
                     >
-                      {/* 피평가자 헤더 밴드 */}
+                      {/* 피평가자 헤더 밴드 — 단일 액센트 원칙: 대형 오렌지 틴트 대신 중립 서피스 + 아바타 틴트 포인트 */}
                       <div
                         style={{
                           display: 'flex',
@@ -250,32 +235,21 @@ const EvaluatorFeedbackPage = () => {
                           alignItems: 'center',
                           gap: 16,
                           padding: '14px 18px',
-                          background: 'var(--ok-orange-50)',
-                          borderBottom: '1px solid var(--ok-orange-100)',
+                          background: 'var(--bg-subtle)',
+                          borderBottom: '1px solid var(--border)',
                           flexWrap: 'wrap',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                           <div
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: '50%',
-                              background: 'var(--ok-orange)',
-                              color: '#fff',
-                              fontSize: 'var(--fs-h4)',
-                              fontWeight: 800,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
+                            className="sd-avatar"
+                            style={{ width: 36, height: 36, fontSize: 'var(--fs-h4)' }}
                           >
                             {bundle.employeeName.charAt(0)}
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: 'var(--ok-brown)' }}>
+                              <span style={{ fontSize: 'var(--fs-h4)', fontWeight: 700, color: 'var(--fg)' }}>
                                 {bundle.employeeName}
                               </span>
                               <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 600 }}>
@@ -414,14 +388,15 @@ const EvaluatorFeedbackPage = () => {
                           </div>
                         </div>
                         <span
+                          className="tnum"
                           style={{
                             marginLeft: 8,
                             padding: '2px 8px',
-                            borderRadius: 12,
+                            borderRadius: 'var(--r-pill)',
                             background:
                               card.entries.length > 0 ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
                             color:
-                              card.entries.length > 0 ? 'var(--ok-orange)' : 'var(--fg-muted)',
+                              card.entries.length > 0 ? 'var(--ok-orange-700)' : 'var(--fg-muted)',
                             fontSize: 'var(--fs-xs)',
                             fontWeight: 700,
                             whiteSpace: 'nowrap',

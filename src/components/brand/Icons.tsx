@@ -43,7 +43,7 @@ export const IconChart = ({ size = 20, ...p }: IconProps) => (
     <path d="M3 3v18h18" />
     <rect x="7" y="11" width="3" height="7" />
     <rect x="13" y="6" width="3" height="12" />
-    <rect x="19" y="14" width="0.5" height="4" />
+    <rect x="18" y="14" width="3" height="4" />
   </svg>
 );
 

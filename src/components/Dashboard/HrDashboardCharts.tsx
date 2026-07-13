@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { EmptyState } from '@/components/ui/state-views';
 import {
   Bar,
   BarChart,
@@ -21,15 +22,26 @@ export const HR_COLOR = {
   missed: 'var(--score-2-bg)',
   pending: 'var(--score-1-bg)',
   amber: 'var(--score-3-bg)',
+  // 주의: 키 이름은 레거시('blue')지만 값은 잉크 계열(--ok-brown=--foreground).
+  // InsightScatter 등 외부 소비처가 있어 키를 바꾸지 않는다.
   blue: 'var(--ok-brown)',
 } as const;
 
+/** 막대/도넛 hover 하이라이트 — 토큰 기반 옅은 오렌지(구 rgba(245,80,0,α) 하드코딩 대체). */
+const CURSOR_FILL = { fill: 'var(--ok-orange-50)' } as const;
+
 const tooltipStyle = {
-  borderRadius: 10,
+  borderRadius: 'var(--r-md)',
   border: '1px solid var(--border)',
   fontSize: 'var(--fs-sm)',
   background: 'var(--bg-card)',
+  boxShadow: 'var(--sh-lg)',
 } as const;
+
+/** 범례 색상 스와치(9px) — 4곳에서 복붙되던 패턴을 통일. */
+const Swatch = ({ color }: { color: string }) => (
+  <span style={{ width: 9, height: 9, borderRadius: 3, background: color, display: 'inline-block' }} aria-hidden />
+);
 
 export type DonutSegment = { key: string; name: string; value: number; color: string };
 
@@ -113,6 +125,7 @@ export const Donut = ({
               type="button"
               onClick={() => handleSelect(s.key)}
               title={`${s.name} 명단 보기`}
+              className="kbd-focus bg-transparent transition-colors hover:bg-[var(--bg-muted)]"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -120,18 +133,18 @@ export const Donut = ({
                 fontSize: 'var(--fs-xs)',
                 color: 'var(--fg-muted)',
                 fontWeight: 700,
-                background: 'none',
                 border: 'none',
-                padding: 0,
+                padding: '2px 6px',
+                borderRadius: 'var(--r-xs)',
                 cursor: 'pointer',
               }}
             >
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
+              <Swatch color={s.color} />
               {s.name} <span className="tnum" style={{ color: 'var(--fg)' }}>{s.value}</span>
             </button>
           ) : (
             <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
+              <Swatch color={s.color} />
               {s.name} <span className="tnum" style={{ color: 'var(--fg)' }}>{s.value}</span>
             </span>
           ),
@@ -173,7 +186,7 @@ export const LevelDistChart = ({ data, onSelect }: { data: LevelDatum[]; onSelec
       >
         <XAxis dataKey="label" tick={{ fontSize: 12, fill: 'var(--fg)', fontWeight: 800 }} axisLine={false} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--fg-muted)' }} axisLine={false} tickLine={false} width={34} />
-        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v}명`, n]} cursor={{ fill: 'rgba(245,80,0,0.08)' }} />
+        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v}명`, n]} cursor={CURSOR_FILL} />
         <Bar dataKey="achieved" name="달성" stackId="a" fill={HR_COLOR.achieved} />
         <Bar dataKey="missed" name="미달성" stackId="a" fill={HR_COLOR.missed} />
         <Bar dataKey="pending" name="미평가" stackId="a" fill={HR_COLOR.pending} radius={[5, 5, 0, 0]} />
@@ -202,7 +215,7 @@ export const ScoreDistChart = ({ data, onSelect }: { data: ScoreDatum[]; onSelec
         >
           <XAxis dataKey="label" tick={{ fontSize: 12, fill: 'var(--fg)', fontWeight: 800 }} axisLine={false} tickLine={false} />
           <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--fg-muted)' }} axisLine={false} tickLine={false} width={34} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v}명`, '인원']} cursor={{ fill: 'rgba(245,80,0,0.08)' }} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v}명`, '인원']} cursor={CURSOR_FILL} />
           <Bar dataKey="count" name="인원" radius={[5, 5, 0, 0]}>
             {data.map((_, i) => (
               <Cell key={i} fill={colors[i] ?? HR_COLOR.orange} />
@@ -270,16 +283,8 @@ export const DeptHeadcountList = ({
             key={o.k}
             type="button"
             onClick={() => onSortChange(o.k)}
-            style={{
-              padding: '3px 10px',
-              borderRadius: 7,
-              fontSize: 'var(--fs-xs)',
-              fontWeight: 700,
-              cursor: 'pointer',
-              border: `1px solid ${sort === o.k ? 'var(--ok-orange)' : 'var(--border)'}`,
-              background: sort === o.k ? 'var(--ok-orange-50)' : 'transparent',
-              color: sort === o.k ? 'var(--ok-orange)' : 'var(--fg-muted)',
-            }}
+            className={`sd-filter-chip${sort === o.k ? ' is-active' : ''}`}
+            style={{ padding: '3px 10px', fontSize: 'var(--fs-xs)' }}
           >
             {o.l}
           </button>
@@ -297,7 +302,7 @@ export const DeptHeadcountList = ({
         }}
       >
         {sorted.length === 0 ? (
-          <div style={{ fontSize: 'var(--fs-body)', color: 'var(--fg-muted)', padding: 12 }}>부서 데이터가 없습니다.</div>
+          <EmptyState message="부서 데이터가 없습니다." />
         ) : (
           sorted.map((d) => {
             const denom = d.total || 1;
@@ -306,18 +311,15 @@ export const DeptHeadcountList = ({
                 key={d.id ?? d.name}
                 type="button"
                 onClick={() => onSelect?.(d.id ?? d.name)}
+                className="kbd-focus bg-transparent transition-colors hover:bg-[var(--bg-muted)]"
                 style={{
                   textAlign: 'left',
-                  background: 'transparent',
                   border: 'none',
-                  borderRadius: 8,
+                  borderRadius: 'var(--r-sm)',
                   padding: '8px 8px',
                   cursor: onSelect ? 'pointer' : 'default',
                   font: 'inherit',
-                  transition: 'background 0.12s',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-muted)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
                   <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -327,13 +329,13 @@ export const DeptHeadcountList = ({
                     달성 <b className="tnum" style={{ color: 'var(--ok-orange)' }}>{d.achievementRate}%</b> · {d.total}명
                   </span>
                 </div>
-                <div style={{ height: 12, borderRadius: 6, overflow: 'hidden', background: 'var(--bg-muted)' }} title={`${d.total}명`}>
+                <div style={{ height: 12, borderRadius: 'var(--r-pill)', overflow: 'hidden', background: 'var(--bg-muted)' }} title={`${d.total}명`}>
                   <div
                     style={{
                       display: 'flex',
                       height: '100%',
                       width: `${(d.total / maxTotal) * 100}%`,
-                      borderRadius: 6,
+                      borderRadius: 'var(--r-pill)',
                       overflow: 'hidden',
                     }}
                   >
@@ -353,7 +355,7 @@ export const DeptHeadcountList = ({
       <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>
         {segDefs.map((s) => (
           <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: 'inline-block' }} />
+            <Swatch color={s.color} />
             {s.label}
           </span>
         ))}
@@ -378,7 +380,7 @@ export const DeptCompareChart = ({ data, onSelect }: { data: DeptDatum[]; onSele
           tickLine={false}
           width={96}
         />
-        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v}%`, n]} cursor={{ fill: 'rgba(245,80,0,0.06)' }} />
+        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v}%`, n]} cursor={CURSOR_FILL} />
         <Bar dataKey="completionRate" name="완료율" fill={HR_COLOR.orange} radius={[0, 4, 4, 0]} barSize={11} onClick={(d: any) => onSelect?.(d?.name)} cursor={onSelect ? 'pointer' : undefined}>
           <LabelList dataKey="completionRate" position="right" style={{ fontSize: 10, fontWeight: 800, fill: 'var(--fg-muted)' }} formatter={(v: number) => `${v}%`} />
         </Bar>
@@ -391,7 +393,7 @@ export const DeptCompareChart = ({ data, onSelect }: { data: DeptDatum[]; onSele
         { c: HR_COLOR.amber, l: '달성률' },
       ].map((x) => (
         <span key={x.l} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: x.c, display: 'inline-block' }} />
+          <Swatch color={x.c} />
           {x.l}
         </span>
       ))}

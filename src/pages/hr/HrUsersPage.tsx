@@ -1,6 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Plus } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { EmptyState } from '@/components/ui/state-views';
+import './hr-pages.css';
 import MatchingIntegrityBanner from '@/components/hr/MatchingIntegrityBanner';
 import { IconSearch } from '@/components/brand';
 import { useAllEmployees } from '@/hooks/useDashboardRecords';
@@ -67,11 +70,14 @@ const SortableTh = ({ label, sortKey, sort, onSort, style }: {
         type="button"
         onClick={() => onSort(sortKey)}
         title="클릭하여 정렬"
-        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        // 정렬 방향은 아이콘(aria-hidden)으로만 보이므로 접근 가능한 이름에 방향을 실어준다.
+        aria-label={`${label} 정렬${active ? (sort!.dir === 'asc' ? ' — 현재 오름차순' : ' — 현재 내림차순') : ''}`}
+        className="row-hover kbd-focus"
+        style={{ border: 'none', padding: '2px 6px', margin: '-2px -6px', borderRadius: 'var(--r-xs)', cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}
       >
         {label}
-        <span style={{ opacity: active ? 1 : 0.35, fontSize: '0.82em' }}>
-          {active ? (sort!.dir === 'asc' ? '▲' : '▼') : '↕'}
+        <span style={{ opacity: active ? 1 : 0.35, display: 'inline-flex' }} aria-hidden="true">
+          {active ? (sort!.dir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} />}
         </span>
       </button>
     </TableHead>
@@ -304,7 +310,7 @@ const DataMenu = ({ items }: { items: DataMenuItem[] }) => {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        데이터 관리 ▾
+        데이터 관리 <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open && (
         <div
@@ -317,8 +323,8 @@ const DataMenu = ({ items }: { items: DataMenuItem[] }) => {
             minWidth: 208,
             background: 'var(--bg-card)',
             border: '1px solid var(--border)',
-            borderRadius: 8,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
+            borderRadius: 'var(--r-md)',
+            boxShadow: 'var(--sh-lg)',
             padding: 4,
             display: 'flex',
             flexDirection: 'column',
@@ -335,23 +341,17 @@ const DataMenu = ({ items }: { items: DataMenuItem[] }) => {
                 setOpen(false);
                 it.onClick();
               }}
+              className={it.disabled ? undefined : 'row-hover kbd-focus'}
               style={{
                 textAlign: 'left',
                 padding: '8px 12px',
                 border: 'none',
-                background: 'transparent',
-                borderRadius: 6,
+                borderRadius: 'var(--r-xs)',
                 cursor: it.disabled ? 'not-allowed' : 'pointer',
                 color: it.disabled ? 'var(--fg-subtle)' : 'var(--fg)',
                 fontSize: 'var(--fs-body)',
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={(e) => {
-                if (!it.disabled) e.currentTarget.style.background = 'var(--bg-muted)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
               }}
             >
               {it.label}
@@ -1758,7 +1758,8 @@ const HrUsersPage = () => {
                 ]}
               />
               <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={() => setShowAddModal(true)}>
-                + 사용자 추가
+                <Plus size={14} aria-hidden="true" />
+                사용자 추가
               </button>
             </div>
             {/* 숨김 파일 입력 — 위 메뉴 항목이 트리거한다. */}
@@ -1792,18 +1793,7 @@ const HrUsersPage = () => {
                 <button
                   key={filter.id}
                   onClick={() => setSelectedRole(filter.id)}
-                  style={{
-                    padding: '5px 14px',
-                    borderRadius: 8,
-                    border: '1px solid',
-                    borderColor: selectedRole === filter.id ? 'var(--ok-orange)' : 'var(--border)',
-                    background: selectedRole === filter.id ? 'var(--ok-orange)' : 'transparent',
-                    color: selectedRole === filter.id ? '#fff' : 'var(--fg)',
-                    fontSize: 'var(--fs-body)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
+                  className={`sd-filter-chip${selectedRole === filter.id ? ' is-active' : ''}`}
                 >
                   {filter.label}
                 </button>
@@ -1815,16 +1805,7 @@ const HrUsersPage = () => {
               onClick={() => setGroupBySection((v) => !v)}
               aria-pressed={groupBySection}
               title="조직(법인·본부·부·팀)별로 행을 묶어서 봅니다."
-              style={{
-                padding: '5px 14px',
-                borderRadius: 8,
-                fontSize: 'var(--fs-body)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                border: `1px solid ${groupBySection ? 'var(--ok-orange)' : 'var(--border)'}`,
-                background: groupBySection ? 'var(--ok-orange-50)' : 'transparent',
-                color: groupBySection ? 'var(--ok-orange)' : 'var(--fg)',
-              }}
+              className={`sd-filter-chip${groupBySection ? ' is-active' : ''}`}
             >
               묶어서 보기 {groupBySection ? 'ON' : 'OFF'}
             </button>
@@ -1895,7 +1876,7 @@ const HrUsersPage = () => {
                   className="sd-btn sd-btn-ghost sd-btn-sm"
                   onClick={handleBulkDelete}
                   disabled={bulkActionRunning}
-                  style={{ color: 'var(--danger, #B91C1C)' }}
+                  style={{ color: 'var(--danger)' }}
                 >
                   {bulkActionRunning ? (bulkProgress ? `처리 중 ${bulkProgress.done}/${bulkProgress.total}` : '처리 중') : '선택 삭제'}
                 </button>
@@ -1906,7 +1887,7 @@ const HrUsersPage = () => {
                       bulkAbortRef.current = true;
                     }}
                     title="남은 처리를 멈춥니다. 이미 처리된 건은 유지됩니다."
-                    style={{ color: 'var(--danger, #B91C1C)' }}
+                    style={{ color: 'var(--danger)' }}
                   >
                     중단
                   </button>
@@ -2003,10 +1984,14 @@ const HrUsersPage = () => {
 
                 {!filteredEmployees.length && (
                   <TableRow>
-                    <TableCell colSpan={14} style={{ color: 'var(--fg-muted)' }}>
-                      {records.filter((r) => r.evaluation).length === 0
-                        ? '선택한 평가기간에 매칭된 직원이 없습니다. 대상자/매칭 엑셀을 업로드하세요.'
-                        : '조건에 맞는 사용자가 없습니다.'}
+                    <TableCell colSpan={14} style={{ padding: 16 }}>
+                      <EmptyState
+                        message={
+                          records.filter((r) => r.evaluation).length === 0
+                            ? '선택한 평가기간에 매칭된 직원이 없습니다. 대상자/매칭 엑셀을 업로드하세요.'
+                            : '조건에 맞는 사용자가 없습니다.'
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 )}
@@ -2115,7 +2100,7 @@ const HrUsersPage = () => {
                     alignItems: 'baseline',
                     gap: 12,
                     padding: '8px 10px',
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     background: 'var(--danger-bg)',
                     border: '1px solid var(--danger-bg)',
                     fontSize: 'var(--fs-sm)',
@@ -2123,7 +2108,7 @@ const HrUsersPage = () => {
                 >
                   <strong style={{ whiteSpace: 'nowrap' }}>
                     {f.name}{' '}
-                    <span style={{ color: 'var(--fg-muted)', fontFamily: 'monospace', fontWeight: 400 }}>{f.id}</span>
+                    <span className="mono" style={{ color: 'var(--fg-muted)', fontWeight: 400 }}>{f.id}</span>
                   </strong>
                   <span style={{ color: 'var(--danger)', textAlign: 'right' }}>{f.reason}</span>
                 </div>
@@ -2167,7 +2152,7 @@ const HrUsersPage = () => {
                 {contribPreview.fileName} · {contribPreview.preview.period_name}
               </DialogDescription>
             </DialogHeader>
-            <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+            <div style={{ display: 'grid', gap: 8, fontSize: 'var(--fs-body)' }}>
               {[
                 ['매칭된 평가', `${contribPreview.preview.matched_evaluations} / 그룹 ${contribPreview.preview.total_groups}`],
                 ['적재할 과업', `${contribPreview.preview.tasks_total}개 (점수 ${contribPreview.preview.scored_total})`],
@@ -2181,7 +2166,7 @@ const HrUsersPage = () => {
               ))}
             </div>
             {contribPreview.preview.unmatched_count > 0 && (
-              <p style={{ fontSize: 12, color: 'var(--warning, #b45309)', margin: 0 }}>
+              <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--warning)', margin: 0 }}>
                 평가가 없는 그룹은 건너뜁니다. 먼저 ‘대상자/매칭 업로드’로 그 기간 평가를 만들어 주세요.
               </p>
             )}
@@ -2211,7 +2196,7 @@ const HrUsersPage = () => {
               </DialogDescription>
             </DialogHeader>
             <div>
-              <label style={{ display: 'block', fontSize: 13, marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 'var(--fs-sm)', marginBottom: 6 }}>
                 이 조직구조는 <strong>어느 평가기간</strong> 기준인가요?
               </label>
               <select
@@ -2227,7 +2212,7 @@ const HrUsersPage = () => {
                   </option>
                 ))}
               </select>
-              <p style={{ fontSize: 12, color: 'var(--fg-subtle, #888)', margin: 0 }}>
+              <p style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)', margin: 0 }}>
                 활성(기본) 평가기간이면 직원의 현재 상위조직도 함께 갱신됩니다. 그 외 기간이면 그 기간 스냅샷만 저장합니다.
               </p>
             </div>
@@ -2263,31 +2248,31 @@ const HrUsersPage = () => {
               ) : !orgHistory || orgHistory.length === 0 ? (
                 <div style={{ padding: 20, color: 'var(--fg-muted)' }}>업로드된 조직정보가 없습니다.</div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
-                  <thead>
-                    <tr style={{ textAlign: 'left', color: 'var(--fg-muted)', borderBottom: '1px solid var(--border)' }}>
-                      <th style={{ padding: '8px 10px' }}>평가기간</th>
-                      <th style={{ padding: '8px 10px' }}>스냅샷(파일)</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>부서</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>법인</th>
-                      <th style={{ padding: '8px 10px' }}>업로드 일자</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>다운로드</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table style={{ fontSize: 'var(--fs-sm)' }}>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>평가기간</TableHead>
+                      <TableHead>스냅샷(파일)</TableHead>
+                      <TableHead style={{ textAlign: 'right' }}>부서</TableHead>
+                      <TableHead style={{ textAlign: 'right' }}>법인</TableHead>
+                      <TableHead>업로드 일자</TableHead>
+                      <TableHead style={{ textAlign: 'right' }}>다운로드</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {orgHistory.map((h, i) => (
-                      <tr key={`${h.evaluation_period_id ?? 'none'}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 700 }}>
+                      <TableRow key={`${h.evaluation_period_id ?? 'none'}-${i}`}>
+                        <TableCell style={{ padding: '8px 10px', fontWeight: 700 }}>
                           {h.period_name ?? '(기간 미지정)'}
                           {h.evaluation_year ? <span style={{ color: 'var(--fg-subtle)', fontWeight: 400 }}> · {h.evaluation_year}</span> : null}
-                        </td>
-                        <td style={{ padding: '8px 10px', color: 'var(--fg-muted)' }}>{h.source_label ?? '-'}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right' }} className="tnum">{h.node_count}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right' }} className="tnum">{h.corp_count}</td>
-                        <td style={{ padding: '8px 10px', color: 'var(--fg-muted)' }}>
+                        </TableCell>
+                        <TableCell style={{ padding: '8px 10px', color: 'var(--fg-muted)' }}>{h.source_label ?? '-'}</TableCell>
+                        <TableCell className="tnum" style={{ padding: '8px 10px', textAlign: 'right' }}>{h.node_count}</TableCell>
+                        <TableCell className="tnum" style={{ padding: '8px 10px', textAlign: 'right' }}>{h.corp_count}</TableCell>
+                        <TableCell style={{ padding: '8px 10px', color: 'var(--fg-muted)' }}>
                           {h.uploaded_at ? new Date(h.uploaded_at).toLocaleString('ko-KR') : '-'}
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                        </TableCell>
+                        <TableCell style={{ padding: '8px 10px', textAlign: 'right' }}>
                           <button
                             className="sd-btn sd-btn-outline sd-btn-sm"
                             onClick={() => downloadOrgPeriod(h)}
@@ -2295,11 +2280,11 @@ const HrUsersPage = () => {
                           >
                             {orgDownloadingKey === (h.evaluation_period_id ?? 'none') ? '내려받는 중…' : '엑셀'}
                           </button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               )}
             </div>
           </DialogContent>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, Inbox } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -64,7 +64,8 @@ const NotificationBell: React.FC = () => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.32)',
+            // 오버레이 스크림 — 모달과 동일한 웜 잉크 틴트로 통일
+            background: 'hsl(26 14% 8% / 0.5)',
             zIndex: 40,
           }}
         />
@@ -81,9 +82,9 @@ const NotificationBell: React.FC = () => {
               aria-hidden="true"
               className="absolute -top-1 -right-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none"
               style={{
-                background: 'var(--ok-orange)',
+                background: 'var(--ok-orange-solid)',
                 color: '#fff',
-                border: '2px solid var(--bg-card, #fff)',
+                border: '2px solid var(--bg-card)',
               }}
             >
               {unreadCount > 99 ? '99+' : unreadCount}
@@ -109,7 +110,7 @@ const NotificationBell: React.FC = () => {
                 {unreadCount > 0 && (
                   <Badge
                     className="ml-1.5 h-5 min-w-5 justify-center px-1.5 text-[10px]"
-                    style={{ background: 'var(--ok-orange)', color: '#fff', border: 'none' }}
+                    style={{ background: 'var(--ok-orange-solid)', color: '#fff', border: 'none' }}
                   >
                     {unreadCount}
                   </Badge>
@@ -134,9 +135,10 @@ const NotificationBell: React.FC = () => {
           <div className="max-h-[420px] overflow-y-auto">
             {filtered.length === 0 ? (
               <div
-                className="px-3 py-10 text-center text-sm"
+                className="flex flex-col items-center gap-2 px-3 py-10 text-center text-sm"
                 style={{ color: 'var(--fg-muted)' }}
               >
+                <Inbox size={22} style={{ color: 'var(--fg-subtle)' }} aria-hidden="true" />
                 {tab === 'unread' ? '읽지 않은 알림이 없습니다.' : '읽은 알림이 없습니다.'}
               </div>
             ) : (

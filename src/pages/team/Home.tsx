@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3, HelpCircle } from 'lucide-react';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState, LoadingState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useEvaluatorPeriodRoster } from '@/hooks/useEvaluatorPeriodRoster';
@@ -14,8 +14,8 @@ import { useToast } from '@/hooks/use-toast';
 import { formatScore, getScoreColor, MATRIX_SCORE_COLORS } from '@/lib/evaluationMatrix';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
 
-const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // #E84200
-const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // #C99A4E
+const COLOR_ACHIEVED = MATRIX_SCORE_COLORS[4]; // var(--score-4-bg)
+const COLOR_MISSED = MATRIX_SCORE_COLORS[2]; // var(--score-2-bg)
 
 // 평가 진행 컬럼은 3단계로 통합: 미제출 / 검토 필요(제출됨·평가중) / 완료.
 type ColumnId = 'unsubmitted' | 'review' | 'completed';
@@ -453,7 +453,7 @@ const TeamHome = () => {
                       // 좌우 padding 을 줄여서 카드 영역의 폭을 보존하면서
                       // inner wrapper paddingLeft 로 카드 영역을 가운데로 정렬.
                       padding: '16px 8px',
-                      borderRadius: 8,
+                      borderRadius: 'var(--r-lg)',
                       background: 'var(--bg-muted)',
                       border: '1px solid var(--border)',
                     }}
@@ -479,7 +479,7 @@ const TeamHome = () => {
                           }}
                         />
                         <div>
-                          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>{def.label}</div>
+                          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700 }}>{def.label}</div>
                           <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
                             {def.description}
                           </div>
@@ -504,7 +504,7 @@ const TeamHome = () => {
                           </button>
                         )}
                         <Icon size={15} color={def.dot} aria-hidden="true" />
-                        <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                        <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                           {items.length}건
                         </span>
                       </div>
@@ -525,16 +525,7 @@ const TeamHome = () => {
                       }}
                     >
                       {items.length === 0 ? (
-                        <div
-                          style={{
-                            color: 'var(--fg-subtle)',
-                            fontSize: 'var(--fs-body)',
-                            textAlign: 'center',
-                            padding: '24px 0',
-                          }}
-                        >
-                          대상 없음
-                        </div>
+                        <EmptyState message="대상 없음" />
                       ) : (
                         items.map((card) => (
                           <BoardCard
@@ -557,7 +548,7 @@ const TeamHome = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   padding: '16px 8px',
-                  borderRadius: 8,
+                  borderRadius: 'var(--r-lg)',
                   background: 'var(--bg-subtle)',
                   border: '1px solid var(--border)',
                 }}
@@ -583,7 +574,7 @@ const TeamHome = () => {
                       }}
                     />
                     <div>
-                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800, color: 'var(--fg-muted)' }}>이전 담당</div>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg-muted)' }}>이전 담당</div>
                       <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', marginTop: 2 }}>
                         기간 중 다른 평가자에게 이관
                       </div>
@@ -591,7 +582,7 @@ const TeamHome = () => {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Clock3 size={15} color="var(--fg-subtle)" aria-hidden="true" />
-                    <span style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
+                    <span className="tnum" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontWeight: 700 }}>
                       {formerCards.length}명
                     </span>
                   </div>
@@ -648,7 +639,6 @@ type BoardCardProps = {
 
 const BoardCard = ({ card, onClick }: BoardCardProps) => {
   const { record, caption, dateText, column, disabled } = card;
-  const accentColor = COLUMN_DEFS[column].dot;
   const scoreColor = getScoreColor(record.flooredScore);
   const scoreFraction = Math.min(100, Math.max(0, (record.weightedScore / 4) * 100));
   const hasScore = record.weightedScore > 0;
@@ -662,46 +652,26 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
     <button
       onClick={onClick}
       disabled={disabled}
+      className={disabled ? 'kbd-focus' : 'sd-card-interactive kbd-focus'}
       style={{
         width: '100%',
         boxSizing: 'border-box',
         textAlign: 'left',
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
-        borderRadius: 8,
+        borderRadius: 'var(--r-lg)',
         padding: '14px 16px',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'border-color 0.15s, box-shadow 0.15s',
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
         opacity: disabled ? 0.68 : 1,
       }}
-      onMouseEnter={(event) => {
-        if (disabled) return;
-        event.currentTarget.style.borderColor = accentColor;
-        event.currentTarget.style.boxShadow = `0 0 0 2px ${accentColor}25`;
-      }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.borderColor = 'var(--border)';
-        event.currentTarget.style.boxShadow = 'none';
-      }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
         <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            background: disabled ? 'var(--n-400)' : 'var(--ok-orange)',
-            color: '#fff',
-            fontSize: 'var(--fs-body)',
-            fontWeight: 800,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
+          className="sd-avatar"
+          style={disabled ? { background: 'var(--bg-muted)', color: 'var(--fg-muted)' } : undefined}
         >
           {record.employee.name.charAt(0)}
         </div>
@@ -717,11 +687,11 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
               style={{
                 display: 'inline-block',
                 padding: '2px 8px',
-                borderRadius: 4,
+                borderRadius: 'var(--r-xs)',
                 background: 'var(--ok-orange-50)',
                 color: 'var(--ok-orange-700)',
                 fontSize: 'var(--fs-xs)',
-                fontWeight: 800,
+                fontWeight: 700,
                 letterSpacing: '0.04em',
               }}
             >
@@ -751,7 +721,7 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
         style={{
           height: 6,
           background: 'var(--bg-muted)',
-          borderRadius: 3,
+          borderRadius: 'var(--r-pill)',
           overflow: 'hidden',
         }}
       >
@@ -760,8 +730,8 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
             height: '100%',
             width: `${scoreFraction}%`,
             background: scoreColor,
-            borderRadius: 3,
-            transition: 'width 0.4s',
+            borderRadius: 'var(--r-pill)',
+            transition: 'width 400ms cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         />
       </div>
@@ -770,15 +740,15 @@ const BoardCard = ({ card, onClick }: BoardCardProps) => {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
           <span
             className="tnum"
-            style={{ fontSize: 'var(--fs-h4)', fontWeight: 900, color: hasScore ? scoreColor : 'var(--fg-muted)' }}
+            style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, color: hasScore ? scoreColor : 'var(--fg-muted)' }}
           >
             {hasScore ? formatScore(record.weightedScore) : '–'}
           </span>
-          <span style={{ fontSize: 'var(--fs-xs)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+          <span className="tnum" style={{ fontSize: 'var(--fs-xs)', fontWeight: 600, color: 'var(--fg-muted)' }}>
             / 4.0
           </span>
         </div>
-        <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
+        <span className="tnum" style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{dateText}</span>
       </div>
 
       {workPeriod && (
@@ -798,7 +768,7 @@ const SummaryBar = ({ text }: { text: string }) => (
       alignItems: 'center',
       gap: 10,
       padding: '12px 16px',
-      borderRadius: 10,
+      borderRadius: 'var(--r-md)',
       background: 'var(--ok-orange-50)',
       border: '1px solid var(--ok-orange-100)',
     }}
@@ -806,7 +776,7 @@ const SummaryBar = ({ text }: { text: string }) => (
     <span className="sd-label-mini" style={{ color: 'var(--ok-orange-700)', flexShrink: 0 }}>
       알림
     </span>
-    <span style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--fg)' }}>{text}</span>
+    <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600, color: 'var(--fg)' }}>{text}</span>
   </div>
 );
 
@@ -825,12 +795,12 @@ const StatusBadge = ({
       <span
         style={{
           padding: '2px 10px',
-          borderRadius: 999,
+          borderRadius: 'var(--r-pill)',
           background: 'var(--bg-muted)',
           color: 'var(--fg-muted)',
           border: '1px solid var(--border)',
           fontSize: 'var(--fs-xs)',
-          fontWeight: 800,
+          fontWeight: 700,
           letterSpacing: '0.04em',
           whiteSpace: 'nowrap',
         }}
@@ -843,17 +813,19 @@ const StatusBadge = ({
     // 평가 완료 전(검토 대기·평가 중)은 라벨 비움
     return null;
   }
-  const color = achieved ? COLOR_ACHIEVED : COLOR_MISSED;
+  // 글자색은 배경 틴트와 짝 맞는 '텍스트' 토큰 — score-*-bg(배경용)를 글자에 쓰면 다크에서 AA 미달.
+  const color = achieved ? 'var(--ok-orange)' : 'var(--warning)';
   return (
     <span
       style={{
         padding: '2px 10px',
-        borderRadius: 999,
+        borderRadius: 'var(--r-pill)',
         background: achieved ? 'var(--ok-orange-50)' : 'var(--warning-bg)',
         color,
-        border: `1px solid ${color}33`,
+        // color 는 var() 토큰 문자열 — hex-alpha 접미(`${color}33`)는 무효라 color-mix 로 20% 틴트.
+        border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`,
         fontSize: 'var(--fs-xs)',
-        fontWeight: 800,
+        fontWeight: 700,
         letterSpacing: '0.04em',
         whiteSpace: 'nowrap',
       }}

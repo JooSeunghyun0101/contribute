@@ -15,7 +15,8 @@ export const OkMark = ({ size = 28, className }: Props) => (
       fill="none"
       strokeLinecap="round"
     />
-    <rect x="17.5" y="14" width="5" height="14" rx="1.5" fill="var(--ok-orange)" />
-    <circle cx="20" cy="33" r="2.6" fill="var(--ok-orange)" />
+    {/* 로고 그래픽 전용 비비드 오렌지(--ok-orange-brand) — 텍스트 AA 대비 불필요한 비텍스트 영역 */}
+    <rect x="17.5" y="14" width="5" height="14" rx="1.5" fill="var(--ok-orange-brand)" />
+    <circle cx="20" cy="33" r="2.6" fill="var(--ok-orange-brand)" />
   </svg>
 );

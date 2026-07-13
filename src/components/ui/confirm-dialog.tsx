@@ -60,7 +60,7 @@ interface DialogContextValue {
 const DialogContext = React.createContext<DialogContextValue | undefined>(undefined);
 
 const dangerActionClass =
-  'bg-[var(--danger)] text-white hover:bg-[var(--danger)] hover:opacity-90 focus-visible:ring-[var(--danger)]';
+  'bg-[var(--danger)] text-white hover:bg-[var(--danger)] hover:brightness-95 focus-visible:ring-[var(--danger)]';
 
 export const ConfirmDialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [pending, setPending] = React.useState<Pending | null>(null);

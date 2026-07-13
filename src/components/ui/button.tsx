@@ -9,7 +9,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // --primary 는 다크에서 '텍스트용 오렌지'라 흰 글씨 AA 미달 — 채움 전용 --ok-orange-solid 사용.
+        // (var() 색은 /90 opacity modifier 가 동작하지 않아 hover 도 명시 토큰으로.)
+        default:
+          "bg-[var(--ok-orange-solid)] text-white hover:bg-[var(--ok-orange-solid-hover)] active:bg-[var(--ok-orange-solid-active)]",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:

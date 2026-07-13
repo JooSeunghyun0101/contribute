@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { EmptyState } from '@/components/ui/state-views';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
@@ -82,7 +83,7 @@ const HrEvaluationViewerPage = () => {
         }
       />
 
-      <div style={{ padding: '20px 32px 32px' }}>
+      <div style={{ padding: '24px 32px 32px' }}>
         {selectedId ? (
           <EvaluationReadonlyView
             key={selectedId}
@@ -91,9 +92,10 @@ const HrEvaluationViewerPage = () => {
             enableEditRequest
           />
         ) : (
-          <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>
-            상단에서 피평가자를 선택하면 평가 내역(읽기 전용)이 표시됩니다.
-          </div>
+          <EmptyState
+            icon={<Search size={28} style={{ color: 'var(--fg-muted)' }} aria-hidden />}
+            message="상단에서 피평가자를 선택하면 평가 내역(읽기 전용)이 표시됩니다."
+          />
         )}
       </div>
     </>

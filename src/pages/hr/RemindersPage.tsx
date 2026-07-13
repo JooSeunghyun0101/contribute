@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { AiReviewRollup } from '@/components/Feedback/AiReviewRollup';
 import type { OrgFields } from '@/lib/orgHierarchy';
 import { useAuth } from '@/contexts/AuthContext';
@@ -352,7 +354,7 @@ const RemindersPage = () => {
           ) : undefined
         }
         filters={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="sd-seg">
             {REMINDER_TABS.map((t) => {
               const active = tab === t.key;
               return (
@@ -361,13 +363,7 @@ const RemindersPage = () => {
                   type="button"
                   onClick={() => setTab(t.key)}
                   aria-pressed={active}
-                  className="sd-btn sd-btn-sm"
-                  style={{
-                    border: `1px solid ${active ? 'var(--ok-orange)' : 'var(--border)'}`,
-                    background: active ? 'var(--ok-orange-50)' : 'var(--bg-card)',
-                    color: active ? 'var(--ok-orange)' : 'var(--fg)',
-                    fontWeight: active ? 700 : 500,
-                  }}
+                  className={`sd-seg-item${active ? ' is-active' : ''}`}
                 >
                   {t.label}
                 </button>
@@ -385,8 +381,9 @@ const RemindersPage = () => {
             style={{
               padding: 16,
               marginBottom: 16,
-              background: 'var(--ok-orange-50)',
-              color: 'var(--ok-orange)',
+              background: 'var(--warning-bg)',
+              borderColor: 'var(--warning)',
+              color: 'var(--warning)',
               fontWeight: 600,
             }}
           >
@@ -435,17 +432,8 @@ const RemindersPage = () => {
               {selectedRows.map((r) => (
                 <span
                   key={r.evaluatorId}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '3px 4px 3px 9px',
-                    borderRadius: 999,
-                    fontSize: 'var(--fs-xs)',
-                    fontWeight: 600,
-                    background: 'var(--ok-orange-50)',
-                    color: 'var(--ok-orange)',
-                  }}
+                  className="sd-chip sd-chip-orange"
+                  style={{ paddingRight: 4 }}
                 >
                   {r.evaluatorName}
                   <button
@@ -460,10 +448,11 @@ const RemindersPage = () => {
                       color: 'inherit',
                       lineHeight: 1,
                       padding: '0 2px',
-                      fontSize: 'var(--fs-body)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
                     }}
                   >
-                    ×
+                    <X size={12} aria-hidden />
                   </button>
                 </span>
               ))}
@@ -471,8 +460,15 @@ const RemindersPage = () => {
           )}
         </div>
 
+        {isLoading ? (
+          <LoadingState message="불러오는 중…" />
+        ) : error ? (
+          <ErrorState message={error} />
+        ) : rows.length === 0 ? (
+          <EmptyState message="미완료 평가가 남은 평가자가 없습니다." />
+        ) : (
         <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
-          {!isLoading && !error && rows.length > 0 && (
+          {rows.length > 0 && (
             <div
               style={{
                 padding: 12,
@@ -504,16 +500,7 @@ const RemindersPage = () => {
               )}
             </div>
           )}
-          {isLoading ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>불러오는 중…</div>
-          ) : error ? (
-            <div style={{ color: 'var(--danger)', padding: 24 }}>{error}</div>
-          ) : rows.length === 0 ? (
-            <div style={{ color: 'var(--fg-muted)', padding: 24 }}>
-              미완료 평가가 남은 평가자가 없습니다.
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
@@ -536,7 +523,7 @@ const RemindersPage = () => {
                 <tbody>
                   {filteredRows.length === 0 && (
                     <tr>
-                      <td style={{ ...td, color: 'var(--fg-muted)' }} colSpan={5}>
+                      <td style={{ ...td, color: 'var(--fg-muted)' }} colSpan={6}>
                         검색 결과가 없습니다.
                       </td>
                     </tr>
@@ -545,7 +532,7 @@ const RemindersPage = () => {
                     const checked = selectedIds.has(row.evaluatorId);
                     const recentlySent = row.lastReminderAt !== null;
                     return (
-                      <tr key={row.evaluatorId}>
+                      <tr key={row.evaluatorId} className="row-hover">
                         <td style={td}>
                           <input
                             type="checkbox"
@@ -562,7 +549,7 @@ const RemindersPage = () => {
                           </div>
                         </td>
                         <td style={{ ...td, color: 'var(--fg-muted)' }}>{orgDeptLabel(row.org)}</td>
-                        <td style={td}>
+                        <td style={td} className="tnum">
                           <span style={{ fontWeight: 700 }}>{row.incompleteCount}</span>건
                         </td>
                         <td style={{ ...td, maxWidth: 280, whiteSpace: 'normal', color: 'var(--fg-muted)' }}>
@@ -571,7 +558,7 @@ const RemindersPage = () => {
                             ? ` 외 ${row.evaluateeNames.length - 5}명`
                             : ''}
                         </td>
-                        <td style={td}>
+                        <td style={td} className="tnum">
                           {recentlySent ? (
                             <span style={{ color: 'var(--ok-orange)', fontWeight: 600 }}>
                               {fmtDateTime(row.lastReminderAt)} (제외)
@@ -585,9 +572,9 @@ const RemindersPage = () => {
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
+          </div>
         </div>
+        )}
       </div>
       )}
 

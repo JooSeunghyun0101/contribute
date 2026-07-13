@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { cloneDefaultMatrix } from '@/lib/evaluationMatrix';
 import { X, Save } from 'lucide-react';
+import { LoadingState } from '@/components/ui/state-views';
 
 interface EvaluationMatrixProps {
   onClose?: () => void;
@@ -45,7 +46,7 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
       });
       
     } catch (error) {
-      console.error('❌ 매트릭스 저장 실패:', error);
+      console.error('매트릭스 저장 실패:', error);
       toast({
         title: "저장 실패",
         description: "평가 매트릭스 저장 중 오류가 발생했습니다.",
@@ -79,11 +80,7 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
             </Button>
           )}
         </div>
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">로딩 중...</div>
-          </CardContent>
-        </Card>
+        <LoadingState message="로딩 중..." />
       </div>
     );
   }
@@ -149,7 +146,7 @@ export const EvaluationMatrix: React.FC<EvaluationMatrixProps> = ({ onClose }) =
                   style={{
                     height: 46,
                     border: '1px solid var(--border)',
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     background: 'var(--bg-card)',
                     padding: 4,
                   }}

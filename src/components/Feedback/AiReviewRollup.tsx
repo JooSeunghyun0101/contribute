@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { Pill } from '@/components/brand';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -140,9 +141,13 @@ export const AiReviewRollup = () => {
       </div>
 
       {loading ? (
-        <div style={{ padding: 20, color: 'var(--fg-muted)' }}>불러오는 중…</div>
+        <div style={{ padding: 16 }}>
+          <LoadingState message="불러오는 중…" />
+        </div>
       ) : error ? (
-        <div style={{ padding: 20, color: 'var(--danger)' }}>{error}</div>
+        <div style={{ padding: 16 }}>
+          <ErrorState message={error} />
+        </div>
       ) : !data ? null : (
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* 요약 스트립 */}
@@ -162,9 +167,7 @@ export const AiReviewRollup = () => {
               평가자별 부적합 (사유 종류) {data.flagged > 0 ? `· 총 ${data.flagged}건` : ''}
             </div>
             {data.items.length === 0 ? (
-              <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)', padding: '8px 0' }}>
-                부적합으로 표시된 피드백이 없습니다.
-              </div>
+              <EmptyState message="부적합으로 표시된 피드백이 없습니다." />
             ) : (
               (() => {
                 const ORDER = ['구체성', '성의', '복붙', '논조'];
@@ -186,18 +189,24 @@ export const AiReviewRollup = () => {
                 const hasEtc = rows.some((r) => r.counts['기타']);
                 const cols = [...ORDER, ...(hasEtc ? ['기타'] : [])];
                 const colCount = cols.length + 2; // 평가자 + 사유 컬럼들 + 합계
+                // 배경·글자색은 클래스로(인라인이면 hover 를 덮어버림). 활성 글자색은
+                // 온-액센트 토큰(--primary-foreground) — 하드코딩 #fff 대체.
+                const cellBtnClass = (active: boolean): string =>
+                  `tnum kbd-focus transition-colors ${
+                    active
+                      ? 'bg-[var(--ok-orange-solid)] text-[var(--primary-foreground)] hover:bg-[var(--ok-orange-solid-hover)]'
+                      : 'bg-[var(--bg-muted)] text-[var(--fg)] hover:bg-[var(--bg-soft)]'
+                  }`;
                 const cellBtn = (active: boolean): CSSProperties => ({
                   minWidth: 30,
                   padding: '2px 8px',
-                  borderRadius: 6,
+                  borderRadius: 'var(--r-xs)',
                   border: 'none',
                   cursor: 'pointer',
                   fontWeight: active ? 900 : 700,
-                  color: active ? '#fff' : 'var(--fg)',
-                  background: active ? 'var(--ok-orange)' : 'var(--bg-muted)',
                 });
                 return (
-                  <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
                     <Table>
                       <TableHeader style={{ background: 'var(--bg-muted)' }}>
                         <TableRow>
@@ -225,7 +234,7 @@ export const AiReviewRollup = () => {
                                   return (
                                     <TableCell key={c} style={{ textAlign: 'center' }}>
                                       {n > 0 ? (
-                                        <button type="button" className="tnum" style={cellBtn(active)} onClick={() => setSelected(active ? null : { ev: r.ev, type: c })}>
+                                        <button type="button" className={cellBtnClass(active)} style={cellBtn(active)} onClick={() => setSelected(active ? null : { ev: r.ev, type: c })}>
                                           {n}
                                         </button>
                                       ) : (
@@ -237,7 +246,7 @@ export const AiReviewRollup = () => {
                                 <TableCell style={{ textAlign: 'center' }}>
                                   <button
                                     type="button"
-                                    className="tnum"
+                                    className={cellBtnClass(selected?.ev === r.ev && selected?.type === '합계')}
                                     style={cellBtn(selected?.ev === r.ev && selected?.type === '합계')}
                                     onClick={() => setSelected(selected?.ev === r.ev && selected?.type === '합계' ? null : { ev: r.ev, type: '합계' })}
                                   >
@@ -267,24 +276,15 @@ export const AiReviewRollup = () => {
                                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button
                                           type="button"
+                                          className="sd-btn sd-btn-primary sd-btn-xs"
                                           onClick={() => handleRequestReview(r.ev, r.items)}
                                           disabled={sending === r.ev || distinctEvals === 0}
-                                          style={{
-                                            border: 'none',
-                                            background: 'var(--ok-orange)',
-                                            color: '#fff',
-                                            fontWeight: 800,
-                                            cursor: sending === r.ev ? 'default' : 'pointer',
-                                            opacity: sending === r.ev ? 0.6 : 1,
-                                            padding: '5px 12px',
-                                            borderRadius: 7,
-                                            fontSize: 'var(--fs-xs)',
-                                          }}
+                                          style={{ fontWeight: 800 }}
                                           title="이 평가자의 부적합 평가에 대해 HR 재검토 요청 알림을 보냅니다(상태 변경 없음)."
                                         >
                                           {sending === r.ev ? '발송 중…' : `재검토 요청 (${distinctEvals}건)`}
                                         </button>
-                                        <button type="button" onClick={() => setSelected(null)} style={{ border: 'none', background: 'none', color: 'var(--ok-orange)', fontWeight: 700, cursor: 'pointer' }}>
+                                        <button type="button" className="sd-btn sd-btn-ghost sd-btn-xs" onClick={() => setSelected(null)} style={{ color: 'var(--ok-orange)', fontWeight: 700 }}>
                                           닫기
                                         </button>
                                       </span>
@@ -302,7 +302,8 @@ export const AiReviewRollup = () => {
                                             )
                                           }
                                           title="평가 열람 — 이 과업이 선택된 상태로 이동"
-                                          style={{ width: '100%', textAlign: 'left', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', padding: '10px 12px', cursor: 'pointer' }}
+                                          className="kbd-focus bg-transparent transition-colors hover:bg-[var(--bg-muted)]"
+                                          style={{ width: '100%', textAlign: 'left', border: 'none', borderBottom: '1px solid var(--border)', padding: '10px 12px', cursor: 'pointer' }}
                                         >
                                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span style={{ fontWeight: 800 }}>{it.evaluatee_name}</span>
@@ -319,7 +320,7 @@ export const AiReviewRollup = () => {
                                                 lineHeight: 1.55,
                                                 background: 'var(--bg-card)',
                                                 border: '1px solid var(--border)',
-                                                borderRadius: 6,
+                                                borderRadius: 'var(--r-xs)',
                                                 padding: '6px 8px',
                                               }}
                                             >

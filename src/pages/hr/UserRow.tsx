@@ -28,10 +28,10 @@ export const GroupHeaderRow = memo(function GroupHeaderRow({
       <TableCell
         colSpan={14}
         style={{
-          background: 'var(--ok-orange-50)',
-          borderTop: '2px solid var(--ok-orange-100)',
-          fontWeight: 800,
-          color: 'var(--ok-brown)',
+          background: 'var(--bg-muted)',
+          borderTop: '1px solid var(--border)',
+          fontWeight: 700,
+          color: 'var(--fg)',
         }}
       >
         {groupKey}
@@ -95,7 +95,10 @@ function UserRowInner({
       : employee.growth_level;
 
   return (
-    <TableRow style={isSelected ? { background: 'var(--ok-orange-50)' } : undefined}>
+    <TableRow
+      className={isSelected ? 'is-selected' : undefined}
+      style={isSelected ? { background: 'var(--ok-orange-50)' } : undefined}
+    >
       <TableCell>
         <input
           type="checkbox"
@@ -104,7 +107,7 @@ function UserRowInner({
           aria-label={`${employee.name} 선택`}
         />
       </TableCell>
-      <TableCell style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', fontFamily: 'monospace' }}>
+      <TableCell className="mono" style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
         {employee.employee_id}
       </TableCell>
       <TableCell>
@@ -158,21 +161,7 @@ function UserRowInner({
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: '50%',
-                background: 'var(--ok-orange)',
-                color: '#fff',
-                fontSize: 'var(--fs-sm)',
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
+            <div className="sd-avatar" style={{ width: 30, height: 30, fontSize: 'var(--fs-sm)' }}>
               {employee.name.charAt(0)}
             </div>
             <strong style={{ whiteSpace: 'nowrap' }}>{employee.name}</strong>
@@ -181,7 +170,7 @@ function UserRowInner({
                 style={{
                   marginLeft: 6,
                   padding: '1px 7px',
-                  borderRadius: 999,
+                  borderRadius: 'var(--r-pill)',
                   background: 'var(--bg-muted)',
                   color: 'var(--fg-muted)',
                   fontSize: 'var(--fs-xs)',
@@ -286,7 +275,7 @@ function UserRowInner({
           <span
             style={{
               padding: '2px 8px',
-              borderRadius: 12,
+              borderRadius: 'var(--r-pill)',
               background: 'var(--bg-muted)',
               border: '1px solid var(--border)',
               fontSize: 'var(--fs-sm)',
@@ -331,7 +320,7 @@ function UserRowInner({
                 key={role}
                 style={{
                   padding: '2px 8px',
-                  borderRadius: 12,
+                  borderRadius: 'var(--r-pill)',
                   background: ROLE_BG[role] ?? 'var(--bg-muted)',
                   color: ROLE_COLOR[role] ?? 'var(--fg)',
                   border: `1px solid ${ROLE_BORDER[role] ?? 'var(--border)'}`,
@@ -352,11 +341,10 @@ function UserRowInner({
         <Pill tone={statusTone(currentStatus)}>{statusLabel(currentStatus)}</Pill>
       </TableCell>
       <TableCell
-        className="text-right"
+        className="text-right sticky-col"
         style={{
           position: 'sticky',
           right: 0,
-          background: isSelected ? 'var(--ok-orange-50)' : 'var(--bg-card)',
           zIndex: 1,
           borderLeft: '1px solid var(--border)',
         }}
@@ -393,7 +381,7 @@ function UserRowInner({
               className="sd-btn sd-btn-ghost sd-btn-sm"
               onClick={() => onDelete(employee)}
               disabled={isDeleting}
-              style={{ color: 'var(--danger, #B91C1C)' }}
+              style={{ color: 'var(--danger)' }}
             >
               {isDeleting ? '삭제 중' : '삭제'}
             </button>

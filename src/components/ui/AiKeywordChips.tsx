@@ -28,7 +28,7 @@ export const parsePolarKeywords = (text: string): PolarKeywords => {
 const chipStyle = (tone: 'pos' | 'neg'): CSSProperties => ({
   display: 'inline-block',
   padding: '3px 9px',
-  borderRadius: 999,
+  borderRadius: 'var(--r-pill)',
   fontSize: 'var(--fs-xs)',
   fontWeight: 600,
   color: tone === 'neg' ? 'var(--danger)' : 'var(--ai-accent)',

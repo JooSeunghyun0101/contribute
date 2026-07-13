@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react';
 import { Pill } from '@/components/brand';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import { evaluationStatusLabel as statusLabel } from '@/lib/evaluationStatus';
 import type {
   Employee,
@@ -367,7 +369,7 @@ const EvaluatorHistoryModal = ({
         }}
       >
         <td style={cellStyle}>
-          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)', whiteSpace: 'nowrap' }}>
+          <span className="tnum" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-sm)', whiteSpace: 'nowrap' }}>
             {formatAssignmentDate(history.changed_at)}
           </span>
         </td>
@@ -382,8 +384,8 @@ const EvaluatorHistoryModal = ({
             }}
           >
             {history.supersedes_history_id && (
-              <span style={{ color: 'var(--fg-muted)', fontWeight: 500, marginRight: 2 }}>
-                ㄴ
+              <span aria-hidden style={{ color: 'var(--fg-muted)', marginRight: 2, display: 'inline-flex' }}>
+                <CornerDownRight size={12} />
               </span>
             )}
             <span style={{ textDecoration: isCancelled ? 'line-through' : 'none' }}>
@@ -456,6 +458,7 @@ const EvaluatorHistoryModal = ({
                   </Pill>
                 </span>
                 <select
+                  className="sd-input"
                   value={draft}
                   disabled={isUpdating || isLockedByHistory}
                   onChange={(event) =>
@@ -465,12 +468,10 @@ const EvaluatorHistoryModal = ({
                     }))
                   }
                   style={{
+                    width: 'auto',
                     minWidth: 104,
                     padding: '4px 6px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-card)',
-                    color: 'var(--fg)',
+                    borderRadius: 'var(--r-xs)',
                     fontSize: 'var(--fs-sm)',
                     fontWeight: 700,
                   }}
@@ -592,7 +593,8 @@ const EvaluatorHistoryModal = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.45)',
+        // 오버레이 스크림 — 모달 공통 웜 잉크 틴트
+        background: 'hsl(26 14% 8% / 0.5)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -604,14 +606,14 @@ const EvaluatorHistoryModal = ({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: 'var(--bg-card)',
-          borderRadius: 12,
+          borderRadius: 'var(--r-lg)',
           border: '1px solid var(--border)',
           width: 'min(1280px, 100%)',
           maxHeight: '88vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          boxShadow: '0 16px 48px rgba(0,0,0,0.24)',
+          boxShadow: 'var(--sh-lg)',
         }}
       >
         {/* 헤더 — 현재 상태 */}
@@ -719,13 +721,9 @@ const EvaluatorHistoryModal = ({
         {/* 본문 — 타임라인 */}
         <div style={{ padding: '16px 24px', overflow: 'auto' }}>
           {isLoading && historyItems.length === 0 ? (
-            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)', padding: '24px 0' }}>
-              이력을 불러오는 중입니다.
-            </div>
+            <LoadingState message="이력을 불러오는 중입니다." />
           ) : historyItems.length === 0 ? (
-            <div style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)', padding: '24px 0' }}>
-              평가자 변경 이력이 없습니다.
-            </div>
+            <EmptyState message="평가자 변경 이력이 없습니다." />
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
               <thead>
@@ -757,6 +755,7 @@ const EvaluatorHistoryModal = ({
                         <button
                           type="button"
                           onClick={() => setBulkExpanded((v) => !v)}
+                          className="kbd-focus"
                           style={{
                             background: 'transparent',
                             border: 'none',
@@ -770,7 +769,7 @@ const EvaluatorHistoryModal = ({
                             padding: 0,
                           }}
                         >
-                          {bulkExpanded ? '▾' : '▸'} 매칭 업로드 일괄 반영 · {bulkRows.length}건
+                          {bulkExpanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />} 매칭 업로드 일괄 반영 · {bulkRows.length}건
                           {!bulkExpanded && (
                             <span style={{ fontWeight: 500 }}>
                               (최근 {formatAssignmentDate(bulkRows[0]?.changed_at)})

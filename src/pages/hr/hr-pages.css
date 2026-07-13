@@ -1,0 +1,52 @@
+/* Quiet Craft 보조 스타일 — HR 페이지(사용자관리·부서현황) 전용.
+   인라인 스타일로는 표현할 수 없는 hover/선택 상태 동기화(스티키 컬럼),
+   네이티브 체크박스 액센트, 텍스트 링크 버튼 상태를 여기서 처리한다. 로직 불변. */
+
+/* 사용자관리 테이블: 행 hover 를 불투명 토큰으로 통일(스티키 컬럼과 색 일치). */
+.sd-users-table tbody tr:hover {
+  background: var(--bg-muted);
+}
+
+/* 스티키 액션 컬럼 배경을 행 상태(기본 / hover / 선택)와 동기화 —
+   행 배경과 어긋나면 스크롤 시 컬럼이 어긋나 보인다. */
+.sd-users-table td.sticky-col {
+  background: var(--bg-card);
+}
+.sd-users-table tbody tr:hover td.sticky-col {
+  background: var(--bg-muted);
+}
+.sd-users-table tbody tr.is-selected td.sticky-col,
+.sd-users-table tbody tr.is-selected:hover td.sticky-col {
+  background: var(--ok-orange-50);
+}
+
+/* 헤더(배경=--bg-muted) 안의 정렬 버튼은 hover 색을 한 단계 더 가라앉혀 구분되게. */
+.sd-users-table thead .row-hover:hover {
+  background: var(--bg-soft);
+}
+
+/* 네이티브 체크박스 — 브랜드 액센트. */
+.sd-users-table input[type='checkbox'] {
+  accent-color: var(--ok-orange);
+}
+
+/* 표 안 텍스트 링크 버튼(이름 → 평가 열람 등) — hover/focus-visible 상태. */
+.sd-link-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--ok-orange);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 160ms;
+}
+.sd-link-btn:hover {
+  color: var(--ok-orange-600);
+}
+.sd-link-btn:focus-visible {
+  outline: 2px solid var(--ok-orange);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}

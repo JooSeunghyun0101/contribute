@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<EvaluationPeriodStatus, string> = {
 const STATUS_STYLE: Record<EvaluationPeriodStatus, { bg: string; fg: string; border: string }> = {
   draft: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)', border: 'var(--border)' },
   active: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange-700)', border: 'var(--ok-orange-100)' },
-  closed: { bg: 'var(--success-bg)', fg: 'var(--success)', border: 'var(--ok-yellow-300)' },
+  closed: { bg: 'var(--success-bg)', fg: 'var(--success)', border: 'transparent' },
   locked: { bg: 'var(--bg-subtle)', fg: 'var(--fg-muted)', border: 'var(--border-strong)' },
 };
 
@@ -35,7 +35,7 @@ export const EvaluationPeriodSelector = () => {
         style={{
           height: 36,
           width: 220,
-          borderRadius: 8,
+          borderRadius: 'var(--r-sm)',
           border: '1px solid var(--border)',
           background: 'var(--bg-muted)',
         }}
@@ -51,7 +51,7 @@ export const EvaluationPeriodSelector = () => {
         style={{
           height: 36,
           width: 220,
-          borderRadius: 8,
+          borderRadius: 'var(--r-sm)',
           border: '1px solid var(--border)',
           background: 'var(--bg-muted)',
           color: error ? 'var(--danger)' : 'var(--fg-muted)',
@@ -131,7 +131,7 @@ export const EvaluationPeriodSelector = () => {
             display: 'inline-flex',
             alignItems: 'center',
             padding: '2px 8px',
-            borderRadius: 999,
+            borderRadius: 'var(--r-pill)',
             border: `1px solid ${badgeStyle.border}`,
             background: badgeStyle.bg,
             color: badgeStyle.fg,

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { LoadingState } from '@/components/ui/state-views';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
+import { Pill } from '@/components/brand';
+import './my-pages.css';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -124,14 +126,13 @@ const MyFeedbackPage = () => {
         subtitle={`평가자로부터 받은 코멘트 ${totalFeedbacks}건`}
       />
 
-      <div style={{ padding: '28px 32px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
+      {/* 페이지 본문 여백은 my/* 공통 리듬(24px 32px 32px)으로 통일 */}
+      <div style={{ padding: '24px 32px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
         <div className="flex flex-col gap-4">
           {isLoading ? (
             <LoadingState message="피드백을 불러오는 중입니다." />
           ) : taskCards.length === 0 ? (
-            <div className="sd-card sd-card-lg" style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body)' }}>
-              아직 등록된 과업이 없습니다.
-            </div>
+            <EmptyState message="아직 등록된 과업이 없습니다." />
           ) : (
             taskCards.map((card) => (
               <TaskFeedbackCard
@@ -201,21 +202,8 @@ const MyFeedbackPage = () => {
             <div className="sd-label-mini" style={{ marginBottom: 12 }}>평가자</div>
             {latestEvaluator ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    background: 'var(--ok-orange)',
-                    color: '#fff',
-                    fontSize: 'var(--fs-h4)',
-                    fontWeight: 800,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
+                {/* 손수 만든 원형 아바타 → 공용 .sd-avatar(솔리드 틴트) 프리미티브 */}
+                <div className="sd-avatar sd-avatar-lg" style={{ flexShrink: 0 }}>
                   {latestEvaluatorInitial}
                 </div>
                 <div>
@@ -230,7 +218,8 @@ const MyFeedbackPage = () => {
 
           <div className="sd-card">
             <div className="sd-label-mini" style={{ marginBottom: 12 }}>과업별 피드백 수</div>
-            <div className="flex flex-col gap-3">
+            {/* qc-divided: 행 구분선은 CSS 로 — 마지막 행 divider 자동 제거 */}
+            <div className="flex flex-col gap-3 qc-divided">
               {taskCards.map((card) => (
                 <div
                   key={card.taskId}
@@ -238,8 +227,6 @@ const MyFeedbackPage = () => {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    paddingBottom: 10,
-                    borderBottom: '1px solid var(--border)',
                   }}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
@@ -258,21 +245,10 @@ const MyFeedbackPage = () => {
                       {card.taskTitle}
                     </div>
                   </div>
-                  <span
-                    style={{
-                      marginLeft: 8,
-                      padding: '2px 8px',
-                      borderRadius: 12,
-                      background:
-                        card.entries.length > 0 ? 'var(--ok-orange-50)' : 'var(--bg-muted)',
-                      color:
-                        card.entries.length > 0 ? 'var(--ok-orange)' : 'var(--fg-muted)',
-                      fontSize: 'var(--fs-xs)',
-                      fontWeight: 700,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {card.entries.length}건
+                  <span style={{ marginLeft: 8, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    <Pill tone={card.entries.length > 0 ? 'orange' : 'neutral'} className="tnum">
+                      {card.entries.length}건
+                    </Pill>
                   </span>
                 </div>
               ))}

@@ -35,11 +35,11 @@ export function AiOpinionButton({
       className={cn(
         // 평가저장 버튼과 동일한 모양·사이즈
         'sd-btn sd-btn-sm',
-        // 파랑 채움 + shine 을 위한 relative/overflow
+        // AI 액센트(파랑) 플랫 채움 + shine 을 위한 relative/overflow
         'relative overflow-hidden text-white',
-        'bg-gradient-to-r from-blue-600 to-blue-700',
-        'hover:from-blue-700 hover:to-blue-800',
-        'focus:outline-none focus:ring-2 focus:ring-blue-500/40',
+        'bg-[var(--ai-accent)]',
+        'hover:brightness-110',
+        'focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ai-accent)_40%,transparent)]',
         // 권한 비활성: 더 흐리게. 로딩 중: 약간 흐리게 + 텍스트 선택 비활성화.
         disabled && 'opacity-60 cursor-not-allowed',
         loading && 'opacity-80 select-none cursor-wait',

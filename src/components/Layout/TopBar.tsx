@@ -158,25 +158,15 @@ export const TopBar = () => {
         </button>
         <div style={{ height: 22, width: 1, background: 'var(--border)' }} />
         {visibleRoles.length > 1 && (
-          <div
-            className="flex gap-1"
-            style={{ background: 'var(--bg-muted)', padding: 3, borderRadius: 8 }}
-          >
+          <div className="sd-seg">
             {visibleRoles.map((r) => {
               const active = user.role === r;
               return (
                 <button
                   key={r}
                   onClick={() => !active && switchRole(r)}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    fontSize: 'var(--fs-body)',
-                    fontWeight: 600,
-                    color: active ? '#fff' : 'var(--fg-muted)',
-                    background: active ? 'var(--ok-orange)' : 'transparent',
-                    transition: 'all 160ms',
-                  }}
+                  aria-pressed={active}
+                  className={`sd-seg-item${active ? ' is-active' : ''}`}
                 >
                   {roleLabels[r]}
                 </button>
@@ -185,16 +175,7 @@ export const TopBar = () => {
           </div>
         )}
         {visibleRoles.length <= 1 && (
-          <span
-            style={{
-              padding: '5px 12px',
-              borderRadius: 6,
-              fontSize: 'var(--fs-body)',
-              fontWeight: 600,
-              color: '#fff',
-              background: 'var(--ok-orange)',
-            }}
-          >
+          <span className="sd-seg-item is-active" style={{ cursor: 'default' }}>
             {roleLabels[user.role]}
           </span>
         )}
@@ -260,10 +241,10 @@ export const TopBar = () => {
                 top: 'calc(100% + 8px)',
                 right: 0,
                 minWidth: 180,
-                background: 'var(--bg-card)',
+                background: 'var(--popover)',
                 border: '1px solid var(--border)',
-                borderRadius: 10,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
+                borderRadius: 'var(--r-md)',
+                boxShadow: 'var(--sh-lg)',
                 padding: 6,
                 zIndex: 60,
               }}
@@ -301,7 +282,7 @@ export const TopBar = () => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.45)',
+            background: 'var(--overlay)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -314,7 +295,7 @@ export const TopBar = () => {
           <form
             onSubmit={handleChangePassword}
             className="sd-card"
-            style={{ width: 360, padding: 22, display: 'flex', flexDirection: 'column', gap: 12 }}
+            style={{ width: 360, padding: 22, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: 'var(--sh-lg)' }}
           >
             <div style={{ fontWeight: 800, fontSize: 'var(--fs-h4)' }}>비밀번호 변경</div>
             <label style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>

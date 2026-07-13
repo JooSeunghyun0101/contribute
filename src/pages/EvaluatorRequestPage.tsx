@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { ErrorState } from '@/components/ui/state-views';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -21,31 +21,19 @@ const STATUS_LABEL: Record<ChangeRequestStatus, string> = {
   cancelled: '취소',
 };
 
-const STATUS_STYLE: Record<ChangeRequestStatus, { bg: string; fg: string }> = {
-  pending: { bg: 'var(--ok-orange-50)', fg: 'var(--ok-orange)' },
-  approved: { bg: 'var(--success-bg)', fg: 'var(--success)' },
-  rejected: { bg: 'var(--danger-bg)', fg: 'var(--danger)' },
-  cancelled: { bg: 'var(--bg-muted)', fg: 'var(--fg-muted)' },
+// 상태 배지 톤 — index.css 의 .sd-chip 변형 클래스 재사용(pill radius·파스텔 토큰 내장).
+const STATUS_CHIP: Record<ChangeRequestStatus, string> = {
+  pending: 'sd-chip sd-chip-orange',
+  approved: 'sd-chip sd-chip-success',
+  rejected: 'sd-chip sd-chip-danger',
+  cancelled: 'sd-chip',
 };
 
-const StatusBadge = ({ status }: { status: ChangeRequestStatus }) => {
-  const s = STATUS_STYLE[status];
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 10px',
-        borderRadius: 999,
-        fontSize: 'var(--fs-xs)',
-        fontWeight: 700,
-        background: s.bg,
-        color: s.fg,
-      }}
-    >
-      {STATUS_LABEL[status]}
-    </span>
-  );
-};
+const StatusBadge = ({ status }: { status: ChangeRequestStatus }) => (
+  <span className={STATUS_CHIP[status]} style={{ fontWeight: 700 }}>
+    {STATUS_LABEL[status]}
+  </span>
+);
 
 const fmtDate = (v: string | null) => (v ? v.slice(0, 10).replace(/-/g, '.') : '-');
 
@@ -375,12 +363,12 @@ const EvaluatorRequestPage = () => {
 
           <Field label="사유">
             <textarea
-              className="sd-input"
+              className="sd-textarea"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="변경 사유를 입력하세요. (선택)"
               rows={3}
-              style={{ minWidth: 280, resize: 'vertical' }}
+              style={{ minWidth: 280 }}
             />
           </Field>
 
@@ -395,11 +383,11 @@ const EvaluatorRequestPage = () => {
       <div className="sd-card" style={{ padding: 20 }}>
         <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 16 }}>내 변경요청 내역</h3>
         {loading ? (
-          <div style={{ color: 'var(--fg-muted)', padding: '16px 0' }}>불러오는 중…</div>
+          <LoadingState message="불러오는 중…" />
         ) : requestsError ? (
           <ErrorState message="변경요청 내역을 불러오지 못했습니다." onRetry={() => void loadRequests()} />
         ) : requests.length === 0 ? (
-          <div style={{ color: 'var(--fg-muted)', padding: '16px 0' }}>아직 보낸 변경요청이 없습니다.</div>
+          <EmptyState message="아직 보낸 변경요청이 없습니다." />
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-body)' }}>
@@ -417,8 +405,8 @@ const EvaluatorRequestPage = () => {
               </thead>
               <tbody>
                 {requests.map((r) => (
-                  <tr key={r.id}>
-                    <td style={td}>{fmtDate(r.created_at)}</td>
+                  <tr key={r.id} className="row-hover">
+                    <td className="tnum" style={td}>{fmtDate(r.created_at)}</td>
                     <td style={td}>{r.evaluatee_name ?? r.evaluatee_id}</td>
                     <td style={td}>
                       <span style={{ fontWeight: 700 }}>
@@ -429,7 +417,7 @@ const EvaluatorRequestPage = () => {
                       {r.evaluation_period_name ?? '-'}
                       {r.evaluation_year ? ` (${r.evaluation_year})` : ''}
                     </td>
-                    <td style={td}>
+                    <td className="tnum" style={td}>
                       {r.segment_start_date ? `${fmtDate(r.segment_start_date)} ~ ${r.segment_end_date ? fmtDate(r.segment_end_date) : '현재'}` : '-'}
                     </td>
                     <td style={{ ...td, maxWidth: 200, whiteSpace: 'normal', color: 'var(--fg-muted)' }}>

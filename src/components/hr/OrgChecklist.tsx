@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -24,8 +25,9 @@ const rowStyle = (on: boolean, depth: number): CSSProperties => ({
   gap: 8,
   padding: '5px 6px',
   paddingLeft: 6 + (depth - 1) * 20,
-  borderRadius: 6,
-  background: on ? 'var(--ok-orange-50)' : 'transparent',
+  borderRadius: 'var(--r-xs)',
+  // 미선택 행은 background 를 지정하지 않아 .row-hover 의 hover 배경이 살아있게 한다.
+  background: on ? 'var(--ok-orange-50)' : undefined,
 });
 
 /**
@@ -182,12 +184,13 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     const selfIn = selected.has(node.key);
     return (
       <div key={node.key}>
-        <div style={rowStyle(selfIn, node.depth)}>
+        <div className="row-hover" style={rowStyle(selfIn, node.depth)}>
           {kids.length > 0 ? (
             <button
               type="button"
               onClick={() => toggleExpand(node.key)}
               aria-label={isOpen ? '접기' : '펼치기'}
+              className="kbd-focus"
               style={{
                 width: 22,
                 height: 22,
@@ -196,11 +199,13 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
                 background: 'transparent',
                 cursor: 'pointer',
                 color: 'var(--fg)',
-                fontSize: 13,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 lineHeight: 1,
               }}
             >
-              {isOpen ? '▾' : '▸'}
+              {isOpen ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
             </button>
           ) : (
             <span style={{ width: 22, flexShrink: 0 }} />
@@ -244,7 +249,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
     const selfIn = selected.has(node.key);
     return (
       <div key={node.key}>
-        <div style={rowStyle(selfIn, node.depth)}>
+        <div className="row-hover" style={rowStyle(selfIn, node.depth)}>
           <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
           <span
             style={{
@@ -271,10 +276,10 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
       {/* 조직 필터 트리 */}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button type="button" style={triggerStyle}>
+          <button type="button" className="sd-btn sd-btn-outline sd-btn-sm">
             조직 필터
-            {topMost.length > 0 && <span style={badgeStyle}>{topMost.length}</span>}
-            <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>▾</span>
+            {topMost.length > 0 && <span className="tnum" style={badgeStyle}>{topMost.length}</span>}
+            <ChevronDown size={12} style={{ color: 'var(--fg-muted)' }} aria-hidden />
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" style={{ width: 360, padding: 8 }}>
@@ -287,11 +292,11 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
             {/* 비검색 '전체 선택'은 '필터 없음(전체)'과 결과가 같아 제거. 검색 중에만 일치항목 일괄선택 제공. */}
             {terms.length > 0 && (
-              <button type="button" onClick={selectAll} style={smallPrimaryBtn}>
+              <button type="button" onClick={selectAll} className="sd-btn sd-btn-outline sd-btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
                 검색결과 전체선택
               </button>
             )}
-            <button type="button" onClick={clearAll} disabled={selected.size === 0} style={smallBtn(selected.size === 0)}>
+            <button type="button" onClick={clearAll} disabled={selected.size === 0} className="sd-btn sd-btn-ghost sd-btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
               전체 해제
             </button>
           </div>
@@ -304,7 +309,7 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
                   const state = checkStateOf(node.key);
                   const on = state !== false;
                   return (
-                    <label key={node.key} style={rowStyle(selected.has(node.key), 1)}>
+                    <label key={node.key} className="row-hover" style={rowStyle(selected.has(node.key), 1)}>
                       <Checkbox checked={state} onCheckedChange={(v) => setNode(node, v === true)} />
                       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <span style={{ fontSize: 'var(--fs-sm)', fontWeight: on ? 700 : 600, color: 'var(--fg)' }}>
@@ -327,29 +332,15 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
       {selected.size > 0 && (
         <Popover open={selOpen} onOpenChange={setSelOpen}>
           <PopoverTrigger asChild>
-            <button type="button" style={triggerStyle}>
-              선택 {topMost.length}
-              <span style={{ color: 'var(--fg-muted)', fontSize: 11 }}>▾</span>
+            <button type="button" className="sd-btn sd-btn-outline sd-btn-sm">
+              선택 <span className="tnum">{topMost.length}</span>
+              <ChevronDown size={12} style={{ color: 'var(--fg-muted)' }} aria-hidden />
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" style={{ width: 320, padding: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700 }}>선택한 조직</span>
-              <button
-                type="button"
-                onClick={clearAll}
-                style={{
-                  height: 26,
-                  padding: '0 10px',
-                  borderRadius: 7,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-card)',
-                  color: 'var(--fg-muted)',
-                  fontSize: 'var(--fs-xs)',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
+              <button type="button" onClick={clearAll} className="sd-btn sd-btn-outline sd-btn-xs">
                 모두 해제
               </button>
             </div>
@@ -363,21 +354,6 @@ const OrgChecklist = ({ items, value, onChange }: OrgChecklistProps) => {
   );
 };
 
-const triggerStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  height: 36,
-  padding: '0 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'var(--bg-card)',
-  color: 'var(--fg)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
 const badgeStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -385,9 +361,9 @@ const badgeStyle: CSSProperties = {
   minWidth: 18,
   height: 18,
   padding: '0 5px',
-  borderRadius: 9,
+  borderRadius: 'var(--r-pill)',
   background: 'var(--ok-orange-50)',
-  color: 'var(--ok-brown)',
+  color: 'var(--ok-orange-700)',
   fontSize: 11,
   fontWeight: 800,
 };
@@ -397,30 +373,5 @@ const emptyStyle: CSSProperties = {
   color: 'var(--fg-muted)',
   fontSize: 'var(--fs-sm)',
 };
-
-const smallPrimaryBtn: CSSProperties = {
-  flex: 1,
-  height: 30,
-  borderRadius: 7,
-  border: '1px solid var(--ok-orange-100)',
-  background: 'var(--ok-orange-50)',
-  color: 'var(--ok-brown)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 700,
-  cursor: 'pointer',
-};
-
-const smallBtn = (disabled: boolean): CSSProperties => ({
-  flex: 1,
-  height: 30,
-  borderRadius: 7,
-  border: '1px solid var(--border)',
-  background: 'var(--bg-card)',
-  color: 'var(--fg-muted)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 600,
-  cursor: disabled ? 'not-allowed' : 'pointer',
-  opacity: disabled ? 0.6 : 1,
-});
 
 export default OrgChecklist;

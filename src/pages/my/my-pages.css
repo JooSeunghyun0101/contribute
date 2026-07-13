@@ -1,0 +1,105 @@
+/* my/* 페이지 전용 hover/focus 어포던스 — 인라인 스타일로 표현할 수 없는 상태만 담는다.
+   색·radius·그림자 값은 전부 src/index.css 의 "Quiet Craft" 토큰을 참조한다. */
+
+/* 클릭 가능한 점수 틴트 셀·칩(기여 분포 매트릭스) — hover 시 살짝 가라앉음 */
+.qc-tint-hl {
+  transition:
+    filter 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.qc-tint-hl:hover {
+  filter: brightness(0.95);
+}
+
+/* 클릭 가능한 간트 행 — hover 시 배경 침하 */
+.qc-row-hl {
+  border-radius: var(--r-xs);
+  transition: background-color 160ms, opacity 180ms;
+}
+.qc-row-hl:hover {
+  background: var(--bg-subtle);
+}
+
+/* 도넛 범례 행 — 배경은 클래스에서만 관리해 hover 가 인라인 스타일에 가려지지 않게 한다 */
+.qc-legend-row {
+  background: var(--bg-muted);
+  transition: background-color 160ms, opacity 180ms;
+}
+.qc-legend-row:hover {
+  background: var(--bg-soft);
+}
+
+/* 텍스트형 링크(알림 배너의 '내 과업으로') — 색은 클래스에서만 관리(hover 가 인라인에 가려지지 않게) */
+.qc-link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ok-orange);
+  border-radius: var(--r-xs);
+  transition: color 160ms;
+}
+.qc-link-arrow:hover {
+  color: var(--ok-orange-600);
+  text-decoration: underline;
+}
+.qc-link-arrow:focus-visible {
+  outline: 2px solid var(--ok-orange);
+  outline-offset: 2px;
+}
+
+/* '달성' 축하 버튼(헤더 스탯) */
+.qc-celebrate-btn {
+  border-radius: var(--r-xs);
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.qc-celebrate-btn:hover {
+  transform: scale(1.04);
+}
+.qc-celebrate-btn:active {
+  transform: scale(0.98);
+}
+.qc-celebrate-btn:focus-visible {
+  outline: 2px solid var(--ok-orange);
+  outline-offset: 2px;
+}
+
+/* 평가 아코디언 카드 헤더 버튼 */
+.qc-acc-header {
+  transition: background-color 160ms;
+}
+.qc-acc-header:hover {
+  background: var(--bg-subtle);
+}
+.qc-acc-header:focus-visible {
+  outline: 2px solid var(--ok-orange);
+  outline-offset: -2px;
+}
+
+/* 좌측 과업 목록 행 — 배경·좌측 액센트 바는 클래스로만 관리(인라인이면 hover 가 가려짐) */
+.qc-task-row {
+  background: transparent;
+  border-left: 3px solid transparent;
+  transition: background-color 160ms;
+}
+.qc-task-row:hover {
+  background: var(--bg-soft);
+}
+.qc-task-row.is-active,
+.qc-task-row.is-active:hover {
+  background: var(--bg-card);
+  border-left-color: var(--ok-orange);
+}
+.qc-task-row:focus-visible {
+  outline: 2px solid var(--ok-orange);
+  outline-offset: -2px;
+}
+
+/* 구분선 리스트 — 마지막 행의 divider 는 제거 */
+.qc-divided > * {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.qc-divided > *:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}

@@ -31,7 +31,7 @@ export const ScoreExpectationContent = ({
 
   return (
     <div className="max-w-[320px] text-sm leading-relaxed">
-      <div className="font-extrabold text-foreground">
+      <div className="font-bold text-foreground">
         {rounded}점
         {gapExpectation && (
           <span className="ml-2 text-xs font-bold text-primary">
@@ -67,7 +67,7 @@ export const MethodScopeGuideContent = ({ kind, term }: MethodScopeGuideContentP
   const desc = kind === 'method' ? matrixGuide.methods[term] : matrixGuide.scopes[term];
   return (
     <div className="max-w-[320px] text-sm leading-relaxed">
-      <div className="font-extrabold text-foreground">{term}</div>
+      <div className="font-bold text-foreground">{term}</div>
       <div className="mt-1 text-xs font-bold text-muted-foreground">
         {kind === 'method' ? '기여 방식' : '기여 범위'}
       </div>
@@ -96,7 +96,7 @@ export const GrowthLevelExpectationContent = ({
 
   return (
     <div className="max-w-[340px] text-sm leading-relaxed">
-      <div className="font-extrabold text-foreground">{expectation.title} 기대수준</div>
+      <div className="font-bold text-foreground">{expectation.title} 기대수준</div>
       <div className="mt-2">
         <div className="text-xs font-bold text-muted-foreground">레벨별 최소 기대</div>
         <div className="mt-1 text-foreground">{expectation.minimumExpectation}</div>

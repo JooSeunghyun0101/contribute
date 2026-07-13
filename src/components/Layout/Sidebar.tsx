@@ -213,31 +213,16 @@ export const Sidebar = () => {
     return (
       <NavLink key={item.to} to={item.to} end={item.end} className="sd-sidebar-link">
         {({ isActive }) => (
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 11,
-              padding: '10px 12px',
-              borderRadius: 8,
-              fontSize: 'var(--fs-body)',
-              fontWeight: isActive ? 700 : 500,
-              color: isActive ? 'var(--ok-orange)' : 'var(--fg)',
-              background: isActive ? 'var(--ok-orange-50)' : 'transparent',
-              textAlign: 'left',
-              position: 'relative',
-              transition: 'background-color 160ms, color 160ms',
-            }}
-          >
+          <span className={`sd-nav-item${isActive ? ' is-active' : ''}`}>
             {isActive && (
               <span
                 style={{
                   position: 'absolute',
                   left: 0,
-                  top: 6,
-                  bottom: 6,
+                  top: 7,
+                  bottom: 7,
                   width: 3,
-                  background: 'var(--ok-orange)',
+                  background: 'var(--ok-orange-brand)',
                   borderRadius: 2,
                 }}
               />
@@ -258,7 +243,7 @@ export const Sidebar = () => {
                   height: 20,
                   padding: '0 6px',
                   borderRadius: 999,
-                  background: 'var(--ok-orange)',
+                  background: 'var(--ok-orange-solid)',
                   color: '#fff',
                   fontSize: 11,
                   fontWeight: 800,
@@ -316,15 +301,13 @@ export const Sidebar = () => {
             >
               {({ isActive }) => (
                 <span
+                  className={`sd-nav-item${isActive ? ' is-active' : ''}`}
                   style={{
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
                     justifyContent: 'center',
                     width: 44,
                     height: 40,
-                    borderRadius: 8,
-                    background: isActive ? 'var(--ok-orange-50)' : 'transparent',
+                    padding: 0,
+                    gap: 0,
                   }}
                 >
                   <Icon
@@ -455,7 +438,7 @@ export const Sidebar = () => {
                           height: 18,
                           padding: '0 5px',
                           borderRadius: 999,
-                          background: 'var(--ok-orange)',
+                          background: 'var(--ok-orange-solid)',
                           color: '#fff',
                           fontSize: 10,
                           fontWeight: 800,

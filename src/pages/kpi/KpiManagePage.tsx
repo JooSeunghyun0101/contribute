@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, Plus, RefreshCw, Target, Trash2, X } from 'lucide-react';
+import { ArrowUp, Pencil, Plus, RefreshCw, Target, Trash2, X } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
-import { SpiralLoader } from '@/components/ui/loader';
+import { EmptyState, LoadingState } from '@/components/ui/state-views';
 import KpiProgressBar, { formatKpiValue } from '@/components/Kpi/KpiProgressBar';
 import { kpiService } from '@/lib/services';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -21,9 +21,9 @@ const LEVEL_ORDER: KpiOrgLevel[] = ['corporation', 'division', 'department', 'te
 const UNIT_SUGGESTIONS = ['억', '%', '건', '명', '점', '백만'];
 // 레벨별 좌측 액센트 색 — 트리에서 계층을 한눈에 구분.
 const LEVEL_ACCENT: Record<KpiOrgLevel, string> = {
-  corporation: 'var(--ok-brown, #6B4423)',
+  corporation: 'var(--ok-brown)',
   division: 'var(--ok-orange)',
-  department: 'var(--ok-yellow-700, #B8860B)',
+  department: 'var(--ok-yellow)',
   team: 'var(--fg-subtle)',
 };
 
@@ -175,7 +175,7 @@ const OrgBadge = ({ level, orgKey, path }: { level: KpiOrgLevel; orgKey: string;
       alignItems: 'center',
       gap: 5,
       padding: '2px 9px',
-      borderRadius: 999,
+      borderRadius: 'var(--r-pill)',
       background: 'var(--bg-muted)',
       border: '1px solid var(--border)',
       color: 'var(--fg-muted)',
@@ -191,7 +191,7 @@ const OrgBadge = ({ level, orgKey, path }: { level: KpiOrgLevel; orgKey: string;
 );
 
 const StatBox = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
-  <div style={{ border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-card)', padding: '14px 16px' }}>
+  <div className="sd-card" style={{ padding: '14px 16px' }}>
     <div style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)', fontWeight: 700 }}>{label}</div>
     <div className="tnum" style={{ marginTop: 6, fontSize: 'var(--fs-h3)', fontWeight: 900, lineHeight: 1.1 }}>{value}</div>
     {sub && <div style={{ marginTop: 3, fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>{sub}</div>}
@@ -380,7 +380,7 @@ const KpiManagePage = () => {
       <>
         <PageHeader title="조직 KPI" subtitle="조직 목표를 등록하고 실적·달성률을 관리합니다." />
         <div style={{ padding: '24px 32px' }}>
-          <div className="sd-card" style={{ color: 'var(--fg-muted)' }}>평가기간을 먼저 선택해 주세요.</div>
+          <EmptyState message="평가기간을 먼저 선택해 주세요." />
         </div>
       </>
     );
@@ -429,10 +429,7 @@ const KpiManagePage = () => {
         {/* '보이는 범위' 안내 배너는 제거(2026-07-07 사용자 결정) — 스코프 규칙은
             docs/UX_AUDIT_20260702.md F-UX7·8 과 server.js getKpiScope 주석 참조. */}
         {isLoading ? (
-          <div className="sd-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--fg-muted)' }}>
-            <SpiralLoader size={32} />
-            KPI를 불러오는 중입니다.
-          </div>
+          <LoadingState message="KPI를 불러오는 중입니다." />
         ) : rows.length === 0 ? (
           <div className="sd-card" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--fg-muted)' }}>
             <Target size={28} style={{ color: 'var(--fg-subtle)', margin: '0 auto 10px' }} />
@@ -467,13 +464,13 @@ const KpiManagePage = () => {
               return (
                 <div key={node.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <div
+                    className={`transition-colors hover:bg-[var(--bg-muted)] ${depth > 0 ? 'bg-[var(--bg-subtle)]' : 'bg-[var(--bg-card)]'}`}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
                       padding: '14px 18px',
                       paddingLeft: 18 + depth * 24,
-                      background: depth > 0 ? 'var(--bg-subtle)' : 'var(--bg-card)',
                       borderLeft: `3px solid ${LEVEL_ACCENT[node.org_level]}`,
                     }}
                   >
@@ -487,7 +484,7 @@ const KpiManagePage = () => {
                               fontWeight: 700,
                               color: 'var(--fg-subtle)',
                               border: '1px solid var(--border)',
-                              borderRadius: 999,
+                              borderRadius: 'var(--r-pill)',
                               padding: '1px 8px',
                               background: 'var(--bg-muted)',
                             }}
@@ -542,8 +539,9 @@ const KpiManagePage = () => {
                         })()}
                         {depth === 0 && node.parent_kpi_id && node.parent_name && (
                           // 비-HR 트리는 가시성 밖 부모를 재루팅해 최상위처럼 보이므로, 연결 사실을 표기.
-                          <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
-                            ↑ 상위: {node.parent_name}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 'var(--fs-xs)', color: 'var(--fg-subtle)' }}>
+                            <ArrowUp size={11} aria-hidden />
+                            상위: {node.parent_name}
                           </span>
                         )}
                         {node.children?.length ? (
@@ -777,7 +775,8 @@ const KpiFormModal = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.4)',
+        // 모달 스크림 — 전 화면 공통 토큰
+        background: 'var(--overlay)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -1013,7 +1012,7 @@ const KpiFormModal = ({
               color: 'var(--ok-orange-700)',
               background: 'var(--ok-orange-50)',
               border: '1px solid var(--ok-orange-100)',
-              borderRadius: 8,
+              borderRadius: 'var(--r-sm)',
               padding: '8px 10px',
               marginTop: 10,
               lineHeight: 1.5,

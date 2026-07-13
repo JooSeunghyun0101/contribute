@@ -10,26 +10,25 @@ type Props = {
   trend?: number;
 };
 
+// accent=true 는 그라디언트 대신 잉크 카드(--surface-ink) — 대시보드에서 딱 한 장만 쓰는 강조 서피스.
 export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend }: Props) => (
   <div
     className="sd-card"
     style={{
       padding: 18,
-      background: accent
-        ? 'linear-gradient(135deg, var(--ok-orange) 0%, var(--ok-orange-600) 100%)'
-        : 'var(--bg-card)',
-      color: accent ? '#fff' : 'inherit',
-      border: accent ? 'none' : '1px solid var(--border)',
+      background: accent ? 'var(--surface-ink)' : 'var(--bg-card)',
+      color: accent ? 'var(--surface-ink-fg)' : 'inherit',
+      border: accent ? '1px solid transparent' : '1px solid var(--border)',
     }}
   >
     <div className="flex items-start justify-between">
       <div
         className="sd-label-mini"
-        style={{ color: accent ? 'rgba(255,255,255,0.85)' : 'var(--fg-subtle)' }}
+        style={{ color: accent ? 'var(--surface-ink-sub)' : 'var(--fg-subtle)' }}
       >
         {label}
       </div>
-      <div style={{ opacity: accent ? 0.85 : 0.6 }}>
+      <div style={{ opacity: accent ? 0.9 : 0.6, color: accent ? 'var(--ok-orange-brand)' : undefined }}>
         <Icon width={18} height={18} />
       </div>
     </div>
@@ -48,7 +47,7 @@ export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend 
       <div
         style={{
           fontSize: 'var(--fs-sm)',
-          color: accent ? 'rgba(255,255,255,0.85)' : 'var(--fg-muted)',
+          color: accent ? 'var(--surface-ink-sub)' : 'var(--fg-muted)',
           marginTop: 4,
         }}
       >
@@ -57,11 +56,11 @@ export const StatCard = ({ icon: Icon, label, value, sub, accent = false, trend 
     )}
     {trend != null && (
       <div
-        className="flex items-center gap-1"
+        className="flex items-center gap-1 tnum"
         style={{
           marginTop: 10,
           fontSize: 'var(--fs-sm)',
-          color: accent ? '#fff' : 'var(--success)',
+          color: accent ? 'var(--ok-yellow-300)' : 'var(--success)',
           fontWeight: 700,
         }}
       >

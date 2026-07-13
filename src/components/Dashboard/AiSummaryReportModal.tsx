@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Download, X, Copy, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Checkbox } from '@/components/ui/checkbox';
 import { generateEvaluationSummaryReport } from '@/lib/gptOss';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import type { EmployeeEvaluationRecord } from '@/lib/dashboardData';
@@ -134,7 +135,7 @@ const AiSummaryReportModal = ({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.45)',
+        background: 'var(--overlay)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -160,7 +161,7 @@ const AiSummaryReportModal = ({
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', minHeight: 0, flex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 320px) minmax(0, 1fr)', minHeight: 0, flex: 1 }}>
           {/* 좌: 대상 선택 */}
           <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid var(--border)' }}>
@@ -201,12 +202,12 @@ const AiSummaryReportModal = ({
                 return (
                   <label
                     key={r.employee.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}
+                    className="row-hover"
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 'var(--r-xs)', fontSize: 'var(--fs-sm)', cursor: 'pointer' }}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checked}
-                      onChange={() =>
+                      onCheckedChange={() =>
                         setExcluded((prev) => {
                           const next = new Set(prev);
                           if (next.has(r.employee.employee_id)) next.delete(r.employee.employee_id);
@@ -231,12 +232,12 @@ const AiSummaryReportModal = ({
               value={report}
               onChange={(e) => setReport(e.target.value)}
               placeholder={loading ? 'AI가 보고서를 작성 중입니다…' : '좌측에서 대상을 고르고 "보고서 생성"을 누르면 여기에 표시됩니다. 생성 후 직접 편집할 수 있습니다.'}
+              className="kbd-focus"
               style={{
                 flex: 1,
                 minHeight: 360,
                 resize: 'none',
                 border: 'none',
-                outline: 'none',
                 padding: '18px 22px',
                 fontSize: 'var(--fs-body)',
                 lineHeight: 1.7,

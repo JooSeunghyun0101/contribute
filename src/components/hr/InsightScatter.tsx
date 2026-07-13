@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { createPortal } from 'react-dom';
 import { Download } from 'lucide-react';
 import { HR_COLOR } from '@/components/Dashboard/HrDashboardCharts';
+import { EmptyState } from '@/components/ui/state-views';
 import { downloadInsightWorkbook } from '@/utils/insightExport';
 import {
   buildScatterPoints,
@@ -308,7 +309,9 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(0, 1fr)', gap: 0 }}>
         <div ref={wrapRef} style={{ position: 'relative', width: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
           {plotted.length === 0 ? (
-            <div style={{ padding: 24, color: 'var(--fg-muted)' }}>표본이 충분한(n≥5) 그룹이 없습니다.</div>
+            <div style={{ padding: 24 }}>
+              <EmptyState message="표본이 충분한(n≥5) 그룹이 없습니다." />
+            </div>
           ) : (
             <svg
               ref={svgRef}
@@ -341,7 +344,7 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
               <line x1={M.L} x2={M.L} y1={M.T} y2={M.T + plotH} stroke="var(--fg-muted)" strokeWidth={1.5} />
               <line x1={M.L} x2={width - M.R} y1={M.T + plotH} y2={M.T + plotH} stroke="var(--fg-muted)" strokeWidth={1.5} />
               {/* x=0 기준선 */}
-              {zeroIn && <line x1={sx(0)} x2={sx(0)} y1={M.T} y2={M.T + plotH} stroke={HR_COLOR.orange} strokeDasharray="4 2" strokeWidth={1.5} />}
+              {zeroIn && <line x1={sx(0)} x2={sx(0)} y1={M.T} y2={M.T + plotH} stroke="var(--ok-orange)" strokeDasharray="4 2" strokeWidth={1.5} />}
               {/* 축 제목 */}
               <text x={M.L + plotW / 2} y={H - 6} textAnchor="middle" fontSize={13} fontWeight={700} fill="var(--fg)">
                 레벨평균 대비  (← 낮음 · 0 비슷 · 높음 →)
@@ -356,9 +359,9 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   y={Math.min(drag.y0, drag.y1)}
                   width={Math.abs(drag.x1 - drag.x0)}
                   height={Math.abs(drag.y1 - drag.y0)}
-                  fill={HR_COLOR.orange}
+                  fill="var(--ok-orange)"
                   fillOpacity={0.12}
-                  stroke={HR_COLOR.orange}
+                  stroke="var(--ok-orange)"
                 />
               )}
               {/* 점 — 선택은 바깥 헤일로 링으로 또렷하게(검은 굵은선 대신). */}
@@ -391,7 +394,7 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                         cy={cy}
                         r={r + 8}
                         fill="none"
-                        stroke={HR_COLOR.orange}
+                        stroke="var(--ok-orange)"
                         strokeWidth={3.5}
                       />
                     )}
@@ -401,7 +404,7 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                       r={r}
                       fill={colorOf(p.bias)}
                       fillOpacity={dimmed ? 0.12 : 0.88}
-                      stroke={selected ? 'var(--fg)' : '#fff'}
+                      stroke={selected ? 'var(--fg)' : 'var(--card)'}
                       strokeWidth={dimmed ? 0 : selected ? 2 : 1}
                     />
                   </g>
@@ -421,10 +424,10 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   pointerEvents: 'none',
                   background: 'var(--bg-card)',
                   border: '1px solid var(--border)',
-                  borderRadius: 10,
+                  borderRadius: 'var(--r-md)',
                   padding: '10px 12px',
                   fontSize: 'var(--fs-sm)',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                  boxShadow: 'var(--sh-lg)',
                   width: 214,
                   zIndex: 9999,
                 }}
@@ -453,7 +456,8 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   setSelectedIds(null);
                   setHighlightId(null);
                 }}
-                style={{ border: 'none', background: 'none', color: 'var(--ok-orange)', fontWeight: 700, fontSize: 'var(--fs-xs)', cursor: 'pointer' }}
+                className="sd-btn sd-btn-ghost sd-btn-xs"
+                style={{ color: 'var(--ok-orange)', fontWeight: 700 }}
               >
                 선택 해제
               </button>
@@ -469,7 +473,7 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  className="kbd-focus"
+                  className="kbd-focus row-hover"
                   aria-pressed={p.id === highlightId}
                   onClick={(e) => onRowClick(p, e.ctrlKey || e.metaKey)}
                   onKeyDown={(e) => {
@@ -484,10 +488,11 @@ const InsightScatter = ({ records, cohortRecords, axis, onSelect, periodLabel }:
                     alignItems: 'center',
                     gap: 8,
                     padding: '8px 10px',
-                    borderRadius: 8,
+                    borderRadius: 'var(--r-sm)',
                     border: '1px solid var(--border)',
                     borderLeft: `3px solid ${colorOf(p.bias)}`,
-                    background: p.id === highlightId ? 'var(--ok-orange-50)' : 'var(--bg-card)',
+                    // 비강조 행은 background 미지정 — .row-hover 의 hover 배경이 동작하게 한다.
+                    background: p.id === highlightId ? 'var(--ok-orange-50)' : undefined,
                     cursor: 'pointer',
                   }}
                 >

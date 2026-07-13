@@ -1,5 +1,7 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { ChevronDown, CircleHelp } from 'lucide-react';
+import '@/components/Evaluation/evaluator-review.css';
+import { EmptyState } from '@/components/ui/state-views';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { AccordionMotion, chevronRotateClass } from '@/components/ui/accordion-motion';
 import { AiSectionTitle } from '@/components/ui/AiSectionTitle';
@@ -130,7 +132,7 @@ type StatTileProps = {
 export const StatTile = ({ label, value, valueColor, tooltipContent, onValueClick, title }: StatTileProps) => {
   const valueStyle = {
     fontSize: 'var(--fs-h2)',
-    fontWeight: 900,
+    fontWeight: 800,
     lineHeight: 1,
     marginTop: 4,
     color: valueColor,
@@ -209,7 +211,7 @@ const HeaderStat = ({ label, value, color }: { label: string; value: string; col
     >
       {label}
     </div>
-    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 900, lineHeight: 1, marginTop: 3, color, whiteSpace: 'nowrap' }}>
+    <div className="tnum" style={{ fontSize: 'var(--fs-h3)', fontWeight: 800, lineHeight: 1, marginTop: 3, color, whiteSpace: 'nowrap' }}>
       {value}
     </div>
   </div>
@@ -271,8 +273,9 @@ export const EvaluatorAccordion = ({
   <section
     style={{
       border: `1px solid ${isExpanded ? group.accent : 'var(--border)'}`,
-      borderRadius: 8,
+      borderRadius: 'var(--r-lg)',
       background: 'var(--bg-card)',
+      boxShadow: 'var(--sh-sm)',
       overflow: 'hidden',
     }}
   >
@@ -284,6 +287,7 @@ export const EvaluatorAccordion = ({
       type="button"
       onClick={onToggle}
       aria-expanded={isExpanded}
+      className="ev-acc-header kbd-focus"
       style={{
         width: '100%',
         minHeight: 72,
@@ -293,7 +297,6 @@ export const EvaluatorAccordion = ({
         alignItems: 'center',
         gap: 20,
         border: 'none',
-        background: 'transparent',
         color: 'var(--fg)',
         cursor: 'pointer',
         textAlign: 'left',
@@ -304,7 +307,7 @@ export const EvaluatorAccordion = ({
           style={{
             margin: 0,
             fontSize: 'var(--fs-h3)',
-            fontWeight: 900,
+            fontWeight: 800,
             color: group.accent,
             lineHeight: 1.15,
           }}
@@ -350,13 +353,11 @@ export const EvaluatorAccordion = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'var(--fg-muted)',
-            fontSize: 'var(--fs-body)',
-            fontWeight: 700,
+            padding: 24,
             background: 'var(--bg-muted)',
           }}
         >
-          피평가자가 과업을 제출하기 전입니다.
+          <EmptyState message="피평가자가 과업을 제출하기 전입니다." />
         </div>
       ) : selectedItem ? (
         <div
@@ -419,10 +420,10 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
         fontWeight: 800,
       }}
     >
-      <span style={{ color: scoredCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
+      <span className="tnum" style={{ color: scoredCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
         채점 {scoredCount}/{taskCount}
       </span>
-      <span style={{ color: feedbackCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
+      <span className="tnum" style={{ color: feedbackCount < taskCount ? 'var(--warning)' : 'var(--fg-muted)' }}>
         피드백 {feedbackCount}/{taskCount}
       </span>
     </div>
@@ -436,6 +437,8 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
           onClick={() => onSelectTask(item.task.id)}
           // 선택 항목 = 흰 배경 + 왼쪽 액센트 바 — 리스트(muted)와 본문(card)이 같은 톤이라
           // 구분이 안 가던 문제(2026-07-07 사용자). 선택 탭이 본문과 이어져 보인다.
+          // 배경(기본/선택/hover)은 .ev-task-tab CSS 로 — 인라인 background 는 hover 를 덮는다.
+          className={`ev-task-tab kbd-focus${active ? ' is-active' : ''}`}
           style={{
             width: '100%',
             minHeight: 72,
@@ -443,7 +446,6 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
             border: 'none',
             borderBottom: '1px solid var(--border)',
             borderLeft: active ? `3px solid ${group.accent}` : '3px solid transparent',
-            background: active ? 'var(--bg-card)' : 'transparent',
             color: active ? 'var(--fg)' : 'var(--fg-muted)',
             display: 'grid',
             gridTemplateColumns: '52px minmax(0, 1fr)',
@@ -452,7 +454,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
             cursor: 'pointer',
           }}
         >
-          <div style={{ fontSize: 'var(--fs-sm)', fontWeight: 900, color: active ? group.accent : 'var(--fg-muted)' }}>
+          <div className="tnum" style={{ fontSize: 'var(--fs-sm)', fontWeight: 800, color: active ? group.accent : 'var(--fg-muted)' }}>
             T{String(index + 1).padStart(2, '0')}
           </div>
           <div style={{ minWidth: 0 }}>
@@ -479,7 +481,7 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
                 <span
                   style={{
                     padding: '0 6px',
-                    borderRadius: 999,
+                    borderRadius: 'var(--r-pill)',
                     fontWeight: 800,
                     color: 'var(--fg-muted)',
                     border: '1px solid var(--border)',
@@ -495,19 +497,19 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
               {item.hasDraft && (
                 <>
                   <span>·</span>
-                  <span style={{ color: group.accent, fontWeight: 900 }}>임시저장</span>
+                  <span style={{ color: group.accent, fontWeight: 800 }}>임시저장</span>
                 </>
               )}
               {item.score == null && (
                 <>
                   <span>·</span>
-                  <span style={{ color: 'var(--warning)', fontWeight: 900 }}>미채점</span>
+                  <span style={{ color: 'var(--warning)', fontWeight: 800 }}>미채점</span>
                 </>
               )}
               {!(item.displayTask.feedback ?? '').trim() && (
                 <>
                   <span>·</span>
-                  <span style={{ color: 'var(--warning)', fontWeight: 900 }}>피드백 없음</span>
+                  <span style={{ color: 'var(--warning)', fontWeight: 800 }}>피드백 없음</span>
                 </>
               )}
             </div>
@@ -546,7 +548,7 @@ const AiReviewResultCard = ({ entry }: { entry?: TaskEvaluationEntry | null }) =
       : { bg: 'var(--success-bg)', border: 'var(--success)', fg: 'var(--success)' };
 
   return (
-    <div style={{ padding: 14, borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+    <div style={{ padding: 14, borderRadius: 'var(--r-lg)', background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
       <AiSectionTitle
         title="AI 검수 결과"
         right={reviewed && entry?.aiReviewedAt ? `${formatDate(entry.aiReviewedAt)} 검수` : undefined}
@@ -668,12 +670,12 @@ const TaskDetail = ({
       <div style={{ minWidth: 0 }}>
         {/* 임시저장 배지는 좌측 과업 탭에만(2026-07-07 리뷰) — 상세 헤더 중복 제거 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
+          <span className="tnum" style={{ fontSize: 'var(--fs-sm)', fontWeight: 700, color: 'var(--fg-muted)' }}>
             {formatDate(task.startDate)}~{formatDate(task.endDate)}
           </span>
         </div>
 
-        <h1 style={{ margin: 0, fontSize: 'var(--fs-h1)', fontWeight: 900, lineHeight: 1.25 }}>{task.title}</h1>
+        <h1 style={{ margin: 0, fontSize: 'var(--fs-h1)', fontWeight: 800, lineHeight: 1.25 }}>{task.title}</h1>
         {task.description && (
           <p style={{ marginTop: 16, fontSize: 'var(--fs-body)', lineHeight: 1.8, color: 'var(--fg-muted)' }}>
             {task.description}
@@ -683,25 +685,14 @@ const TaskDetail = ({
         <div style={{ marginTop: 26 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             {/* 이중 라벨(스코어링 매트릭스 + 평가자가 선택한 점수) → 단일(2026-07-07 사용자) */}
-            <h3 style={{ margin: 0, fontSize: 'var(--fs-body)', fontWeight: 900 }}>
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-body)', fontWeight: 800 }}>
               {group.canEdit ? '점수 선택' : '선택한 점수'}
             </h3>
             <button
               type="button"
               onClick={() => onNoContributionClick(task)}
               disabled={!group.canEdit}
-              style={{
-                padding: '5px 12px',
-                borderRadius: 8,
-                border: '1px solid',
-                borderColor: noContribSelected ? 'var(--danger)' : 'var(--border)',
-                background: noContribSelected ? 'var(--danger)' : 'transparent',
-                color: noContribSelected ? '#fff' : 'var(--fg)',
-                fontSize: 'var(--fs-sm)',
-                fontWeight: 800,
-                cursor: group.canEdit ? 'pointer' : 'not-allowed',
-                opacity: group.canEdit ? 1 : 0.55,
-              }}
+              className={`sd-btn sd-btn-sm ${noContribSelected ? 'sd-btn-danger' : 'sd-btn-outline'}`}
             >
               기여미흡 (0점)
             </button>
@@ -753,14 +744,15 @@ const TaskDetail = ({
                         // P3-12: 키보드(Tab+Enter)로 채점 시 셀 의미를 읽을 수 있게.
                         aria-label={`${method} × ${scope} — ${cellScore}점${isSelected ? ' (선택됨)' : ''}`}
                         aria-pressed={isSelected}
+                        className="ev-matrix-cell kbd-focus tnum"
                         style={{
                           width: '100%',
                           height: 44,
-                          borderRadius: 8,
+                          borderRadius: 'var(--r-sm)',
                           border: `2px solid ${isSelected ? (SCORE_BG[cellScore] ?? group.accent) : 'var(--border)'}`,
                           background: cellBg,
                           color: cellColor,
-                          fontWeight: isSelected ? 900 : 700,
+                          fontWeight: isSelected ? 800 : 700,
                           fontSize: isSelected ? 'var(--fs-h3)' : 'var(--fs-h4)',
                           cursor: group.canEdit ? 'pointer' : 'not-allowed',
                           opacity: group.canEdit || isSelected ? 1 : 0.48,
@@ -812,7 +804,7 @@ const TaskDetail = ({
                 width: '100%',
                 minHeight: 178,
                 padding: '12px 14px',
-                borderRadius: 8,
+                borderRadius: 'var(--r-sm)',
                 border: '1px solid var(--border)',
                 background: group.canEdit ? 'var(--bg-card)' : 'var(--bg-muted)',
                 fontSize: 'var(--fs-body)',
@@ -834,7 +826,7 @@ const TaskDetail = ({
               style={{
                 minHeight: 178,
                 padding: '12px 14px',
-                borderRadius: 8,
+                borderRadius: 'var(--r-sm)',
                 border: '1px solid var(--border)',
                 background: 'var(--bg-muted)',
                 color: 'var(--fg)',
@@ -864,7 +856,7 @@ const TaskDetail = ({
         <div
           style={{
             padding: 18,
-            borderRadius: 8,
+            borderRadius: 'var(--r-lg)',
             border: '1px solid var(--border)',
             background: 'var(--bg-card)',
           }}
@@ -873,11 +865,11 @@ const TaskDetail = ({
           {item.score != null ? (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
-                <span className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 900, color: group.accent }}>
+                <span className="tnum" style={{ fontSize: 'var(--fs-h2)', fontWeight: 800, color: group.accent }}>
                   {((item.score * task.weight) / 100).toFixed(2)}
                 </span>
               </div>
-              <div style={{ marginTop: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
+              <div className="tnum" style={{ marginTop: 5, fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>
                 점수 {item.score} × 가중치 {task.weight}%
               </div>
             </>

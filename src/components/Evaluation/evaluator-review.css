@@ -1,0 +1,31 @@
+/* EvaluatorReview 전용 인터랙션 상태 — 인라인 스타일로는 불가능한 hover 배경.
+   (focus-visible 링은 전역 .kbd-focus 를 함께 사용) */
+
+/* 아코디언 헤더 — 카드 위 클릭 바 */
+.ev-acc-header {
+  background: transparent;
+  transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ev-acc-header:hover {
+  background: var(--bg-muted);
+}
+
+/* 좌측 과업 탭 — 레일(bg-muted) 위라 hover 는 카드색 반투명 틴트 */
+.ev-task-tab {
+  background: transparent;
+  transition: background-color 160ms, color 160ms;
+}
+.ev-task-tab.is-active {
+  background: var(--bg-card);
+}
+.ev-task-tab:not(.is-active):hover {
+  background: color-mix(in srgb, var(--bg-card) 55%, var(--bg-muted));
+}
+
+/* 매트릭스 점수 셀 — 색은 인라인(--score-* 팔레트) 유지, 상태만 부여 */
+.ev-matrix-cell {
+  transition: filter 160ms, opacity 160ms;
+}
+.ev-matrix-cell:not(:disabled):hover {
+  filter: brightness(0.96);
+}

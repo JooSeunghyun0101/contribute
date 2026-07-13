@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import PageHeader from '@/components/Layout/PageHeader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -213,7 +214,7 @@ const HrSettingsPage = () => {
               <div
                 style={{
                   padding: 18,
-                  borderRadius: 10,
+                  borderRadius: 'var(--r-md)',
                   background: 'var(--bg-card)',
                   border: '1px solid var(--border)',
                   display: 'flex',
@@ -245,17 +246,20 @@ const HrSettingsPage = () => {
             {DANGER_ZONE_ENABLED && (
               <section
                 className="sd-card sd-card-lg"
-                style={{ border: '1.5px solid rgba(220,69,69,0.45)', background: 'rgba(220,69,69,0.04)' }}
+                style={{ borderColor: 'var(--danger)', background: 'var(--danger-bg)' }}
               >
                 <h3
                   style={{
                     fontSize: 'var(--fs-h4)',
                     fontWeight: 800,
                     marginBottom: 8,
-                    color: 'var(--danger, #B91C1C)',
+                    color: 'var(--danger)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
                   }}
                 >
-                  ⚠ 위험 영역 · DB 초기화
+                  <AlertTriangle size={17} aria-hidden /> 위험 영역 · DB 초기화
                 </h3>
                 <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginBottom: 18, lineHeight: 1.6 }}>
                   아래 작업은 <b>되돌릴 수 없습니다.</b> 테스트·재세팅 목적으로만 사용하세요.
@@ -266,7 +270,7 @@ const HrSettingsPage = () => {
                   <div
                     style={{
                       padding: 18,
-                      borderRadius: 10,
+                      borderRadius: 'var(--r-md)',
                       background: 'var(--bg-card)',
                       border: '1px solid var(--border)',
                       display: 'flex',
@@ -275,7 +279,7 @@ const HrSettingsPage = () => {
                     }}
                   >
                     <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
-                      대상자 일괄삭제 <span style={{ color: 'var(--danger, #B91C1C)' }}>(전체 · 모든 평가기간)</span>
+                      대상자 일괄삭제 <span style={{ color: 'var(--danger)' }}>(전체 · 모든 평가기간)</span>
                     </div>
                     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
                       <b>모든 평가기간</b>의 admin 외 전 직원 + 딸린 <b>평가·과업·피드백·이력·임포트</b>를 완전히 제거합니다.
@@ -283,16 +287,10 @@ const HrSettingsPage = () => {
                       (평가기간·시스템 설정·admin 은 유지)
                     </div>
                     <button
-                      className="sd-btn sd-btn-sm"
+                      className="sd-btn sd-btn-danger sd-btn-sm"
                       disabled={resettingKind !== null}
                       onClick={handleResetEmployees}
-                      style={{
-                        alignSelf: 'flex-start',
-                        background: 'var(--danger, #B91C1C)',
-                        color: '#fff',
-                        border: 'none',
-                        fontWeight: 700,
-                      }}
+                      style={{ alignSelf: 'flex-start' }}
                     >
                       {resettingKind === 'employees' ? '삭제 중…' : '대상자 일괄삭제'}
                     </button>
@@ -302,7 +300,7 @@ const HrSettingsPage = () => {
                   <div
                     style={{
                       padding: 18,
-                      borderRadius: 10,
+                      borderRadius: 'var(--r-md)',
                       background: 'var(--bg-card)',
                       border: '1px solid var(--border)',
                       display: 'flex',
@@ -311,23 +309,17 @@ const HrSettingsPage = () => {
                     }}
                   >
                     <div style={{ fontSize: 'var(--fs-body)', fontWeight: 800 }}>
-                      매칭정보 일괄삭제 <span style={{ color: 'var(--danger, #B91C1C)' }}>(모든 평가기간)</span>
+                      매칭정보 일괄삭제 <span style={{ color: 'var(--danger)' }}>(모든 평가기간)</span>
                     </div>
                     <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', lineHeight: 1.55 }}>
                       대상자 프로필은 유지하되 <b>모든 평가기간</b>의 <b>평가자 배정·평가·과업·피드백·이력·매칭 임포트</b>를 제거합니다.
                       특정 기간 매칭만 되돌리려면 아래 <b>‘평가기간별 초기화’</b>를 사용합니다.
                     </div>
                     <button
-                      className="sd-btn sd-btn-sm"
+                      className="sd-btn sd-btn-danger sd-btn-sm"
                       disabled={resettingKind !== null}
                       onClick={handleResetMatching}
-                      style={{
-                        alignSelf: 'flex-start',
-                        background: 'var(--danger, #B91C1C)',
-                        color: '#fff',
-                        border: 'none',
-                        fontWeight: 700,
-                      }}
+                      style={{ alignSelf: 'flex-start' }}
                     >
                       {resettingKind === 'matching' ? '삭제 중…' : '매칭정보 일괄삭제'}
                     </button>
@@ -337,7 +329,7 @@ const HrSettingsPage = () => {
                   <div
                     style={{
                       padding: 18,
-                      borderRadius: 10,
+                      borderRadius: 'var(--r-md)',
                       background: 'var(--bg-card)',
                       border: '1px solid var(--border)',
                       display: 'flex',
@@ -359,31 +351,19 @@ const HrSettingsPage = () => {
                       }}
                     >
                       <button
-                        className="sd-btn sd-btn-sm"
+                        className="sd-btn sd-btn-danger sd-btn-sm"
                         disabled={resettingKind !== null || !resetPeriodId}
                         onClick={handleResetPeriod}
-                        style={{
-                          background: 'var(--danger, #B91C1C)',
-                          color: '#fff',
-                          border: 'none',
-                          fontWeight: 700,
-                          whiteSpace: 'nowrap',
-                        }}
+                        style={{ whiteSpace: 'nowrap' }}
                       >
                         {resettingKind === 'period' ? '삭제 중…' : '이 평가기간 초기화'}
                       </button>
                       <select
+                        className="sd-input"
                         value={resetPeriodId}
                         onChange={(e) => setResetPeriodId(e.target.value)}
                         disabled={resettingKind !== null || resetPeriods.length === 0}
-                        style={{
-                          minWidth: 180,
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-input, #fff)',
-                          color: 'var(--fg, inherit)',
-                        }}
+                        style={{ width: 'auto', minWidth: 180, padding: '6px 10px' }}
                       >
                         {resetPeriods.length === 0 && <option value="">불러오는 중…</option>}
                         {resetPeriods.map((p) => (

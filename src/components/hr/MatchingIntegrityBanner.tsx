@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { Pill } from '@/components/brand';
 import { useCompanyDashboardRecords } from '@/hooks/useDashboardRecords';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
@@ -49,6 +50,7 @@ const MatchingIntegrityBanner = () => {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        className="kbd-focus"
         style={{
           width: '100%',
           display: 'flex',
@@ -61,8 +63,16 @@ const MatchingIntegrityBanner = () => {
           textAlign: 'left',
         }}
       >
-        <span aria-hidden style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 160ms', color: 'var(--fg-subtle)', fontWeight: 900 }}>
-          ›
+        <span
+          aria-hidden
+          style={{
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+            color: 'var(--fg-subtle)',
+            display: 'inline-flex',
+          }}
+        >
+          <ChevronRight size={15} />
         </span>
         <span style={{ fontWeight: 800 }}>매칭 점검 필요</span>
         <span style={{ fontSize: 'var(--fs-xs)', color: 'var(--fg-muted)' }}>{periodLabel}</span>
@@ -93,7 +103,7 @@ const MatchingIntegrityBanner = () => {
                   <span
                     key={r.employee.id}
                     title={[getOrgValue(r.employee, 'division'), getOrgValue(r.employee, 'department'), getOrgValue(r.employee, 'team')].filter(Boolean).join(' › ')}
-                    style={{ fontSize: 'var(--fs-xs)', padding: '2px 8px', borderRadius: 999, background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+                    style={{ fontSize: 'var(--fs-xs)', padding: '2px 8px', borderRadius: 'var(--r-pill)', background: 'var(--bg-card)', border: '1px solid var(--border)' }}
                   >
                     {r.employee.name} <span style={{ color: 'var(--fg-subtle)', fontFamily: 'monospace' }}>{r.employee.employee_id}</span>
                   </span>

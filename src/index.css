@@ -11,110 +11,124 @@
 @tailwind utilities;
 
 /* ============================================================
-   Solar Dusk prompt tokens + legacy alias mapping
+   "Quiet Craft" tokens — 웜 모노크롬 캔버스 + OK Orange 단일 액센트.
+   (구 Solar Dusk 크림+황동 팔레트 대체. 변수명은 전부 유지 — 값만 재정의.)
+   원칙: 카드=순백, 캔버스=웜 오프화이트, 보더=헤어라인, 그림자=초확산 저불투명,
+         오렌지는 AA 대비를 만족하는 단 하나의 액센트(--ok-orange),
+         #F55000 은 그래픽/대형 숫자 전용(--ok-orange-brand).
    ============================================================ */
 :root {
-  --card: #F8F4EE;
-  --ring: #B45309;
-  --input: #E4D9BC;
-  --muted: #F1E9DA;
-  --accent: #F2DABA;
-  --border: #E4D9BC;
-  --radius: 0.3rem;
-  --chart-1: #B45309;
-  --chart-2: #78716C;
-  --chart-3: #A16207;
-  --chart-4: #78716C;
-  --chart-5: #CA8A04;
-  --popover: #F8F4EE;
-  --primary: #B45309;
-  --sidebar: #F1E9DA;
-  --font-mono: 'Fira Code', ui-monospace, monospace;
+  --card: #FFFFFF;
+  --ring: #C74300;
+  --input: #DBD5CB;
+  --muted: #F2F0EC;
+  --accent: #F5F1EB;
+  --border: #E9E4DC;
+  --radius: 0.5rem;
+  --chart-1: #C74300;
+  --chart-2: #8C857B;
+  --chart-3: #D9A03C;
+  --chart-4: #5E7F94;
+  --chart-5: #A5652F;
+  --popover: #FFFFFF;
+  --primary: #C74300;
+  --sidebar: #FFFFFF;
+  --font-mono: 'Fira Code', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
-  --secondary: #E4C090;
-  --background: #FDFBF7;
+  --secondary: #EFEAE2;
+  --background: #FAF9F6;
   --font-serif: 'Pretendard Variable', Pretendard, serif;
-  --foreground: #4A3B33;
-  --destructive: #991B1B;
+  --foreground: #211D19;
+  --destructive: #B42318;
   --shadow-blur: 3px;
-  --shadow-color: hsl(28 18% 25%);
-  --sidebar-ring: #B45309;
+  --shadow-color: hsl(30 12% 12%);
+  --sidebar-ring: #C74300;
   --shadow-spread: 0px;
-  --shadow-opacity: 0.18;
-  --sidebar-accent: #A16207;
-  --sidebar-border: #E4D9BC;
-  --card-foreground: #4A3B33;
+  --shadow-opacity: 0.08;
+  --sidebar-accent: #C74300;
+  --sidebar-border: #E9E4DC;
+  --card-foreground: #211D19;
   --shadow-offset-x: 0px;
   --shadow-offset-y: 2px;
-  --sidebar-primary: #B45309;
-  --muted-foreground: #78716C;
+  --sidebar-primary: #C74300;
+  --muted-foreground: #756E65;
   --accent-foreground: #57534E;
-  --popover-foreground: #4A3B33;
+  --popover-foreground: #211D19;
   --primary-foreground: #FFFFFF;
-  --sidebar-foreground: #4A3B33;
-  --secondary-foreground: #57534E;
+  --sidebar-foreground: #211D19;
+  --secondary-foreground: #4A453E;
   --destructive-foreground: #FFFFFF;
   --sidebar-accent-foreground: #FFFFFF;
   --sidebar-primary-foreground: #FFFFFF;
 
-  /* Legacy aliases used by current Solar Dusk components */
+  /* Legacy aliases used by current components */
   --ok-orange: var(--primary);
   /* 브랜드 강조 오렌지(로고·그래픽·대형 점수 숫자 등 large-text/비텍스트 전용).
-     본문 텍스트·버튼 등 AA 대비가 필요한 곳은 --ok-orange(#B45309)를 쓴다. (G-2 역할 분리) */
+     본문 텍스트·버튼 등 AA 대비가 필요한 곳은 --ok-orange(#C74300, 흰 글씨 4.9:1)를 쓴다. (G-2 역할 분리) */
   --ok-orange-brand: #F55000;
-  --ok-orange-600: var(--sidebar-accent);
-  --ok-orange-700: #92400E;
-  --ok-orange-50: #FBF0DE;
-  --ok-orange-100: var(--accent);
-  --ok-orange-200: var(--secondary);
+  /* 채움(버튼·활성 칩) 전용 오렌지 — 흰 글씨 AA(4.9:1)를 양 테마에서 보장.
+     다크의 --ok-orange(#E8590C)는 '텍스트' 기준이라 채움에 쓰면 AA 미달 — 채움은 이 토큰을 쓴다. */
+  --ok-orange-solid: #C74300;
+  --ok-orange-solid-hover: #AD3A00;
+  --ok-orange-solid-active: #8F3000;
+  --ok-orange-600: #AD3A00; /* hover */
+  --ok-orange-700: #8F3000; /* active·진한 오렌지 텍스트 */
+  --ok-orange-50: #FFF3EA;
+  --ok-orange-100: #FFE4D0;
+  --ok-orange-200: #FFC9A3;
 
   --ok-brown: var(--foreground);
-  --ok-brown-700: #32261F;
+  --ok-brown-700: #16130F;
 
-  --ok-yellow: var(--secondary);
-  --ok-yellow-300: var(--accent);
-  --ok-yellow-50: var(--muted);
+  --ok-yellow: #DFA63F;
+  --ok-yellow-300: #F0CE8C;
+  --ok-yellow-50: #FAF3E0;
 
-  --ok-bg-gray: var(--sidebar);
+  --ok-bg-gray: var(--muted);
   --ok-bg-gray-50: var(--background);
 
   --n-0: #FFFFFF;
   --n-25: var(--background);
-  --n-50: var(--card);
-  --n-100: var(--muted);
+  --n-50: #F5F3F0;
+  --n-100: #EEEBE6;
   --n-200: var(--border);
-  --n-300: #D2C1A4;
-  --n-400: #A69A8C;
+  --n-300: #D4CEC5;
+  --n-400: #A9A299;
   --n-500: var(--muted-foreground);
-  --n-600: #64554B;
-  --n-700: #5A483E;
+  --n-600: #5C564E;
+  --n-700: #48433C;
   --n-800: var(--foreground);
-  --n-900: #2F241E;
+  --n-900: #16130F;
 
-  --success: #8A6B3D;
-  --success-bg: #F5ECDD;
-  --warning: var(--chart-5);
-  --warning-bg: #FBF2D9;
+  /* 시맨틱 상태 — 워시드 파스텔 배경 + AA 텍스트 (기존 '갈색 성공' 제거, 실제 시맨틱 색으로) */
+  --success: #3B7A43;
+  --success-bg: #EAF2E9;
+  --warning: #92610E;
+  --warning-bg: #FBF3DB;
   --danger: var(--destructive);
-  --danger-bg: #FCE9E9;
-  --info: var(--chart-2);
-  --info-bg: #F3F0EC;
+  --danger-bg: #FBEAE9;
+  --info: #2A6284;
+  --info-bg: #E9F1F7;
 
   /* AI 기능 강조(파랑) — AiOpinionButton(blue-600/700)과 동일 계열. AI 출력 영역 제목·포인트 통일용. */
   --ai-accent: #1E40AF;        /* AI 제목·강조 — 어두운 파랑(blue-800) */
   --ai-accent-bg: #EEF4FE;
   --ai-shine-color: #8B5CF6;   /* AI 영역 테두리 샤인(보라) — 제목 파랑과 별개의 은은한 포인트 */
 
-  --sh-sm: 0 1px 2px hsl(28 18% 25% / 0.08), 0 1px 1px hsl(28 18% 25% / 0.06);
-  --sh-md: 0 2px 8px hsl(28 18% 25% / 0.12), 0 1px 2px hsl(28 18% 25% / 0.08);
-  --sh-lg: 0 10px 26px hsl(28 18% 25% / 0.18), 0 4px 10px hsl(28 18% 25% / 0.1);
-  --sh-focus: 0 0 0 4px hsl(33 91% 35% / 0.18);
+  /* 모달/드로어 스크림 — 전 화면 공통(웜 잉크 틴트) */
+  --overlay: hsl(26 14% 8% / 0.5);
 
-  --r-xs: calc(var(--radius) - 0.05rem);
-  --r-sm: var(--radius);
-  --r-md: calc(var(--radius) + 0.15rem);
-  --r-lg: calc(var(--radius) + 0.4rem);
-  --r-xl: calc(var(--radius) + 0.7rem);
+  /* 그림자 — 초확산·저불투명(minimalist: opacity < 0.10), 웜 잉크 틴트 */
+  --sh-sm: 0 1px 2px hsl(30 12% 12% / 0.05);
+  --sh-md: 0 2px 8px hsl(30 12% 12% / 0.06), 0 1px 2px hsl(30 12% 12% / 0.04);
+  --sh-lg: 0 16px 40px hsl(30 12% 12% / 0.10), 0 4px 12px hsl(30 12% 12% / 0.05);
+  --sh-focus: 0 0 0 3px hsl(20 100% 39% / 0.16);
+
+  --r-xs: calc(var(--radius) - 0.125rem);  /* 6px  — 작은 요소 */
+  --r-sm: var(--radius);                   /* 8px  — 버튼·입력 */
+  --r-md: calc(var(--radius) + 0.125rem);  /* 10px — 팝오버·중형 */
+  --r-lg: calc(var(--radius) + 0.375rem);  /* 14px — 카드 */
+  --r-xl: calc(var(--radius) + 0.625rem);  /* 18px — 대형 컨테이너 */
   --r-pill: 999px;
 
   /* Responsive type scale: clamp(min, min + vw, max).
@@ -147,147 +161,162 @@
   --bg-app: var(--background);
   --bg-card: var(--card);
   --bg-muted: var(--muted);
-  --bg-subtle: #F7F0E6;
-  --bg-soft: #F6EFE3;
+  --bg-subtle: #F5F3EF;
+  --bg-soft: #F0EDE7;
   --fg: var(--foreground);
   --fg-muted: var(--muted-foreground);
-  --fg-subtle: #9B8C7E;
+  --fg-subtle: #968F85;
   --border-strong: var(--input);
   --border-brand: var(--primary);
 
+  /* 잉크 카드 — 강조 스탯/CTA용 다크 서피스(그라디언트 카드 대체) */
+  --surface-ink: #211D19;
+  --surface-ink-fg: #FAF9F6;
+  --surface-ink-sub: rgba(250, 249, 246, 0.66);
+
   /* 미평가/0점 셀 — 다크/라이트 양쪽에서 카드 배경 대비로 보이게 */
-  --score-unrated-bg: #D6D1C5;
-  --score-unrated-fg: #6B5C4E;
+  --score-unrated-bg: #E2DED5;
+  --score-unrated-fg: #575146;
 
-  /* 점수 단계 팔레트 — 원본 네온보다 채도를 낮추되, 인접 단계가 '명도(밝다↔어둡다)+
-     색조'로 교차하도록 배치해 한눈에 구분되게 한다. 직원 화면(my/*)에서 getScoreTintBg/Fg가 참조.
-       4 진한 테라코타(어둠·흰글씨) ↔ 3 골드앰버(밝음·갈색글씨) ↔ 2 탄브라운(어둠·흰글씨) ↔ 1 웜그레이(밝음) */
-  --score-4-bg: #B5400F; --score-4-fg: #FFFFFF;
-  --score-3-bg: #E6A938; --score-3-fg: #4A2A06;
-  --score-2-bg: #B68F5C; --score-2-fg: #41301C;
-  --score-1-bg: #CFC8BA; --score-1-fg: #574C40;
+  /* 점수 단계 팔레트 — 인접 단계가 '명도(밝다↔어둡다)+색조'로 교차하도록 배치해
+     한눈에 구분되게 한다. 직원 화면(my/*)에서 getScoreTintBg/Fg가 참조.
+       4 딥 오렌지(어둠·흰글씨) ↔ 3 골드앰버(밝음·갈색글씨) ↔ 2 탄브라운(어둠·흰글씨) ↔ 1 웜그레이(밝음) */
+  --score-4-bg: #C74300; --score-4-fg: #FFFFFF;
+  --score-3-bg: #E3A83C; --score-3-fg: #3F2A08;
+  --score-2-bg: #8F7140; --score-2-fg: #FFFFFF;
+  --score-1-bg: #DAD5CA; --score-1-fg: #57503F;
 
-  --ok-orange-hsl: 33 91% 35%;
-  --ok-dark-brown: 20 18% 25%;
-  --ok-yellow-hsl: 34 56% 73%;
-  --ok-bright-gray: 36 52% 97%;
-  --ok-gold: 44 81% 41%;
+  --ok-orange-hsl: 20 100% 39%;
+  --ok-dark-brown: 26 14% 12%;
+  --ok-yellow-hsl: 39 72% 56%;
+  --ok-bright-gray: 40 20% 97%;
+  --ok-gold: 40 72% 45%;
 }
 
 :root[data-theme="dark"],
 .dark {
-  --card: #292524;
-  --ring: #F97316;
-  --input: #44403C;
+  --card: #1E1B18;
+  --ring: #E8590C;
+  --input: #453F37;
   /* 리스트/목차 영역(--bg-muted)을 카드보다 한 단계 가라앉혀 3영역 구분 유지 —
      라이트는 이미 card>subtle>muted 로 구분되지만 다크는 muted=card 였다(리뷰 지적). */
-  --muted: #201C1A;
-  --accent: #3A2A1E;
-  --border: #44403C;
-  --radius: 0.3rem;
-  --chart-1: #F97316;
-  --chart-2: #B0A99E;
-  --chart-3: #C8A24E;
-  --chart-4: #A8A29E;
-  --chart-5: #78716C;
-  --popover: #292524;
-  --primary: #F97316;
-  --sidebar: #292524;
-  --secondary: #57534E;
-  --background: #1C1917;
-  --foreground: #F5F5F4;
+  --muted: #14110F;
+  --accent: #2E2823;
+  --border: #322D27;
+  --radius: 0.5rem;
+  --chart-1: #FF7A3D;
+  --chart-2: #A49D93;
+  --chart-3: #E0AE55;
+  --chart-4: #7FA3B8;
+  --chart-5: #C98A55;
+  --popover: #26221E;
+  --primary: #E8590C;
+  --sidebar: #1E1B18;
+  --secondary: #37322B;
+  --background: #161311;
+  --foreground: #F1EEE9;
   --destructive: #DC2626;
-  --shadow-color: hsl(0 0% 5%);
-  --sidebar-ring: #F97316;
-  --sidebar-accent: #C2855A;
-  --sidebar-border: #44403C;
-  --card-foreground: #F5F5F4;
-  --sidebar-primary: #F97316;
-  --muted-foreground: #A8A29E;
-  --accent-foreground: #E7E5E4;
-  --popover-foreground: #F5F5F4;
+  --shadow-color: hsl(20 8% 4%);
+  --sidebar-ring: #E8590C;
+  --sidebar-accent: #E8590C;
+  --sidebar-border: #322D27;
+  --card-foreground: #F1EEE9;
+  --sidebar-primary: #E8590C;
+  --muted-foreground: #A49D93;
+  --accent-foreground: #E6E1DA;
+  --popover-foreground: #F1EEE9;
   --primary-foreground: #FFFFFF;
-  --sidebar-foreground: #F5F5F4;
-  --secondary-foreground: #E7E5E4;
+  --sidebar-foreground: #F1EEE9;
+  --secondary-foreground: #E6E1DA;
   --destructive-foreground: #FFFFFF;
-  --sidebar-accent-foreground: #1C1208;
+  --sidebar-accent-foreground: #FFFFFF;
   --sidebar-primary-foreground: #FFFFFF;
 
   --ok-orange: var(--primary);
   --ok-orange-brand: #F55000;
-  --ok-orange-600: #EA580C;
-  --ok-orange-700: #C2410C;
-  --ok-orange-50: #33261E;
-  --ok-orange-100: #4A3326;
-  --ok-orange-200: #6A4630;
+  /* 채움용 — 다크에서도 흰 글씨 AA(4.9:1). hover 는 살짝 밝게(일시 상태라 4.3:1 허용) */
+  --ok-orange-solid: #C74300;
+  --ok-orange-solid-hover: #D2500A;
+  --ok-orange-solid-active: #B03C00;
+  --ok-orange-600: #D14E08;
+  --ok-orange-700: #FF9C66; /* 다크에선 '진한 오렌지 텍스트' 역할 = 밝은 피치(틴트 배경 위 AA) */
+  --ok-orange-50: #2A1C13;
+  --ok-orange-100: #462C1C;
+  --ok-orange-200: #6B3E23;
 
-  --ok-brown: #F5F5F4;
-  --ok-brown-700: #D6D3D1;
+  --ok-brown: #F1EEE9;
+  --ok-brown-700: #D8D3CC;
 
-  --ok-yellow: #FDBA74;
-  --ok-yellow-300: #FED7AA;
-  --ok-yellow-50: #3A312A;
+  --ok-yellow: #E0AC4E;
+  --ok-yellow-300: #EFC989;
+  --ok-yellow-50: #332C1F;
 
   --ok-bg-gray: var(--sidebar);
   --ok-bg-gray-50: var(--background);
 
-  --n-0: #292524;
+  --n-0: #1E1B18;
   --n-25: var(--background);
   --n-50: var(--muted);
   --n-100: var(--border);
   --n-200: var(--secondary);
-  --n-300: var(--chart-5);
-  --n-400: var(--muted-foreground);
-  --n-500: #D6D3D1;
-  --n-600: var(--accent-foreground);
-  --n-700: var(--foreground);
-  --n-800: #FAFAF9;
+  --n-300: #5C554C;
+  --n-400: #7F786E;
+  --n-500: #A49D93;
+  --n-600: #C4BDB3;
+  --n-700: #E1DCD4;
+  --n-800: var(--foreground);
   --n-900: #FFFFFF;
 
-  --success: #D6C49F;
-  --success-bg: #3B3128;
-  --warning: #FDBA74;
-  --warning-bg: #3E2B1F;
-  --danger: var(--destructive);
-  --danger-bg: #3A1E1E;
-  --info: var(--chart-2);
-  --info-bg: #2E2A26;
+  --success: #93C29B;
+  --success-bg: #24312A;
+  --warning: #E3B562;
+  --warning-bg: #362C1D;
+  --danger: #E9706A;
+  --danger-bg: #3A2220;
+  --info: #85B0C7;
+  --info-bg: #1F2C35;
 
   --ai-accent: #60A5FA;
-  --ai-accent-bg: #1E293B;
+  --ai-accent-bg: #1E2836;
   --ai-shine-color: #A78BFA;
 
-  --sh-sm: 0 1px 2px hsl(0 0% 5% / 0.35);
-  --sh-md: 0 4px 12px hsl(0 0% 5% / 0.45);
-  --sh-lg: 0 16px 40px hsl(0 0% 5% / 0.6);
-  --sh-focus: 0 0 0 4px hsl(24 95% 53% / 0.24);
+  --overlay: hsl(20 8% 4% / 0.65);
+
+  --sh-sm: 0 1px 2px hsl(20 8% 4% / 0.5);
+  --sh-md: 0 4px 14px hsl(20 8% 4% / 0.5), 0 1px 3px hsl(20 8% 4% / 0.4);
+  --sh-lg: 0 20px 50px hsl(20 8% 4% / 0.65), 0 4px 14px hsl(20 8% 4% / 0.4);
+  --sh-focus: 0 0 0 3px hsl(21 90% 48% / 0.28);
 
   --bg-app: var(--background);
   --bg-card: var(--card);
   --bg-muted: var(--muted);
-  --bg-subtle: #221D1A;
-  --bg-soft: #302926;
+  --bg-subtle: #1B1815;
+  --bg-soft: #282420;
   --fg: var(--foreground);
   --fg-muted: var(--muted-foreground);
-  --fg-subtle: #8D857E;
+  --fg-subtle: #7F786E;
   --border-strong: var(--input);
   --border-brand: var(--primary);
 
+  --surface-ink: #2A2520;
+  --surface-ink-fg: #F1EEE9;
+  --surface-ink-sub: rgba(241, 238, 233, 0.62);
+
   /* 미평가/0점 셀 — 다크 모드 */
-  --score-unrated-bg: #4A4239;
-  --score-unrated-fg: #C8BEB0;
+  --score-unrated-bg: #453E35;
+  --score-unrated-fg: #CDC5B8;
 
   /* 점수 단계 팔레트 — 다크 모드(같은 교차 원리, 카드 배경 대비 확보) */
-  --score-4-bg: #C2410C; --score-4-fg: #FFFFFF;
+  --score-4-bg: #C74300; --score-4-fg: #FFFFFF;
   --score-3-bg: #D69A3A; --score-3-fg: #2A1A06;
-  --score-2-bg: #997A4F; --score-2-fg: #FFFFFF;
+  --score-2-bg: #8A6D42; --score-2-fg: #FFFFFF;
   --score-1-bg: #5C544A; --score-1-fg: #ECE6DC;
 
-  --ok-orange-hsl: 24 95% 53%;
-  --ok-dark-brown: 20 6% 14%;
-  --ok-yellow-hsl: 27 92% 75%;
-  --ok-bright-gray: 30 7% 16%;
-  --ok-gold: 46 84% 54%;
+  --ok-orange-hsl: 21 90% 48%;
+  --ok-dark-brown: 26 10% 10%;
+  --ok-yellow-hsl: 39 70% 59%;
+  --ok-bright-gray: 30 8% 12%;
+  --ok-gold: 43 70% 55%;
 }
 
 @layer base {
@@ -310,11 +339,15 @@
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "tnum" 0, "ss01";
-    letter-spacing: -0.005em;
+    letter-spacing: -0.008em;
     /* 한글은 어절(공백) 단위로만 줄바꿈하고(keep-all), 긴 영문/URL·사번 등 끊을 곳 없는
        문자열은 강제로 끊어(break-word) 컨테이너를 밀어내지 않게 한다. 상용 한국어 사이트 표준. */
     word-break: keep-all;
     overflow-wrap: break-word;
+  }
+
+  ::selection {
+    background: hsl(var(--ok-orange-hsl) / 0.18);
   }
 
   /* 미디어 요소가 부모 폭을 넘겨 가로 오버플로를 만들지 않게 한다(아이콘 svg는 제외 — 고정 크기 유지). */
@@ -324,7 +357,7 @@
   }
 
   h1, h2, h3, h4, h5 { margin: 0; letter-spacing: -0.02em; }
-  h1 { font-size: var(--fs-h1); font-weight: 800; }
+  h1 { font-size: var(--fs-h1); font-weight: 800; letter-spacing: -0.025em; }
   h2 { font-size: var(--fs-h2); font-weight: 700; }
   h3 { font-size: var(--fs-h3); font-weight: 700; }
   h4 { font-size: var(--fs-h4); font-weight: 600; }
@@ -341,10 +374,21 @@
   .sd-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: var(--r-md);
+    border-radius: var(--r-lg);
     padding: 20px;
+    box-shadow: var(--sh-sm);
   }
-  .sd-card-lg { padding: 24px; border-radius: var(--r-lg); }
+  .sd-card-lg { padding: 24px; border-radius: var(--r-xl); }
+  /* 클릭 가능한 카드 — hover 시 보더·그림자가 살짝 떠오른다 */
+  .sd-card-interactive {
+    cursor: pointer;
+    transition: box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sd-card-interactive:hover {
+    box-shadow: var(--sh-md);
+    border-color: var(--border-strong);
+  }
+  .sd-card-interactive:active { transform: scale(0.995); }
 
   .sd-btn {
     display: inline-flex;
@@ -354,27 +398,57 @@
     border-radius: var(--r-sm);
     font-size: var(--fs-body);
     font-weight: 600;
-    transition: background-color 160ms, color 160ms, box-shadow 160ms, border-color 160ms;
+    transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), color 180ms, box-shadow 180ms, border-color 180ms, transform 120ms;
     white-space: nowrap;
     cursor: pointer;
   }
-  .sd-btn-primary { background: var(--ok-orange); color: #fff; }
-  .sd-btn-primary:hover { background: var(--ok-orange-600); }
-  .sd-btn-primary:active { background: var(--ok-orange-700); }
+  .sd-btn:active { transform: translateY(1px); }
+  .sd-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+  .sd-btn-primary {
+    background: var(--ok-orange-solid);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), var(--sh-sm);
+  }
+  .sd-btn-primary:hover { background: var(--ok-orange-solid-hover); }
+  .sd-btn-primary:active { background: var(--ok-orange-solid-active); }
   .sd-btn-outline { border: 1px solid var(--border-strong); background: var(--bg-card); color: var(--fg); }
-  .sd-btn-outline:hover { border-color: var(--ok-orange); color: var(--ok-orange); }
+  .sd-btn-outline:hover { border-color: var(--ok-orange); color: var(--ok-orange); background: var(--ok-orange-50); }
   .sd-btn-ghost { color: var(--fg-muted); }
   .sd-btn-ghost:hover { background: var(--bg-muted); color: var(--fg); }
+  .sd-btn-danger { background: var(--destructive); color: #fff; }
+  .sd-btn-danger:hover { filter: brightness(0.92); }
   .sd-btn-sm { padding: 6px 12px; font-size: var(--fs-sm); }
   .sd-btn-xs { padding: 4px 10px; font-size: var(--fs-xs); }
 
   /* 키보드 접근성: 버튼·사이드바 링크 포커스 링 (입력은 .sd-input:focus에서 처리) */
-  .sd-sidebar-link { display: block; border-radius: 8px; }
+  .sd-sidebar-link { display: block; border-radius: var(--r-sm); }
   .sd-btn:focus-visible,
   .sd-sidebar-link:focus-visible {
     outline: none;
     box-shadow: var(--sh-focus);
   }
+
+  /* 사이드바 네비 항목 — hover/active 상태를 클래스로 통일 (인라인 스타일 대체) */
+  .sd-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 12px;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-body);
+    font-weight: 500;
+    color: var(--fg);
+    text-align: left;
+    position: relative;
+    transition: background-color 160ms, color 160ms;
+  }
+  .sd-nav-item:hover { background: var(--bg-muted); }
+  .sd-nav-item.is-active {
+    color: var(--ok-orange);
+    background: var(--ok-orange-50);
+    font-weight: 700;
+  }
+  .sd-nav-item.is-active:hover { background: var(--ok-orange-50); }
 
   /* 인라인 스타일 div(차트 하이라이트·산점도 행 등 role=button)용 키보드 포커스 링.
      --sh-focus 는 외곽 그림자라 overflow:hidden 부모에 잘린다 — 여기선 음수 outline-offset 으로
@@ -384,6 +458,10 @@
     outline-offset: -2px;
   }
 
+  /* 클릭 가능한 테이블/리스트 행 hover — 페이지 공용 */
+  .row-hover { transition: background-color 140ms; }
+  .row-hover:hover { background: var(--bg-muted); }
+
   .sd-chip {
     display: inline-flex;
     align-items: center;
@@ -392,6 +470,7 @@
     border-radius: var(--r-pill);
     font-size: var(--fs-xs);
     font-weight: 600;
+    letter-spacing: 0.01em;
     background: var(--n-50);
     color: var(--fg-muted);
     border: 1px solid var(--border);
@@ -401,6 +480,56 @@
   .sd-chip-warning { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
   .sd-chip-danger { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
   .sd-chip-info { background: var(--info-bg); color: var(--info); border-color: transparent; }
+
+  /* 칩형 단일 선택 필터 — FilterChip 컴포넌트가 사용(hover/포커스 상태 포함) */
+  .sd-filter-chip {
+    padding: 5px 12px;
+    border-radius: var(--r-pill);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 160ms, color 160ms, border-color 160ms;
+  }
+  .sd-filter-chip:hover { border-color: var(--border-strong); color: var(--fg); background: var(--bg-muted); }
+  .sd-filter-chip:focus-visible { outline: none; box-shadow: var(--sh-focus); }
+  .sd-filter-chip.is-active {
+    border-color: var(--ok-orange-solid);
+    background: var(--ok-orange-solid);
+    color: #fff;
+    font-weight: 700;
+  }
+  .sd-filter-chip.is-active:hover { background: var(--ok-orange-solid-hover); }
+
+  /* 세그먼트 컨트롤(역할 스위처·탭형 필터) — hover/focus 상태 포함 */
+  .sd-seg {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--bg-muted);
+    padding: 3px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+  }
+  .sd-seg-item {
+    padding: 5px 12px;
+    border-radius: calc(var(--r-sm) - 2px);
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--fg-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 160ms, color 160ms;
+  }
+  .sd-seg-item:hover { color: var(--fg); }
+  .sd-seg-item:focus-visible { outline: none; box-shadow: var(--sh-focus); }
+  .sd-seg-item.is-active {
+    background: var(--ok-orange-solid);
+    color: #fff;
+    box-shadow: var(--sh-sm);
+  }
 
   .sd-label-mini {
     font-size: var(--fs-micro);
@@ -427,15 +556,15 @@
     height: 100%;
     background: var(--ok-orange);
     border-radius: var(--r-pill);
-    transition: width 300ms;
+    transition: width 400ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .sd-avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--ok-orange) 0%, var(--ok-yellow) 100%);
-    color: #fff;
+    background: var(--ok-orange-100);
+    color: var(--ok-orange-700);
     font-weight: 700;
     font-size: var(--fs-body);
     display: inline-flex;
@@ -457,14 +586,17 @@
     font: inherit;
     font-size: var(--fs-body);
     outline: none;
-    transition: border-color 140ms, box-shadow 140ms;
+    transition: border-color 160ms, box-shadow 160ms;
   }
+  .sd-input::placeholder,
+  .sd-textarea::placeholder { color: var(--fg-subtle); }
   .sd-input:focus,
   .sd-textarea:focus {
     border-color: var(--ok-orange);
     box-shadow: var(--sh-focus);
   }
   .sd-textarea { resize: vertical; min-height: 80px; }
+  .sd-input-sm { padding: 6px 10px; font-size: var(--fs-sm); }
 }
 
 @layer utilities {
@@ -480,9 +612,9 @@
 .status-achieved { background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }
 .status-not-achieved { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 .status-in-progress { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
-.role-hr { background: var(--ok-orange); color: #fff; }
-.role-evaluator { background: var(--ok-brown); color: #fff; }
-.role-evaluatee { background: var(--ok-yellow); color: var(--ok-brown); }
+.role-hr { background: var(--ok-orange-solid); color: #fff; }
+.role-evaluator { background: var(--ok-brown); color: var(--bg-card); }
+.role-evaluatee { background: var(--ok-yellow); color: var(--ok-brown-700); }
 .score-1 { background: var(--score-1-bg); color: var(--score-1-fg); }
 .score-2 { background: var(--score-2-bg); color: var(--score-2-fg); }
 .score-3 { background: var(--score-3-bg); color: var(--score-3-fg); }

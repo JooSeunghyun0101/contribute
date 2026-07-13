@@ -85,8 +85,8 @@ export const getWeightStatus = (totalWeight: number): WeightStatus => {
       message: '총합 100%',
       guide: '가중치 조건을 충족했습니다.',
       color: 'var(--success)',
-      background: 'rgba(22, 163, 74, 0.10)',
-      border: '1px solid rgba(22, 163, 74, 0.45)',
+      background: 'var(--success-bg)',
+      border: '1px solid var(--success)',
     };
   }
   if (totalWeight > 100) {
@@ -96,8 +96,8 @@ export const getWeightStatus = (totalWeight: number): WeightStatus => {
       message: `${totalWeight - 100}% 초과`,
       guide: '임시저장은 가능하지만 최종제출하려면 총합을 100%로 낮춰야 합니다.',
       color: 'var(--danger)',
-      background: 'rgba(220, 69, 69, 0.10)',
-      border: '1px solid rgba(220, 69, 69, 0.45)',
+      background: 'var(--danger-bg)',
+      border: '1px solid var(--danger)',
     };
   }
   return {
