@@ -54,6 +54,10 @@ const DRAFT_FIELDS: Array<keyof TaskDraft> = [
   'evaluatorName',
 ];
 
+// 평가자가 편집(채점)할 수 있는 평가 상태 — Evaluation.tsx 의 canEvaluate 판정과
+// 아래 draft 복원 게이트가 같은 기준을 공유한다.
+export const EVALUATOR_EDITABLE_STATUSES = new Set(['submitted', 'evaluating']);
+
 // 리뷰 확정 수정: 키에 평가기간 포함 — 기간 전환 시 다른 기간의 빈 복원 결과가 같은 키로
 // 기록되며 이전 기간의 draft(로컬+서버)를 지워버리던 문제 차단.
 const getDraftStorageKey = (employeeId: string, evaluatorId?: string, periodId?: string | null) =>
@@ -375,8 +379,12 @@ export const useEvaluationDataDB = (
                   }
                 : null,
             );
+            // 저장본(로컬·서버) draft 는 지우지 않는다 — '평가 레코드 부재'는 권한 스코프나
+            // 일시적 조회 실패(위 catch 에서 evaluation=null)일 수 있어, 여기서 지우면 사용자의
+            // 임시저장이 영구 소실된다. ref 해제로 자동영속·플러시도 무장해제해 빈 맵이 저장본을
+            // 덮지 않게 한다. (재배정 등으로 평가가 되살아나면 다음 로드의 복원 게이트가 처리)
+            draftsRestoredKeyRef.current = null;
             setTaskDrafts({});
-            writeStoredDrafts(draftStorageKey, {});
             setIsLoading(false);
             return;
           }
@@ -385,8 +393,9 @@ export const useEvaluationDataDB = (
             // 조회 전용(readOnly)이거나 마감/잠금 기간이면 생성하지 않고 빈 데이터로 표시한다.
             if (readOnly || selectedPeriodStatus === 'closed' || selectedPeriodStatus === 'locked') {
               setEvaluationData(buildEmptyEvaluationData(employee));
+              // 저장본 draft 는 보존(위 '평가 레코드 부재' 분기와 동일한 이유) — ref 해제 + 메모리만 클리어.
+              draftsRestoredKeyRef.current = null;
               setTaskDrafts({});
-              writeStoredDrafts(draftStorageKey, {});
               setIsLoading(false);
               return;
             }
@@ -405,8 +414,9 @@ export const useEvaluationDataDB = (
             } catch (error) {
               console.warn('평가 레코드 생성 실패, 빈 평가 데이터로 대체합니다:', error);
               setEvaluationData(buildEmptyEvaluationData(employee));
+              // 저장본 draft 는 보존(위 '평가 레코드 부재' 분기와 동일한 이유) — ref 해제 + 메모리만 클리어.
+              draftsRestoredKeyRef.current = null;
               setTaskDrafts({});
-              writeStoredDrafts(draftStorageKey, {});
               setIsLoading(false);
               return;
             }
@@ -438,8 +448,9 @@ export const useEvaluationDataDB = (
          loadedEmployee = emp;
          if (!evaluation) {
            setEvaluationData(buildEmptyEvaluationData(emp));
+           // 저장본 draft 는 보존(위 '평가 레코드 부재' 분기와 동일한 이유) — ref 해제 + 메모리만 클리어.
+           draftsRestoredKeyRef.current = null;
            setTaskDrafts({});
-           writeStoredDrafts(draftStorageKey, {});
            setIsLoading(false);
            return;
          }
@@ -819,12 +830,25 @@ export const useEvaluationDataDB = (
       if (isStale()) return;
       setEvaluationData(evaluationDataResult);
 
-      const validTaskIds = new Set(tasksWithHistory.map(task => task.id));
-      // S2: 로컬(localStorage)과 서버 draft 중 '더 최신'을 복원 — 다른 기기에서 쓰던 임시저장을
-      // 이어서 작성. 조회 전용 화면은 편집이 없으므로 서버 조회를 생략한다. 서버 실패 시 로컬만.
-      const localDrafts = readStoredDrafts(draftStorageKey, validTaskIds);
-      let restoredDrafts = localDrafts.map;
-      if (!readOnly) {
+      // 잠금 상태(조회 전용·마감 기간·평가자 편집 불가 상태)에서는 draft 를 복원하지 않는다 —
+      // 과거 미저장 draft 가 확정된 평가 위에 '임시저장' 배지·점수/피드백 오버레이로 표시되고,
+      // 편집 불가라 저장으로 지울 방법도 없다. 복원을 건너뛰면 draftsRestoredKeyRef 도 해제되어
+      // 자동영속·beforeunload 플러시가 무장되지 않으므로 저장본(로컬·서버)은 그대로 보존된다 —
+      // 되돌리기 등으로 편집 가능 상태가 되면 다음 로드에서 다시 복원된다.
+      const canRestoreDrafts =
+        !readOnly &&
+        isSelectedPeriodEditable &&
+        EVALUATOR_EDITABLE_STATUSES.has(evaluation.evaluation_status) &&
+        canEditAsEvaluator;
+      if (!canRestoreDrafts) {
+        draftsRestoredKeyRef.current = null;
+        setTaskDrafts({});
+      } else {
+        const validTaskIds = new Set(tasksWithHistory.map(task => task.id));
+        // S2: 로컬(localStorage)과 서버 draft 중 '더 최신'을 복원 — 다른 기기에서 쓰던 임시저장을
+        // 이어서 작성. 서버 실패 시 로컬만.
+        const localDrafts = readStoredDrafts(draftStorageKey, validTaskIds);
+        let restoredDrafts = localDrafts.map;
         const remote = await draftService.get(draftStorageKey);
         if (remote?.payload) {
           const remoteMap = normalizeDrafts(
@@ -837,10 +861,10 @@ export const useEvaluationDataDB = (
           if (remoteNewer && Object.keys(remoteMap).length > 0) restoredDrafts = remoteMap;
         }
         if (isStale()) return;
+        // 복원 완료 표시 — 이 시점부터 이 키의 자동저장·플러시가 무장된다(리뷰 확정 수정).
+        draftsRestoredKeyRef.current = draftStorageKey;
+        setTaskDrafts(restoredDrafts);
       }
-      // 복원 완료 표시 — 이 시점부터 이 키의 자동저장·플러시가 무장된다(리뷰 확정 수정).
-      draftsRestoredKeyRef.current = draftStorageKey;
-      setTaskDrafts(restoredDrafts);
 
       
     } catch (error) {
@@ -859,6 +883,7 @@ export const useEvaluationDataDB = (
     employeeId,
     overrideEvaluationId,
     selectedPeriodStatus,
+    isSelectedPeriodEditable,
     readOnly,
     selectedPeriodYear,
     selectedPeriodId,

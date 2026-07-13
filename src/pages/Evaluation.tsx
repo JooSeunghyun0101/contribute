@@ -7,7 +7,7 @@ import { LoadingState } from '@/components/ui/state-views';
 import { AiOpinionButton } from '@/components/ui/ai-opinion-button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
-import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
+import { EVALUATOR_EDITABLE_STATUSES, useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
 import { employeeService, evaluationService } from '@/lib/services';
@@ -25,8 +25,6 @@ import {
   type EvaluatorTaskView,
 } from '@/components/Evaluation/EvaluatorReview';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
-
-const EVALUATOR_EDITABLE_STATUSES = new Set(['submitted', 'evaluating']);
 
 const getEvaluatorStatusMessage = (status?: string) => {
   switch (status) {
@@ -403,7 +401,9 @@ const Evaluation = () => {
 
   const selectTask = (groupKey: string, taskId: string) => {
     const prevTaskId = selectedTaskByGroup[groupKey];
-    if (prevTaskId && prevTaskId !== taskId && hasTaskDraft(prevTaskId)) {
+    // 잠금 상태에서는 편집 자체가 불가능하므로 '임시저장' 안내가 성립하지 않는다 —
+    // 안내가 가리키는 임시저장/저장 버튼도 비활성이라 따를 수 없는 지시가 된다.
+    if (canEvaluate && prevTaskId && prevTaskId !== taskId && hasTaskDraft(prevTaskId)) {
       const prevTask = committedTasks.find((t) => t.id === prevTaskId);
       toast({
         title: `${prevTask?.title || '과업'} 임시저장`,
