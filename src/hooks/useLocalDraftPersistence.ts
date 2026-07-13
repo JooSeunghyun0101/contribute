@@ -20,6 +20,17 @@ const writeMap = (storageKey: string, drafts: DraftMap) => {
 };
 
 /**
+ * 저장된 draft 맵을 로컬·서버에서 즉시 삭제한다.
+ * 최종제출처럼 저장 성공과 동시에 편집이 잠기는 경우, ready 게이트가 꺼져 디바운스 정리
+ * (빈 맵 기록 = 저장본 삭제)가 더 이상 실행되지 않으므로 호출부가 명시적으로 정리해야 한다.
+ */
+export const clearPersistedDraftMap = (storageKey: string): void => {
+  if (!storageKey) return;
+  writeMap(storageKey, {});
+  draftService.save(storageKey, {});
+};
+
+/**
  * F-2: 컴포넌트 로컬 draft 맵을 localStorage 에 디바운스 자동저장 + 마운트 시 복원 + 종료/언마운트 플러시.
  *
  * 핵심 안전장치:

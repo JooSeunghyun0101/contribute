@@ -13,7 +13,7 @@ import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
-import { useLocalDraftPersistence } from '@/hooks/useLocalDraftPersistence';
+import { clearPersistedDraftMap, useLocalDraftPersistence } from '@/hooks/useLocalDraftPersistence';
 import { taskService, evaluationService } from '@/lib/services';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm, useReason } from '@/components/ui/confirm-dialog';
@@ -93,6 +93,17 @@ const EvaluationAccordionCard = ({
     [selectedTaskId, tasks],
   );
 
+  const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
+  const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
+  // 현재/과거 모두 동일하게 EVALUATEE_TASK_LOCKED_STATUSES (submitted/evaluating/completed/locked) 에서 잠금.
+  // "제출 완료" 라벨이 뜨면 더 이상 피평가자 단에서 수정할 수 없도록 일관 처리.
+  // 수정이 필요하면 평가자/HR 단에서 단계를 되돌려야 한다.
+  const isTaskEditingLocked = EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
+  const taskEditMessage = isTaskEditingLocked
+    ? '제출이 완료되어 잠겨 있습니다.'
+    : periodEditMessage;
+  const canEditTasks = isPeriodEditable && !isTaskEditingLocked;
+
   const currentDraftKey = mode === 'create' ? NEW_DRAFT_KEY : (selectedTaskId ?? '');
   const baseDraft: TaskDraft = useMemo(() => {
     if (mode === 'create') return EMPTY_DRAFT;
@@ -121,9 +132,12 @@ const EvaluationAccordionCard = ({
     });
   }, []);
 
-  // 특정 task에 unsaved 변경이 있는지 확인
+  // 특정 task에 unsaved 변경이 있는지 확인.
+  // 잠금 상태(제출완료/평가중/완료/기간마감)에서는 항상 false — 편집이 불가능해 dirty 가 생길 수도,
+  // 저장해서 지울 수도 없는데 과거 복원 draft 때문에 '임시저장' 배지가 뜨는 오표시를 차단한다.
   const isTaskDirty = useCallback(
     (taskId: string): boolean => {
+      if (!canEditTasks) return false;
       const d = drafts[taskId];
       if (!d) return false;
       const t = tasks.find((x) => x.id === taskId);
@@ -138,7 +152,7 @@ const EvaluationAccordionCard = ({
       };
       return JSON.stringify(d) !== JSON.stringify(original);
     },
-    [drafts, tasks],
+    [canEditTasks, drafts, tasks],
   );
 
   // 미저장 변경이 있는 기존 과업 수 — 임시저장은 dirty 과업을 일괄 저장하므로 버튼 게이트·라벨에 사용.
@@ -154,7 +168,8 @@ const EvaluationAccordionCard = ({
     );
     return newDraftHasContent || dirtyTaskCount > 0;
   }, [drafts, dirtyTaskCount]);
-  useUnsavedChangesWarning(hasUnsavedEdits);
+  // 잠금 상태에서는 어차피 저장할 수 없으므로 이탈 경고도 띄우지 않는다.
+  useUnsavedChangesWarning(hasUnsavedEdits && canEditTasks);
 
   // F-2: 카드 로컬 drafts 를 localStorage 에 자동저장/복원(새로고침·탭닫기 후 작성 중 내용 복구).
   const cardDraftKey = useMemo(
@@ -169,14 +184,18 @@ const EvaluationAccordionCard = ({
     storageKey: cardDraftKey,
     drafts,
     setDrafts: (next) => setDrafts(next),
-    ready: !isLoading,
+    // 잠금 상태에서는 복원·기록을 모두 중단한다. 제출 전 편집 때 남은 미저장 draft 가
+    // 완료된 평가에 복원되면 '임시저장' 오표시가 되고, 잠금이라 지울 방법도 없다.
+    // 저장본 자체는 삭제하지 않으므로, 평가가 편집 가능 상태로 되돌아오면 그때 복원된다.
+    ready: !isLoading && canEditTasks,
     validKey: isValidDraftKey,
   });
 
-  // 다른 과업 클릭 시 — 현재 과업에 unsaved 변경이 있으면 토스트로 알림
+  // 다른 과업 클릭 시 — 현재 과업에 unsaved 변경이 있으면 토스트로 알림(잠금 상태에서는 편집
+  // 자체가 불가능하므로 '변경사항 유지 중' 안내가 성립하지 않는다 → 생략).
   const handleSelectTask = useCallback(
     (nextTaskId: string) => {
-      if (mode === 'view' && selectedTaskId && selectedTaskId !== nextTaskId) {
+      if (canEditTasks && mode === 'view' && selectedTaskId && selectedTaskId !== nextTaskId) {
         const currentDraft = drafts[selectedTaskId];
         const prevTask = tasks.find((t) => t.id === selectedTaskId);
         if (currentDraft && prevTask) {
@@ -199,7 +218,7 @@ const EvaluationAccordionCard = ({
       setSelectedTaskId(nextTaskId);
       setMode('view');
     },
-    [mode, selectedTaskId, drafts, tasks, toast],
+    [canEditTasks, mode, selectedTaskId, drafts, tasks, toast],
   );
   const getCurrentScore = (task: {
     contributionMethod?: string | null;
@@ -228,16 +247,6 @@ const EvaluationAccordionCard = ({
   const aiTaskRatio = draftTotalWeight > 0 ? draftAiWeight / draftTotalWeight : 0;
   const aiRuleSatisfied = (user?.aiRuleExempt ?? false) || aiTaskRatio >= 0.5;
   const weightStatus = useMemo(() => getWeightStatus(draftTotalWeight), [draftTotalWeight]);
-  const evaluationStatus = evaluationData?.evaluationStatus ?? 'draft';
-  const statusMeta = useMemo(() => getEvaluationStatusMeta(evaluationStatus), [evaluationStatus]);
-  // 현재/과거 모두 동일하게 EVALUATEE_TASK_LOCKED_STATUSES (submitted/evaluating/completed/locked) 에서 잠금.
-  // "제출 완료" 라벨이 뜨면 더 이상 피평가자 단에서 수정할 수 없도록 일관 처리.
-  // 수정이 필요하면 평가자/HR 단에서 단계를 되돌려야 한다.
-  const isTaskEditingLocked = EVALUATEE_TASK_LOCKED_STATUSES.has(evaluationStatus);
-  const taskEditMessage = isTaskEditingLocked
-    ? '제출이 완료되어 잠겨 있습니다.'
-    : periodEditMessage;
-  const canEditTasks = isPeriodEditable && !isTaskEditingLocked;
   const hasTitle = draft.title.trim().length > 0;
   const lockedInputStyle = !canEditTasks ? { opacity: 0.68, cursor: 'not-allowed' } : {};
 
@@ -537,6 +546,9 @@ const EvaluationAccordionCard = ({
         setMode('view');
         clearDraft(NEW_DRAFT_KEY);
         savedIds.forEach((id) => clearDraft(id));
+        // 최종제출로 잠금되면 ready 게이트가 꺼져 디바운스 정리가 더 이상 실행되지 않는다 —
+        // 저장 완료된 draft 맵이 로컬·서버에 고아로 남지 않게 여기서 명시적으로 삭제한다.
+        if (isFinal) clearPersistedDraftMap(cardDraftKey);
         setSelectedTaskId(newTaskId);
       } else {
         if (!selectedTask) return;
@@ -547,6 +559,9 @@ const EvaluationAccordionCard = ({
         await reloadData();
         // 저장된 draft는 캐시에서 비워 다음 진입 시 서버 데이터로 동기화
         savedIds.forEach((id) => clearDraft(id));
+        // 최종제출로 잠금되면 ready 게이트가 꺼져 디바운스 정리가 더 이상 실행되지 않는다 —
+        // 저장 완료된 draft 맵이 로컬·서버에 고아로 남지 않게 여기서 명시적으로 삭제한다.
+        if (isFinal) clearPersistedDraftMap(cardDraftKey);
       }
     } catch (err) {
       console.error(err);
