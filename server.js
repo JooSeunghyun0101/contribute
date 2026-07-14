@@ -6456,6 +6456,9 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
       `UPDATE employees SET last_matching_batch_id = NULL, last_profile_batch_id = NULL`
     );
     // batches 를 제외한 종속 테이블만 TRUNCATE CASCADE (employees 로 전파되지 않음).
+    // 2026-07-14 보강: FK 가 없어 CASCADE 에 안 딸려가던 이력성 테이블들
+    // (변경요청·QnA 로그·비번 초기화 요청·자동저장 임시본·조직 KPI)이 초기화 후에도
+    // 남아 '이전 이력'으로 보이던 누락 수정.
     await client.query(`
       TRUNCATE TABLE
         feedback_history,
@@ -6467,6 +6470,11 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
         employee_profile_import_rows,
         matching_import_rows,
         ai_generated_content,
+        evaluator_change_requests,
+        evaluator_qna_logs,
+        password_reset_requests,
+        ui_drafts,
+        org_kpis,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -6516,6 +6524,8 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
     // batches TRUNCATE CASCADE 가 employees 로 전파되지 않도록 한다.
     await client.query(`UPDATE employees SET last_matching_batch_id = NULL`);
     // 평가/과업/엔트리/피드백/이력/임포트(batches 제외) — 매칭으로부터 파생된 것들 모두 비움
+    // 2026-07-14 보강: 평가자 변경요청·자동저장 임시본도 매칭(평가) 파생이라 함께 비운다
+    // (FK 가 없어 CASCADE 에 안 딸려가 잔존하던 누락).
     await client.query(`
       TRUNCATE TABLE
         feedback_history,
@@ -6526,6 +6536,8 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
         final_assessment,
         matching_import_rows,
         ai_generated_content,
+        evaluator_change_requests,
+        ui_drafts,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -6599,6 +6611,17 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
     );
     //    나머지(피평가자/평가자 요약·성장·키워드)는 scope 가 '…:<periodId>' 로 끝난다.
     await client.query(`DELETE FROM ai_generated_content WHERE scope_id LIKE '%:' || $1`, [periodId]);
+    // 0.5) 자동저장 임시본 — 키에 기간ID(useEvaluationDataDB) 또는 그 기간 평가ID
+    //      (taskCardDraft:<사번>:<평가ID>)가 박혀 있다. 평가 삭제 전에 매칭해 지운다.
+    await client.query(
+      `DELETE FROM ui_drafts
+        WHERE draft_key LIKE '%' || $1 || '%'
+           OR draft_key IN (
+             SELECT 'taskCardDraft:' || e.evaluatee_id || ':' || e.id
+             FROM evaluations e WHERE e.evaluation_period_id = $1
+           )`,
+      [periodId]
+    );
     // 1) 평가/과업의 자식부터 (FK 역순)
     await client.query(`DELETE FROM feedback_history WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
     await client.query(`DELETE FROM task_evaluation_entries WHERE evaluation_id IN ${inPeriodEvals}`, [periodId]);
