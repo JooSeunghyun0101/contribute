@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Plus } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import { EmptyState } from '@/components/ui/state-views';
@@ -14,6 +15,7 @@ import type {
 } from '@/lib/services/employeeService';
 import {
   downloadEmployeeProfileUploadWorkbook,
+  downloadMatchingLedgerWorkbook,
   downloadMatchingUploadWorkbook,
   downloadOrgStructureWorkbook,
 } from '@/utils/hrDataExport';
@@ -27,7 +29,11 @@ import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogD
 import EvaluatorHistoryModal from '@/components/hr/EvaluatorHistoryModal';
 import AddEmployeeModal, { type NewEmployeeInput } from '@/components/hr/AddEmployeeModal';
 import EvaluatorPicker from '@/components/hr/EvaluatorPicker';
-import UploadPreviewModal from '@/components/hr/UploadPreviewModal';
+import UploadPreviewModal, {
+  MatchingCountsSummary,
+  type MatchingImportCounts,
+} from '@/components/hr/UploadPreviewModal';
+import DataPipelineWizard from '@/components/hr/DataPipelineWizard';
 import OrgChecklist from '@/components/hr/OrgChecklist';
 import { getOrgValue, matchesOrgNodes, orgPathLabel, orgFieldsFromEvaluation, type OrgFields } from '@/lib/orgHierarchy';
 import { isOnLeave } from '@/lib/employeeStatus';
@@ -273,7 +279,18 @@ type PendingUpload =
       sheetName: string;
       rows: MatchingImportRowInput[];
       result: DiffResult;
+      // F2-1: 서버 dry-run 의 탈락 사유별 카운트(17키) — DB 미가용 등으로 없을 수 있음.
+      counts: MatchingImportCounts | null;
     };
+
+// F2-2: 업로드(적용) 완료 후 카운트 상세를 보여주는 결과 다이얼로그 상태.
+type UploadResultDetail = {
+  title: string;
+  fileName: string;
+  periodName: string | null;
+  lines: Array<{ label: string; value: string }>;
+  counts: MatchingImportCounts | null;
+};
 
 // 기여도 업로드 미리보기 상태 — 카운트형이라 DiffResult 모달과 분리. 서비스 타입에서 파생.
 type ContribPreview = Awaited<ReturnType<typeof employeeService.previewContributionRows>>;
@@ -411,6 +428,14 @@ const HrUsersPage = () => {
   >(null);
   const [isExportingProfiles, setIsExportingProfiles] = useState(false);
   const [isExportingMatching, setIsExportingMatching] = useState(false);
+  // F2-4: 매칭 이력 대장(전체 기간·읽기 전용) 다운로드 진행 상태.
+  const [isExportingLedger, setIsExportingLedger] = useState(false);
+  // F2-7: 업로드 순서 위저드 열림 상태.
+  const [wizardOpen, setWizardOpen] = useState(false);
+  // F2-2: 업로드 적용 결과 상세 다이얼로그.
+  const [uploadResultDetail, setUploadResultDetail] = useState<UploadResultDetail | null>(null);
+  // F2-6: 선택 기간 평가행이 없는 등록자(기간 미대상)도 목록에 표시할지(기본 OFF).
+  const [showOffPeriod, setShowOffPeriod] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
@@ -428,12 +453,23 @@ const HrUsersPage = () => {
   const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
   const { employees, records, isLoading, isInitialLoading, error, reload } = useAllEmployees();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
   const { periods, selectedPeriodId, reloadPeriods } = useEvaluationPeriod();
   const navigate = useNavigate();
   const actorId = user?.employeeId ?? user?.id ?? null;
+
+  // F2-3: 업로드 성공 후 화면 갱신 확장 — reload('all' 키)만으로는 같은 화면의
+  // MatchingIntegrityBanner('company' 키)와 이력 모달 로컬 캐시가 stale 로 남는다(A-7).
+  // dashboard-records prefix 전체를 무효화하고 로컬 캐시도 초기화한다.
+  const afterUploadRefresh = useCallback(async () => {
+    await reload();
+    await queryClient.invalidateQueries({ queryKey: ['dashboard-records'] });
+    setAssignmentHistoryByEmployee({});
+    setEvaluationsByEmployee({});
+  }, [reload, queryClient]);
 
   const employeeMap = useMemo(
     () => new Map(employees.map((employee) => [employee.employee_id, employee])),
@@ -456,6 +492,13 @@ const HrUsersPage = () => {
     () => periods.find((p) => p.id === selectedPeriodId)?.is_default === true,
     [periods, selectedPeriodId],
   );
+  // F2-7: 업로드 위저드 4단계(기여도) 근사 지표 — 선택 기간 평가행 중
+  // evaluation_status 가 draft(작성 중) 초과(제출 이상)인 비율로 '적재됨/미적재'를 판단.
+  const contribStats = useMemo(() => {
+    const evals = records.filter((r) => r.evaluation);
+    const loaded = evals.filter((r) => statusRank(r.evaluation?.evaluation_status) >= 2).length;
+    return { total: evals.length, loaded };
+  }, [records]);
   // admin 은 시스템 계정 — 사용자 목록과 평가자 후보 모두에서 제외한다.
   // 로그인 등 시스템 동작에는 그대로 사용 가능.
   const evaluatorOptions = useMemo(
@@ -488,6 +531,8 @@ const HrUsersPage = () => {
           if (isOnLeave(employee)) return true; // 휴직자는 평가 유무와 무관하게 계정관리용으로 표시
           const isEvaluatee = employee.available_roles.includes('evaluatee');
           if (!isEvaluatee) return true;
+          // F2-6: '기간 미대상 포함' 토글 ON 이면 선택 기간 평가행이 없는 evaluatee 도 표시(A-8 가시화).
+          if (showOffPeriod) return true;
           return Boolean(recordMap.get(employee.employee_id)?.evaluation);
         })
         .filter((employee) => {
@@ -533,7 +578,7 @@ const HrUsersPage = () => {
             a.name.localeCompare(b.name)
           );
         }),
-    [employees, recordMap, query, selectedRole, orgNodeKeys, groupBySection, orgOf, sortConfig],
+    [employees, recordMap, query, selectedRole, orgNodeKeys, groupBySection, orgOf, sortConfig, showOffPeriod],
   );
 
   // 페이지네이션: 필터링된 목록을 페이지 단위로 자른다.
@@ -553,7 +598,7 @@ const HrUsersPage = () => {
   // 검색·역할·평가기간·페이지크기가 바뀌면 첫 페이지로.
   useEffect(() => {
     setPageIndex(0);
-  }, [query, selectedRole, selectedPeriodId, pageSize, groupBySection, sortConfig]);
+  }, [query, selectedRole, selectedPeriodId, pageSize, groupBySection, sortConfig, showOffPeriod]);
   // 평가기간이 바뀌면 조직 구조(연도별)도 달라지므로 이전 기간 기준 조직필터 선택을 초기화한다.
   useEffect(() => {
     setOrgNodeKeys([]);
@@ -1250,11 +1295,37 @@ const HrUsersPage = () => {
   // 업로드 전 가드: 업로드 대상(selectedPeriodId)을 '단일 활성 평가기간'으로 만든다.
   // 다른 기간이 함께 active 면(둘 다 열림 = create_default 트리거가 엉뚱한 기간에 평가 생성)
   // 그 기간들을 마감(closed)하고 대상 기간을 활성화한 뒤 진행. 사용자에게 사전 고지·동의를 받는다.
-  const ensureUploadPeriod = useCallback(async (): Promise<boolean> => {
+  const ensureUploadPeriod = useCallback(async (fileName?: string): Promise<boolean> => {
     const target = periods.find((p) => p.id === selectedPeriodId);
     if (!target) {
       toast({ title: '평가기간을 먼저 선택하세요.', variant: 'destructive' });
       return false;
+    }
+    // 연도-기간 크로스 업로드 가드(2026-07-14 실사고: 2026 기간에 2025 대상자 파일을 올려
+    // 성장레벨이 전년 값으로 덮임). 파일명이 가리키는 자료 연도를 기간 라벨 패턴에서만 추출해
+    // (생성일 '2026-07-14' 표기와 혼동 방지) 선택 기간과 다르면 한 번 확인받는다.
+    if (fileName) {
+      const fileYear = (() => {
+        const byLabel = fileName.match(/(20\d{2})\s*년?\s*기여도/);
+        if (byLabel) return Number(byLabel[1]);
+        const byShortYear = fileName.match(/(\d{2})년/);
+        if (byShortYear) return 2000 + Number(byShortYear[1]);
+        const byOrgStamp = fileName.match(/조직[_\s]?(\d{2})\d{4}/);
+        if (byOrgStamp) return 2000 + Number(byOrgStamp[1]);
+        return null;
+      })();
+      if (fileYear != null && fileYear !== target.evaluation_year) {
+        const ok = await confirm({
+          title: '파일 연도와 평가기간이 다릅니다',
+          description:
+            `선택한 파일은 ${fileYear}년 자료로 보이는데, 업로드 대상 평가기간은 ` +
+            `'${target.name}'(${target.evaluation_year}년)입니다. 다른 연도 파일을 올리면 ` +
+            `직원 정보·매칭이 그 연도 값으로 덮일 수 있습니다. 그래도 업로드할까요?`,
+          confirmText: '그래도 업로드',
+          variant: 'danger',
+        });
+        if (!ok) return false;
+      }
     }
     const otherActive = periods.filter((p) => p.id !== target.id && p.status === 'active');
     const alreadyOk = otherActive.length === 0 && target.status === 'active' && target.is_default === true;
@@ -1297,7 +1368,7 @@ const HrUsersPage = () => {
       });
       return;
     }
-    if (!(await ensureUploadPeriod())) return;
+    if (!(await ensureUploadPeriod(file.name))) return;
     setIsImportingOrg(true);
     try {
       const XLSX = await import('xlsx');
@@ -1366,7 +1437,7 @@ const HrUsersPage = () => {
         periodId: orgUploadPeriodId,
         sourceLabel: pendingOrgUpload.fileName.replace(/\.(xlsx|xls)$/i, ''),
       });
-      await reload();
+      await afterUploadRefresh();
       const warn = r.unmatched_corps.length
         ? ` · 미등록 법인 ${r.unmatched_corps.length}개(${r.unmatched_corps.join(', ')})`
         : '';
@@ -1443,7 +1514,7 @@ const HrUsersPage = () => {
       });
       return;
     }
-    if (!(await ensureUploadPeriod())) return;
+    if (!(await ensureUploadPeriod(file.name))) return;
     setIsImportingContribution(true);
     try {
       const XLSX = await import('xlsx');
@@ -1509,7 +1580,7 @@ const HrUsersPage = () => {
         periodId: selectedPeriodId,
         rows: contribPreview.rows,
       });
-      await reload();
+      await afterUploadRefresh();
       toast({
         title: '기여도 업로드가 완료되었습니다.',
         description: `평가 ${r.applied_evaluations}건 · 과업 ${r.tasks_inserted}개(점수 ${r.scored}) · org ${r.org_updated} · 건너뜀 ${r.skipped_groups}`,
@@ -1540,9 +1611,11 @@ const HrUsersPage = () => {
       });
     } catch (error) {
       console.error('대상자 다운로드 실패:', error);
+      // 기간 미선택·기간 데이터 없음 등 빌더가 던진 한국어 사유를 그대로 안내(고정 문구로 삼키지 않음).
       toast({
         title: '대상자 다운로드 실패',
-        description: '대상자 파일을 생성하지 못했습니다.',
+        description:
+          error instanceof Error && error.message ? error.message : '대상자 파일을 생성하지 못했습니다.',
         variant: 'destructive',
       });
     } finally {
@@ -1551,6 +1624,15 @@ const HrUsersPage = () => {
   };
 
   const exportMatchingFile = async () => {
+    // F2-4: 매칭 다운로드는 이제 기간 필수(조용한 전체 폴백 제거, B-2) — 기간 없으면 즉시 안내.
+    if (!selectedPeriodId) {
+      toast({
+        title: '평가기간을 먼저 선택하세요.',
+        description: '매칭 다운로드(업로드 양식)는 선택한 평가기간 기준으로 생성됩니다.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsExportingMatching(true);
     try {
       const result = await downloadMatchingUploadWorkbook({
@@ -1559,17 +1641,44 @@ const HrUsersPage = () => {
       });
       toast({
         title: '매칭 다운로드가 완료되었습니다.',
-        description: `${result.rowCount ?? 0}건의 현재/이전 평가자 매칭 이력을 업로드 양식 그대로 받았습니다.`,
+        description: `${result.rowCount ?? 0}건 · 선택 기간(업로드 양식) 기준입니다.`,
       });
     } catch (error) {
       console.error('매칭 다운로드 실패:', error);
       toast({
         title: '매칭 다운로드 실패',
-        description: '매칭 현황 파일을 생성하지 못했습니다.',
+        // 다운로드가 조용한 전체 폴백 대신 오류를 throw 하도록 바뀜 — 서버 메시지를 그대로 노출.
+        description: error instanceof Error ? error.message : '매칭 현황 파일을 생성하지 못했습니다.',
         variant: 'destructive',
       });
     } finally {
       setIsExportingMatching(false);
+    }
+  };
+
+  // F2-4: 매칭 이력 대장(전체 기간·읽기 전용) — 연도 컬럼이 포함된 감사·대조용 파일.
+  // 업로드 양식과 분리해 왕복 오염(대장 재업로드)을 차단한다(F2-5 가 업로드 측에서 거부).
+  const exportMatchingLedger = async () => {
+    setIsExportingLedger(true);
+    try {
+      const result = await downloadMatchingLedgerWorkbook({
+        periodLabel: periods.find((p) => p.id === selectedPeriodId)?.name ?? null,
+      });
+      toast({
+        title: '매칭 이력 대장 다운로드가 완료되었습니다.',
+        description: `전체 기간 이력 대장(읽기 전용)${
+          result.rowCount != null ? ` · ${result.rowCount}건` : ''
+        }입니다. 업로드 양식으로 사용하지 마세요.`,
+      });
+    } catch (error) {
+      console.error('매칭 이력 대장 다운로드 실패:', error);
+      toast({
+        title: '매칭 이력 대장 다운로드 실패',
+        description: error instanceof Error ? error.message : '이력 대장 파일을 생성하지 못했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExportingLedger(false);
     }
   };
 
@@ -1587,7 +1696,7 @@ const HrUsersPage = () => {
       return;
     }
 
-    if (!(await ensureUploadPeriod())) return;
+    if (!(await ensureUploadPeriod(file.name))) return;
     setIsImportingProfiles(true);
     try {
       const XLSX = await import('xlsx');
@@ -1642,7 +1751,7 @@ const HrUsersPage = () => {
       return;
     }
 
-    if (!(await ensureUploadPeriod())) return;
+    if (!(await ensureUploadPeriod(file.name))) return;
     setIsImportingMatching(true);
     try {
       const XLSX = await import('xlsx');
@@ -1661,6 +1770,11 @@ const HrUsersPage = () => {
         raw: true,
         defval: '',
       }) as unknown[][];
+      // F2-5: '매칭 이력 대장'(연도/평가기간 컬럼 포함·읽기 전용) 파일의 재업로드 차단 —
+      // 대장을 그대로 재업로드하면 타 연도 이력이 오염되는 악순환(B-3)이 생긴다.
+      if ('평가기간' in buildColIndex(sheetRows[0] ?? [])) {
+        throw new Error('이력 대장 파일은 업로드용이 아닙니다. 업로드 양식 파일을 사용하세요.');
+      }
       if (!hasMatchingImportHeaders(sheetRows)) {
         throw new Error('개인별 매칭결과 양식의 13개 헤더가 필요합니다.');
       }
@@ -1668,10 +1782,25 @@ const HrUsersPage = () => {
       if (rows.length === 0) {
         throw new Error('업로드할 매칭 데이터가 없습니다.');
       }
+      if (!selectedPeriodId) {
+        // ensureUploadPeriod 가 보장하지만 타입 내로잉을 위해 한 번 더 방어.
+        throw new Error('평가기간을 먼저 선택하세요.');
+      }
 
       // 바로 반영하지 않고, 서버 dry-run 으로 reconcile 분류(신규/변경/정정/무시/삭제)를 받아 미리보기.
-      const result = await employeeService.previewMatchingRows({ rows });
-      setPendingUpload({ kind: 'matching', fileName: file.name, sheetName: sheetName ?? '', rows, result });
+      // F2-1: preview 에 기간을 전달해 apply 와 동일 판정(기간 스코프·연도 필터)으로 정렬(A-2 해소).
+      const result = await employeeService.previewMatchingRows({
+        rows,
+        evaluation_period_id: selectedPeriodId,
+      });
+      setPendingUpload({
+        kind: 'matching',
+        fileName: file.name,
+        sheetName: sheetName ?? '',
+        rows,
+        result,
+        counts: result.counts ?? null,
+      });
     } catch (error) {
       console.error('매칭 엑셀 업로드 실패:', error);
       toast({
@@ -1696,12 +1825,14 @@ const HrUsersPage = () => {
           evaluation_period_id: selectedPeriodId,
           rows: pendingUpload.rows,
         });
-        await reload();
+        await afterUploadRefresh();
+        // F2-2: 결과 토스트를 카운트 요약으로 확장(오류 건수 포함).
         toast({
           title: '대상자 업로드가 완료되었습니다.',
-          description: `${r.applied_count}명 등록 · 평가자 ${r.evaluator_count}명 · 경고 ${r.warning_count}건`,
+          description: `${r.applied_count}명 등록 · 평가자 ${r.evaluator_count}명 · 경고 ${r.warning_count}건 · 오류 ${r.error_count}건`,
         });
       } else {
+        // F2-2: 서버가 counts(17키)·evaluation_period 를 함께 돌려준다(MatchingImportResult 확장).
         const r = await employeeService.importMatchingRows({
           source_file_name: pendingUpload.fileName,
           source_sheet_name: pendingUpload.sheetName,
@@ -1709,10 +1840,33 @@ const HrUsersPage = () => {
           evaluation_period_id: selectedPeriodId,
           rows: pendingUpload.rows,
         });
-        await reload();
+        await afterUploadRefresh();
+        const fmtCount = (v: number | undefined | null) => `${v ?? 0}건`;
         toast({
           title: '매칭 업로드가 완료되었습니다.',
-          description: `${r.applied_count}명 반영 · 이력 ${r.assignment_history_count ?? 0}건 · 경고 ${r.warning_count}건`,
+          description:
+            `${r.applied_count}명 반영 · 생성 ${r.created_evaluations ?? 0} · 정정 ${r.corrected_assignments ?? 0} · ` +
+            `제거 ${r.removed_stages ?? 0} · 무변경 ${r.unchanged_stages ?? 0} — 상세는 결과 창을 확인하세요.`,
+        });
+        // 토스트에 담기 어려운 전체 카운트는 미리보기와 같은 형태의 결과 다이얼로그로.
+        setUploadResultDetail({
+          title: '매칭 업로드 결과',
+          fileName: pendingUpload.fileName,
+          periodName:
+            r.evaluation_period?.name ??
+            periods.find((p) => p.id === selectedPeriodId)?.name ??
+            null,
+          lines: [
+            { label: '반영 인원', value: `${r.applied_count}명` },
+            { label: '평가 생성', value: fmtCount(r.created_evaluations) },
+            { label: '배정 정정', value: fmtCount(r.corrected_assignments) },
+            { label: '단계 제거', value: fmtCount(r.removed_stages) },
+            { label: '발령일 무시(동일 평가자)', value: fmtCount(r.ignored_date_stages) },
+            { label: '무변경', value: fmtCount(r.unchanged_stages) },
+            { label: '배정 이력 기록', value: fmtCount(r.assignment_history_count) },
+            { label: '경고 / 오류', value: `${r.warning_count}건 / ${r.error_count}건` },
+          ],
+          counts: r.counts ?? null,
         });
       }
       setPendingUpload(null);
@@ -1738,10 +1892,26 @@ const HrUsersPage = () => {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <DataMenu
                 items={[
+                  {
+                    label: '업로드 순서 가이드',
+                    onClick: () => setWizardOpen(true),
+                    title: '조직정보 → 대상자 → 매칭 → 기여도 업로드 순서와 각 단계 완료 여부를 확인합니다.',
+                  },
                   { label: isImportingProfiles ? '대상자 업로드 중…' : '대상자 업로드', onClick: openProfileFileDialog, disabled: isImportingProfiles },
                   { label: isExportingProfiles ? '대상자 내보내는 중…' : '대상자 내보내기', onClick: exportProfileFile, disabled: isExportingProfiles },
                   { label: isImportingMatching ? '매칭 업로드 중…' : '매칭 업로드', onClick: openMatchingFileDialog, disabled: isImportingMatching },
-                  { label: isExportingMatching ? '매칭 내보내는 중…' : '매칭 내보내기', onClick: exportMatchingFile, disabled: isExportingMatching },
+                  {
+                    label: isExportingMatching ? '매칭 다운로드 중…' : '매칭 다운로드(업로드 양식·선택 기간)',
+                    onClick: exportMatchingFile,
+                    disabled: isExportingMatching,
+                    title: '선택한 평가기간 기준으로 업로드 양식과 왕복 가능한 매칭 파일을 받습니다.',
+                  },
+                  {
+                    label: isExportingLedger ? '이력 대장 내려받는 중…' : '매칭 이력 대장(전체 기간·읽기 전용)',
+                    onClick: exportMatchingLedger,
+                    disabled: isExportingLedger,
+                    title: '전체 평가기간의 매칭 이력을 감사·대조용으로 받습니다. 업로드에는 사용할 수 없습니다.',
+                  },
                   {
                     label: isImportingOrg ? '조직정보 업로드 중…' : '조직정보 업로드',
                     onClick: openOrgFileDialog,
@@ -1808,6 +1978,17 @@ const HrUsersPage = () => {
               className={`sd-filter-chip${groupBySection ? ' is-active' : ''}`}
             >
               묶어서 보기 {groupBySection ? 'ON' : 'OFF'}
+            </button>
+
+            {/* F2-6: 선택 기간 평가행이 없는 등록자도 목록에 표시(기간 미대상 가시화, 기본 OFF). */}
+            <button
+              type="button"
+              onClick={() => setShowOffPeriod((v) => !v)}
+              aria-pressed={showOffPeriod}
+              title="선택한 평가기간에 평가행이 없는 등록자(기간 미대상)도 목록에 표시합니다."
+              className={`sd-filter-chip${showOffPeriod ? ' is-active' : ''}`}
+            >
+              기간 미대상 포함
             </button>
           </>
         }
@@ -2138,8 +2319,54 @@ const HrUsersPage = () => {
           fileName={pendingUpload.fileName}
           result={pendingUpload.result}
           isApplying={isApplyingUpload}
+          counts={pendingUpload.kind === 'matching' ? pendingUpload.counts : null}
           onConfirm={handleConfirmUpload}
           onClose={() => setPendingUpload(null)}
+        />
+      )}
+
+      {/* F2-2: 업로드 적용 결과 상세 — 토스트에 담기 어려운 카운트를 미리보기와 같은 형태로. */}
+      {uploadResultDetail && (
+        <Dialog open onOpenChange={(open) => { if (!open) setUploadResultDetail(null); }}>
+          <DialogContent style={{ maxWidth: 'min(560px, 94vw)', maxHeight: '85vh', overflow: 'auto' }}>
+            <DialogHeader>
+              <DialogTitle>{uploadResultDetail.title}</DialogTitle>
+              <DialogDescription>
+                {uploadResultDetail.fileName}
+                {uploadResultDetail.periodName ? ` · ${uploadResultDetail.periodName}` : ''}
+              </DialogDescription>
+            </DialogHeader>
+            <div style={{ display: 'grid', gap: 8, fontSize: 'var(--fs-body)' }}>
+              {uploadResultDetail.lines.map((line) => (
+                <div key={line.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ color: 'var(--fg-muted)' }}>{line.label}</span>
+                  <strong className="tnum">{line.value}</strong>
+                </div>
+              ))}
+            </div>
+            {uploadResultDetail.counts && (
+              <MatchingCountsSummary counts={uploadResultDetail.counts} mode="result" />
+            )}
+            <DialogFooter>
+              <button className="sd-btn sd-btn-primary sd-btn-sm" onClick={() => setUploadResultDetail(null)}>
+                확인
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* F2-7: 업로드 순서 위저드 — 단계 버튼은 기존 숨김 파일입력 트리거를 그대로 사용. */}
+      {wizardOpen && (
+        <DataPipelineWizard
+          periodId={selectedPeriodId}
+          periodName={periods.find((p) => p.id === selectedPeriodId)?.name ?? null}
+          contribStats={contribStats}
+          onTriggerOrgUpload={() => { setWizardOpen(false); openOrgFileDialog(); }}
+          onTriggerProfileUpload={() => { setWizardOpen(false); openProfileFileDialog(); }}
+          onTriggerMatchingUpload={() => { setWizardOpen(false); openMatchingFileDialog(); }}
+          onTriggerContribUpload={() => { setWizardOpen(false); openContribFileDialog(); }}
+          onClose={() => setWizardOpen(false)}
         />
       )}
 

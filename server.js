@@ -814,8 +814,9 @@ const getEvaluationContextForEmployee = async (client, employeeId) => {
 
 const getAssignmentEvaluationPeriod = async (client, evaluationPeriodId = null) => {
   if (evaluationPeriodId) {
+    // id::text 비교 — 형식이 잘못된 id 로 uuid 캐스트 오류(500) 대신 '기간 없음'(400)이 나게 한다.
     const { rows } = await client.query(
-      'SELECT * FROM evaluation_periods WHERE id = $1 LIMIT 1',
+      'SELECT * FROM evaluation_periods WHERE id::text = $1 LIMIT 1',
       [evaluationPeriodId]
     );
     if (!rows[0]) {
@@ -826,11 +827,14 @@ const getAssignmentEvaluationPeriod = async (client, evaluationPeriodId = null) 
     return rows[0];
   }
 
+  // 폴백(방어선): is_default 기간 우선, 없으면 active 최신.
+  // 매칭/대상자 업로드는 periodId 필수라 이 폴백은 기타 경로의 안전망일 뿐이다.
+  // (2025·2026 이 동시에 active 였던 환경에서 status='active' 기준 폴백이 모호했던 문제 해소.)
   const { rows } = await client.query(`
     SELECT *
     FROM evaluation_periods
-    WHERE status = 'active'
-    ORDER BY is_default DESC, starts_on DESC NULLS LAST, created_at DESC
+    WHERE is_default OR status = 'active'
+    ORDER BY is_default DESC, (status = 'active') DESC, starts_on DESC NULLS LAST, created_at DESC
     LIMIT 1
   `);
   return rows[0] ?? null;
@@ -3505,14 +3509,27 @@ app.get('/api/matching-imports', requireHr, async (req, res) => {
     return res.json([]);
   }
 
+  // 선택적 기간 필터(S6): ?periodId= 지정 시 그 평가기간에 커밋된 배치만. 미지정이면 전체 최근 20건.
+  const periodId =
+    typeof req.query.periodId === 'string' && req.query.periodId.trim()
+      ? req.query.periodId.trim()
+      : null;
+
   try {
+    const params = [];
+    let whereClause = '';
+    if (periodId) {
+      params.push(periodId);
+      whereClause = ` WHERE evaluation_period_id::text = $${params.length}`;
+    }
     const { rows } = await pool.query(
       `
         SELECT *
-        FROM matching_import_batches
+        FROM matching_import_batches${whereClause}
         ORDER BY created_at DESC
         LIMIT 20
-      `
+      `,
+      params
     );
     res.json(rows);
   } catch (err) {
@@ -3675,6 +3692,13 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
   if (rawRows.length === 0) {
     return res.status(400).json({ error: 'rows are required' });
   }
+  // 대상자 업로드 기간 필수화(S4): 기간 없이 올리면 배치만 쌓이고 그 기간 화면(평가행 보장·
+  // baseline 이력)에 반영되지 않는 조용한 실패가 되므로 사전에 차단한다.
+  if (!evaluationPeriodId) {
+    return res.status(400).json({
+      error: '평가기간(evaluation_period_id)이 지정되지 않았습니다. 업로드할 평가기간을 선택한 뒤 다시 시도해 주세요.',
+    });
+  }
 
   const client = await pool.connect();
 
@@ -3688,6 +3712,18 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
         [importedBy]
       );
       if (!actorRows[0]) importedBy = null;
+    }
+
+    // 평가기간 존재 검증(S4): 배치 INSERT(FK) 전에 확인해 미존재/형식 오류 기간을 400 으로 차단.
+    const { rows: uploadPeriodRows } = await client.query(
+      'SELECT id, evaluation_year FROM evaluation_periods WHERE id::text = $1 LIMIT 1',
+      [evaluationPeriodId]
+    );
+    if (!uploadPeriodRows[0]) {
+      await client.query('ROLLBACK').catch(() => {});
+      return res.status(400).json({
+        error: '존재하지 않는 평가기간입니다. 평가기간을 다시 선택한 뒤 업로드해 주세요.',
+      });
     }
 
     const normalizedRows = rawRows
@@ -4177,6 +4213,56 @@ const buildMatchingStagesForEmployee = (rows) => {
   return stages;
 };
 
+// reconcile 의 연도 파티션 + carry 시드(reconcileEmployeeMatchingStages 앞부분)를
+// **읽기 전용으로 재현**하는 헬퍼 — preview 판정과 업로드 결과 카운트 집계에 쓴다.
+// reconcile 본체(판정·쓰기)는 이 헬퍼를 사용하지 않는다(발령 E2E 하드닝 코드 불변).
+//  - effectiveStages     : 이 기간에 실제 적용될 단계(당해 연도 발령, 없으면 carry 시드 1건)
+//  - currentYearCount    : 발령일 연도 === 기간 연도(또는 날짜 없음)인 단계 수
+//  - carryCount          : 발령일 연도 < 기간 연도(이월 담당 계산용) 단계 수
+//  - droppedFutureCount  : 발령일 연도 > 기간 연도라 이 기간에서 제외되는 단계 수
+const partitionMatchingStagesForPeriod = (stages, periodYear) => {
+  const stageYearOf = (s) => (s?.startDate ? Number(String(s.startDate).slice(0, 4)) : NaN);
+  if (!Number.isFinite(periodYear)) {
+    return {
+      effectiveStages: stages,
+      currentYearCount: stages.length,
+      carryCount: 0,
+      droppedFutureCount: 0,
+    };
+  }
+  const carryStages = stages.filter((s) => {
+    const y = stageYearOf(s);
+    return !Number.isFinite(y) || y <= periodYear;
+  });
+  let effectiveStages = stages.filter((s) => {
+    const y = stageYearOf(s);
+    return !Number.isFinite(y) || y === periodYear;
+  });
+  const currentYearCount = effectiveStages.length;
+  let carryCount = 0;
+  let droppedFutureCount = 0;
+  for (const s of stages) {
+    const y = stageYearOf(s);
+    if (Number.isFinite(y) && y < periodYear) carryCount += 1;
+    else if (Number.isFinite(y) && y > periodYear) droppedFutureCount += 1;
+  }
+  // 당해 발령이 없으면 이월 담당으로 기간 시작 시점 단계 1건 시드(reconcile 과 동일 규칙).
+  if (effectiveStages.length === 0) {
+    const carry = carryStages.filter((s) => s.evaluatorId).slice(-1)[0];
+    if (carry?.evaluatorId) {
+      effectiveStages = [
+        {
+          startDate: `${periodYear}-01-01`,
+          evaluatorId: carry.evaluatorId,
+          evaluatorName: carry.evaluatorName ?? null,
+          deptId: carry.deptId ?? null,
+        },
+      ];
+    }
+  }
+  return { effectiveStages, currentYearCount, carryCount, droppedFutureCount };
+};
+
 // 같은 평가(evaluation) 위에서 평가자만 정정(supersede). 점수/피드백 ownership 이전.
 // employees.evaluator_id 갱신과 prev 보정은 호출부(reconcile)에서 일괄 처리한다.
 const supersedeAssignmentEvaluator = async (
@@ -4460,6 +4546,13 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
   if (rawRows.length === 0) {
     return res.status(400).json({ error: 'rows are required' });
   }
+  // 매칭 업로드 기간 필수화(S3): 기간 없이 올리면 active 폴백으로 보고 있는 기간과 다른
+  // 기간에 적재될 수 있어(2025·2026 동시 active 이력) 명시 기간 없이는 받지 않는다.
+  if (!evaluationPeriodId) {
+    return res.status(400).json({
+      error: '평가기간(evaluation_period_id)이 지정되지 않았습니다. 업로드할 평가기간을 선택한 뒤 다시 시도해 주세요.',
+    });
+  }
 
   const client = await pool.connect();
 
@@ -4475,9 +4568,26 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
       if (!actorRows[0]) importedBy = null;
     }
 
-    const normalizedRows = rawRows
-      .map((row, index) => normalizeMatchingImportRow(row, index))
-      // 영문 사번(잘못된 데이터)은 직원으로 만들지 않는다. 평가자 사번이 영문이면 미배정 처리.
+    // 평가기간 존재 검증(S3): 배치 INSERT(FK)·reconcile 기간 스코프의 기준. 쓰기 전에 400 차단.
+    let periodForReconcile;
+    try {
+      periodForReconcile = await getAssignmentEvaluationPeriod(client, evaluationPeriodId);
+    } catch (periodErr) {
+      if (periodErr?.statusCode === 400) {
+        await client.query('ROLLBACK').catch(() => {});
+        return res.status(400).json({
+          error: '존재하지 않는 평가기간입니다. 평가기간을 다시 선택한 뒤 업로드해 주세요.',
+        });
+      }
+      throw periodErr;
+    }
+
+    const normalizedAllRows = rawRows.map((row, index) => normalizeMatchingImportRow(row, index));
+    // 영문 사번(잘못된 데이터)은 직원으로 만들지 않는다. 평가자 사번이 영문이면 미배정 처리.
+    const droppedLetterIdCount = normalizedAllRows.filter((row) =>
+      startsWithLetter(row.employee_id)
+    ).length;
+    const normalizedRows = normalizedAllRows
       .filter((row) => !startsWithLetter(row.employee_id))
       .map((row) =>
         startsWithLetter(row.evaluator_id) ? { ...row, evaluator_id: null, evaluator_name: null } : row
@@ -4735,7 +4845,7 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
     }
 
     // ── 파일=정답 기준 reconcile: 직원별 평가자 단계 동기화 ──────────
-    const periodForReconcile = await getAssignmentEvaluationPeriod(client, evaluationPeriodId);
+    // (periodForReconcile 은 트랜잭션 초입에서 이미 확정·검증됨 — S3)
     const stagesByEmployee = new Map();
     const stagesBuiltByEmployee = new Map(); // 조직 백필용 — 직원별 단계(부서ID 포함)
     for (const row of normalizedRows) {
@@ -4743,15 +4853,41 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
       if (!stagesByEmployee.has(row.employee_id)) stagesByEmployee.set(row.employee_id, []);
       stagesByEmployee.get(row.employee_id).push(row);
     }
+    // 업로드 결과 리포트용 스킵/파티션 카운터(S3) — reconcile 판정 로직에는 관여하지 않는다.
+    // employees_missing 은 preview 와 동일 의미로 통일: '업로드 전 employees 에 없던 파일 사번 수'
+    // (아래 루프는 upsert 이후 조회라 항상 존재 → 루프 내 카운트는 사문이었음. 프리로드 기준으로 교정.)
+    const employeesMissingCount = [...stagesByEmployee.keys()].filter(
+      (id) => !existingEmployees.has(id)
+    ).length;
+    let employeesNoStageCount = 0;
+    let stagesCurrentYearCount = 0;
+    let stagesCarryCount = 0;
+    let stagesOtherYearDroppedCount = 0;
     for (const [empId, empRows] of stagesByEmployee.entries()) {
       const { rows: empRowResult } = await client.query(
         'SELECT * FROM employees WHERE employee_id=$1 LIMIT 1',
         [empId]
       );
       const employeeRow = empRowResult[0];
-      if (!employeeRow) continue;
+      if (!employeeRow) {
+        // upsert 이후라 실사용에선 도달하지 않음 — 카운트는 위 프리로드 기준으로 집계 완료.
+        continue;
+      }
       const stages = buildMatchingStagesForEmployee(empRows);
-      if (stages.length === 0) continue;
+      if (stages.length === 0) {
+        employeesNoStageCount += 1;
+        continue;
+      }
+      {
+        // 연도 파티션 카운트(읽기 전용 재현) — reconcile 내부 파티션과 동일 규칙.
+        const partition = partitionMatchingStagesForPeriod(
+          stages,
+          periodForReconcile?.evaluation_year ?? getCurrentEvaluationYear()
+        );
+        stagesCurrentYearCount += partition.currentYearCount;
+        stagesCarryCount += partition.carryCount;
+        stagesOtherYearDroppedCount += partition.droppedFutureCount;
+      }
       stagesBuiltByEmployee.set(empId, stages);
       const r = await reconcileEmployeeMatchingStages(client, {
         employee: employeeRow,
@@ -4883,6 +5019,14 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
 
     const warningCount = normalizedRows.filter((row) => row.validation_status === 'warning').length;
     const errorCount = normalizedRows.filter((row) => row.validation_status === 'error').length;
+    const validCount = normalizedRows.filter((row) => row.validation_status === 'valid').length;
+    const noEvaluatorRowCount = normalizedRows.filter((row) => !row.evaluator_id).length;
+    // 성명 불일치(경고용): 매칭 업로드는 employees.name 을 갱신하지 않으므로 파일 성명이
+    // DB 성명과 다르면 알려만 준다(existingEmployees = upsert 이전 프리로드 기준).
+    const nameMismatchCount = primaryRows.filter((row) => {
+      const existingEmp = existingEmployees.get(row.employee_id);
+      return Boolean(existingEmp?.name && row.employee_name && existingEmp.name !== row.employee_name);
+    }).length;
     const { rows: updatedBatchRows } = await client.query(
       `
         UPDATE matching_import_batches
@@ -4928,6 +5072,33 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
       ignored_date_stages: ignoredDateStages,
       unchanged_stages: unchangedStages,
       assignment_history_count: createdEvaluations + correctedAssignments,
+      // S3: 탈락/판정 사유별 카운트(전부 보고) — preview 응답의 counts 와 동일 키.
+      counts: {
+        total_rows: rawRows.length,
+        valid: validCount,
+        warning: warningCount,
+        error: errorCount,
+        dropped_letter_id: droppedLetterIdCount,
+        no_evaluator_rows: noEvaluatorRowCount,
+        employees_missing: employeesMissingCount,
+        employees_no_stage: employeesNoStageCount,
+        stages_current_year: stagesCurrentYearCount,
+        stages_carry: stagesCarryCount,
+        stages_other_year_dropped: stagesOtherYearDroppedCount,
+        unchanged: unchangedStages,
+        created: createdEvaluations,
+        corrected: correctedAssignments,
+        ignored_date: ignoredDateStages,
+        removed: removedStages,
+        name_mismatch: nameMismatchCount,
+      },
+      evaluation_period: periodForReconcile
+        ? {
+            id: periodForReconcile.id,
+            name: periodForReconcile.name,
+            evaluation_year: periodForReconcile.evaluation_year,
+          }
+        : null,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -4938,23 +5109,84 @@ app.post('/api/matching-imports', requireHr, async (req, res) => {
   }
 });
 
-// 매칭 업로드 변경 미리보기(dry-run): reconcile 규칙으로 분류만 하고 DB 는 건드리지 않는다.
+// 매칭 업로드 변경 미리보기(dry-run): **apply(reconcile)와 동일 판정**으로 분류만 하고
+// DB 는 절대 건드리지 않는다(S2). apply 와의 대칭:
+//   행 정규화(normalizeMatchingImportRow) → 영문 사번 행 폐기·영문 평가자 사번 null
+//   → error 행 제외 후 직원별 단계 구성(buildMatchingStagesForEmployee)
+//   → 기간 연도 파티션 + carry 시드(partitionMatchingStagesForPeriod — reconcile 과 동일 규칙)
+//   → 기존 이력 비교는 **기간 스코프**(apply 의 reconcile 조회와 동일 조건)
+//   → pass1(unchanged)/pass2(corrected)/pass3(ignored_date)/pass4(created)/pass5(removed) 재현.
+// evaluation_period_id 는 필수 — 없거나 존재하지 않는 기간이면 400.
 app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
   const emptySummary = { new: 0, changed: 0, unchanged: 0, ignored: 0, error: 0, total: 0 };
   if (!isDbAvailable) return res.json({ items: [], summary: emptySummary });
   try {
     const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const evaluationPeriodId = normalizeOptionalText(
+      req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId,
+    );
+    if (!evaluationPeriodId) {
+      return res.status(400).json({
+        error: '평가기간(evaluation_period_id)이 지정되지 않았습니다. 미리보기할 평가기간을 선택한 뒤 다시 시도해 주세요.',
+      });
+    }
+    let period;
+    try {
+      period = await getAssignmentEvaluationPeriod(pool, evaluationPeriodId);
+    } catch (periodErr) {
+      if (periodErr?.statusCode === 400) {
+        return res.status(400).json({
+          error: '존재하지 않는 평가기간입니다. 평가기간을 다시 선택한 뒤 시도해 주세요.',
+        });
+      }
+      throw periodErr;
+    }
+    const periodId = period.id;
+    const periodYear = period.evaluation_year ?? getCurrentEvaluationYear();
+
+    // apply 와 동일한 정규화·필터.
+    const normalizedAllRows = rawRows.map((row, index) => normalizeMatchingImportRow(row, index));
+    const droppedLetterIdCount = normalizedAllRows.filter((row) =>
+      startsWithLetter(row.employee_id)
+    ).length;
+    const normalizedRows = normalizedAllRows
+      .filter((row) => !startsWithLetter(row.employee_id))
+      .map((row) =>
+        startsWithLetter(row.evaluator_id) ? { ...row, evaluator_id: null, evaluator_name: null } : row
+      );
+
+    // 탈락/판정 사유별 카운트 — 조용히 버리지 않고 전부 보고(S2). apply 응답의 counts 와 동일 키.
+    const counts = {
+      total_rows: rawRows.length,
+      valid: normalizedRows.filter((row) => row.validation_status === 'valid').length,
+      warning: normalizedRows.filter((row) => row.validation_status === 'warning').length,
+      error: normalizedRows.filter((row) => row.validation_status === 'error').length,
+      dropped_letter_id: droppedLetterIdCount,
+      no_evaluator_rows: normalizedRows.filter((row) => !row.evaluator_id).length,
+      employees_missing: 0,
+      employees_no_stage: 0,
+      stages_current_year: 0,
+      stages_carry: 0,
+      stages_other_year_dropped: 0,
+      unchanged: 0,
+      created: 0,
+      corrected: 0,
+      ignored_date: 0,
+      removed: 0,
+      name_mismatch: 0,
+    };
+
+    // apply 의 stagesByEmployee 구성과 동일: 사번 없는 행·error 행 제외.
     const byEmp = new Map();
-    for (const r of rawRows) {
-      const id = (r.employee_id ?? '').toString().trim();
-      if (!id) continue;
-      if (!byEmp.has(id)) byEmp.set(id, []);
-      byEmp.get(id).push(r);
+    for (const row of normalizedRows) {
+      if (!row.employee_id || row.validation_status === 'error') continue;
+      if (!byEmp.has(row.employee_id)) byEmp.set(row.employee_id, []);
+      byEmp.get(row.employee_id).push(row);
     }
     const empIds = [...byEmp.keys()];
     const evIds = new Set();
     for (const rows of byEmp.values())
-      for (const r of rows) if (r.evaluator_id) evIds.add(String(r.evaluator_id).trim());
+      for (const r of rows) if (r.evaluator_id) evIds.add(r.evaluator_id);
     const allIds = [...new Set([...empIds, ...evIds])];
     const nameMap = new Map();
     if (allIds.length) {
@@ -4965,24 +5197,60 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
       for (const e of rows) nameMap.set(e.employee_id, e.name);
     }
     const evName = (id) => (id ? nameMap.get(id) ?? id : '평가자 없음');
+
+    // 기존 이력 조회 — apply 의 reconcile 과 동일하게 **이 평가기간 스코프**로 비교한다.
     const histByEmp = new Map();
     if (empIds.length) {
       const { rows: hist } = await pool.query(
         `SELECT employee_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
            FROM evaluator_assignment_history
           WHERE employee_id = ANY($1::text[]) AND status='applied' AND change_type<>'cancel'
+            AND COALESCE(evaluation_period_id::text,'') = COALESCE($2::text,'')
           ORDER BY changed_at ASC, id ASC`,
-        [empIds]
+        [empIds, periodId ?? null]
       );
       for (const h of hist) {
         if (!histByEmp.has(h.employee_id)) histByEmp.set(h.employee_id, []);
         histByEmp.get(h.employee_id).push({ evaluator: h.new_evaluator_id, date: h.date_str });
       }
     }
+
+    // 성명 불일치 판정은 apply 와 동일하게 primary 행(최종 발령 행) 기준 — 행마다 성명
+    // 표기가 다른 파일에서 preview/apply 카운트가 갈라지지 않게 한다.
+    // (selectPrimaryMatchingRows 는 Map<사번, 행> 을 반환한다.)
+    const primaryRowByEmp = selectPrimaryMatchingRows(normalizedRows);
     const items = [];
     for (const [empId, rowsForEmp] of byEmp.entries()) {
-      const name = rowsForEmp.find((r) => r.employee_name)?.employee_name ?? nameMap.get(empId) ?? empId;
-      const stages = buildMatchingStagesForEmployee(rowsForEmp);
+      const dbName = nameMap.get(empId) ?? null;
+      const fileName = rowsForEmp.find((r) => r.employee_name)?.employee_name ?? null;
+      const name = fileName ?? dbName ?? empId;
+      // 성명 불일치(경고용): 매칭 업로드는 성명을 갱신하지 않으므로 다르면 알려만 준다.
+      const primaryName = primaryRowByEmp.get(empId)?.employee_name ?? fileName;
+      if (dbName && primaryName && dbName !== primaryName) counts.name_mismatch += 1;
+      // employees 에 없는 사번(정보용): apply 시 employees upsert 로 신규 생성된다.
+      if (!dbName) counts.employees_missing += 1;
+
+      const builtStages = buildMatchingStagesForEmployee(rowsForEmp);
+      // 유효 단계 0(평가자 있는 행이 전무) → apply 는 reconcile 자체를 skip → 변동 없음.
+      if (builtStages.length === 0) {
+        counts.employees_no_stage += 1;
+        items.push({
+          employeeId: empId,
+          name,
+          status: 'unchanged',
+          changes: [],
+          skip_reason: 'employees_no_stage',
+        });
+        continue;
+      }
+
+      // 기간 연도 파티션 + carry 시드(apply reconcile 과 동일 규칙, 읽기 전용).
+      const partition = partitionMatchingStagesForPeriod(builtStages, periodYear);
+      counts.stages_current_year += partition.currentYearCount;
+      counts.stages_carry += partition.carryCount;
+      counts.stages_other_year_dropped += partition.droppedFutureCount;
+      const stages = partition.effectiveStages;
+
       const existing = histByEmp.get(empId) ?? [];
       const existingMatched = new Array(existing.length).fill(false);
       const stageMatched = new Array(stages.length).fill(false);
@@ -4990,7 +5258,9 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
       let corrected = 0,
         created = 0,
         removed = 0,
-        ignored = 0;
+        ignored = 0,
+        unchanged = 0;
+      // pass 1: 정확 일치(발령일+평가자) → 동일
       stages.forEach((fs, si) => {
         const ei = existing.findIndex(
           (e, idx) => !existingMatched[idx] && e.date === fs.startDate && (e.evaluator ?? null) === (fs.evaluatorId ?? null)
@@ -4998,8 +5268,10 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
         if (ei >= 0) {
           existingMatched[ei] = true;
           stageMatched[si] = true;
+          unchanged += 1;
         }
       });
+      // pass 2: 같은 발령일·다른 평가자 → 정정(supersede)
       for (let si = 0; si < stages.length; si += 1) {
         if (stageMatched[si]) continue;
         const fs = stages[si];
@@ -5013,6 +5285,7 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
           changes.push({ field: `정정 · ${fs.startDate}`, before: evName(existing[ei].evaluator), after: evName(fs.evaluatorId) });
         }
       }
+      // pass 3: 같은 평가자·다른 발령일 → 무시(기존 발령일 유지)
       for (let si = 0; si < stages.length; si += 1) {
         if (stageMatched[si]) continue;
         const fs = stages[si];
@@ -5024,6 +5297,7 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
           changes.push({ field: `발령일 무시 · ${evName(fs.evaluatorId)}`, before: existing[ei].date, after: `${fs.startDate} (평가자 동일)` });
         }
       }
+      // pass 4: 파일에만 있는 단계 → 신규 평가+이력
       for (let si = 0; si < stages.length; si += 1) {
         if (stageMatched[si]) continue;
         const fs = stages[si];
@@ -5031,17 +5305,22 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
         created += 1;
         changes.push({ field: `신규 발령 · ${fs.startDate}`, before: '—', after: evName(fs.evaluatorId) });
       }
+      // pass 5: 파일에 없는 기존 단계 → 삭제(이력·평가 취소)
+      // (연도 파티션 후 이 기간 단계가 0이어도 apply 는 reconcile 을 수행하므로,
+      //  기간 스코프의 기존 이력이 있으면 실제로 전부 취소된다 — 그대로 재현.)
       for (let ei = 0; ei < existing.length; ei += 1) {
         if (existingMatched[ei]) continue;
         removed += 1;
         changes.push({ field: `삭제 · ${existing[ei].date}`, before: evName(existing[ei].evaluator), after: '제거' });
       }
-      // 파일에 평가자 단계가 하나도 없으면(예: 모든 행이 평가자 미지정) apply 는 SKIP 한다.
-      // 미리보기도 동일하게 "변동 없음"으로 표시한다.
+      counts.unchanged += unchanged;
+      counts.created += created;
+      counts.corrected += corrected;
+      counts.ignored_date += ignored;
+      counts.removed += removed;
+
       let status;
-      if (stages.length === 0) {
-        status = 'unchanged';
-      } else if (existing.length === 0) {
+      if (created && existing.length === 0) {
         status = 'new';
       } else if (corrected || created || removed) {
         status = 'changed';
@@ -5050,12 +5329,7 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
       } else {
         status = 'unchanged';
       }
-      // stages 가 없으면 pass 5 에서 잘못 쌓인 "삭제" 안내도 비운다(실제 apply 는 skip 이므로).
-      if (stages.length === 0) {
-        items.push({ employeeId: empId, name, status, changes: [] });
-      } else {
-        items.push({ employeeId: empId, name, status, changes });
-      }
+      items.push({ employeeId: empId, name, status, changes, skip_reason: null });
     }
     const summary = {
       new: items.filter((i) => i.status === 'new').length,
@@ -5065,7 +5339,16 @@ app.post('/api/matching-imports/preview', requireHr, async (req, res) => {
       error: items.filter((i) => i.status === 'error').length,
       total: items.length,
     };
-    res.json({ items, summary });
+    res.json({
+      items,
+      summary,
+      counts,
+      evaluation_period: {
+        id: period.id,
+        name: period.name,
+        evaluation_year: period.evaluation_year,
+      },
+    });
   } catch (err) {
     console.error('Error previewing matching import:', err.message);
     res.status(500).json({ error: 'Database error' });
@@ -5393,7 +5676,19 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
     return res.json([]);
   }
 
+  // 선택적 기간 필터(S1): ?periodId= 지정 시 그 평가기간의 이력만. 미지정이면 기존대로 전체.
+  const periodId =
+    typeof req.query.periodId === 'string' && req.query.periodId.trim()
+      ? req.query.periodId.trim()
+      : null;
+
   try {
+    const params = [req.params.employeeId];
+    let periodClause = '';
+    if (periodId) {
+      params.push(periodId);
+      periodClause = ` AND h.evaluation_period_id::text = $${params.length}`;
+    }
     const { rows } = await pool.query(
       `
         SELECT
@@ -5403,17 +5698,21 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
           actor.name AS changed_by_name,
           cancel_actor.name AS cancelled_by_name,
           p.name AS evaluation_period_name,
-          p.evaluation_year
+          p.evaluation_year,
+          ev.evaluatee_dept_code AS stage_dept_code,
+          ev.evaluatee_department AS stage_department
         FROM evaluator_assignment_history h
         LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
         LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
         LEFT JOIN employees actor ON actor.employee_id = h.changed_by
         LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
         LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
-        WHERE h.employee_id = $1
+        -- 단계별 조직 스냅샷: 이 단계가 만든/연결된 평가행의 부서(발령 전후 부서가 행마다 다르게)
+        LEFT JOIN evaluations ev ON ev.id = h.evaluation_id
+        WHERE h.employee_id = $1${periodClause}
         ORDER BY h.changed_at DESC, h.id DESC
       `,
-      [req.params.employeeId]
+      params
     );
     res.json(rows);
   } catch (err) {
@@ -5433,13 +5732,21 @@ app.get('/api/evaluator-assignment-history/employee/:employeeId', async (req, re
 app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   try {
-    // 리뷰 확정 수정: legacy 경로(/api/evaluations/employee/:id, 기간 미지정=활성 기간)와
-    // 동일한 기간 스코프를 적용 — 없으면 전 기간(2025+2026)이 혼입되어 행 수·'현재/이전'
-    // 판정이 기존 산출물과 달라진다. periodId 쿼리로 특정 기간 지정도 가능.
-    const periodFilter = await resolveEvaluationPeriodFilter(req.query, 1);
-    const periodClause = periodFilter.clause
-      .replaceAll('evaluation_period_id', 'ev.evaluation_period_id')
-      .replaceAll('evaluation_year', 'ev.evaluation_year');
+    // '전체 평가데이터' export 일관성(S7): 명시적 periodId 쿼리가 없으면 evaluations 도
+    // 다른 5개 배열(employees·tasks·entries·feedback·assignment_histories, 항상 전 기간)과
+    // 동일하게 전 기간을 반환한다 — 기존에는 evaluations 만 활성 기간으로 잘려 배열 간
+    // 기간 범위가 어긋났다. periodId 가 명시되면 기존대로 그 기간으로 필터.
+    const hasExplicitPeriodId =
+      typeof req.query.periodId === 'string' && req.query.periodId.trim() !== '';
+    let periodClause = 'TRUE';
+    let periodValues = [];
+    if (hasExplicitPeriodId) {
+      const periodFilter = await resolveEvaluationPeriodFilter(req.query, 1);
+      periodClause = periodFilter.clause
+        .replaceAll('evaluation_period_id', 'ev.evaluation_period_id')
+        .replaceAll('evaluation_year', 'ev.evaluation_year');
+      periodValues = periodFilter.values;
+    }
     const [employeesQ, evaluationsQ, tasksQ, entriesQ, feedbacksQ, historiesQ] = await Promise.all([
       pool.query('SELECT * FROM employees'),
       pool.query(
@@ -5471,7 +5778,7 @@ app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
             latest_ah.changed_at DESC NULLS LAST,
             ev.created_at DESC
         `,
-        periodFilter.values
+        periodValues
       ),
       pool.query('SELECT * FROM tasks'),
       // 리뷰 확정 수정: 취소(cancelled)된 채점·피드백 제외 — 단건 라우트와 동일 필터.
@@ -5525,7 +5832,18 @@ app.post('/api/evaluator-assignment-history/bulk', async (req, res) => {
   if (ids.length > 500) {
     return res.status(400).json({ error: '한 번에 조회 가능한 인원(500)을 초과했습니다.' });
   }
+  // 선택적 기간 필터(S1): 바디에 periodId(또는 evaluation_period_id) 지정 시 그 기간 이력만.
+  const bulkPeriodIdRaw =
+    req.body?.periodId ?? req.body?.evaluation_period_id ?? req.body?.evaluationPeriodId;
+  const bulkPeriodId =
+    typeof bulkPeriodIdRaw === 'string' && bulkPeriodIdRaw.trim() ? bulkPeriodIdRaw.trim() : null;
   try {
+    const params = [ids];
+    let periodClause = '';
+    if (bulkPeriodId) {
+      params.push(bulkPeriodId);
+      periodClause = ` AND h.evaluation_period_id::text = $${params.length}`;
+    }
     const { rows } = await pool.query(
       `
         SELECT
@@ -5535,17 +5853,21 @@ app.post('/api/evaluator-assignment-history/bulk', async (req, res) => {
           actor.name AS changed_by_name,
           cancel_actor.name AS cancelled_by_name,
           p.name AS evaluation_period_name,
-          p.evaluation_year
+          p.evaluation_year,
+          ev.evaluatee_dept_code AS stage_dept_code,
+          ev.evaluatee_department AS stage_department
         FROM evaluator_assignment_history h
         LEFT JOIN employees prev ON prev.employee_id = h.previous_evaluator_id
         LEFT JOIN employees next ON next.employee_id = h.new_evaluator_id
         LEFT JOIN employees actor ON actor.employee_id = h.changed_by
         LEFT JOIN employees cancel_actor ON cancel_actor.employee_id = h.cancelled_by
         LEFT JOIN evaluation_periods p ON p.id = h.evaluation_period_id
-        WHERE h.employee_id = ANY($1::text[])
+        -- 단계별 조직 스냅샷: 이 단계가 만든/연결된 평가행의 부서(발령 전후 부서가 행마다 다르게)
+        LEFT JOIN evaluations ev ON ev.id = h.evaluation_id
+        WHERE h.employee_id = ANY($1::text[])${periodClause}
         ORDER BY h.changed_at DESC, h.id DESC
       `,
-      [ids]
+      params
     );
     const out = {};
     for (const id of ids) out[id] = [];
@@ -6304,12 +6626,16 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
     await client.query('DELETE FROM employee_profile_import_batches WHERE evaluation_period_id = $1', [periodId]);
     // 5) 그 기간의 조직정보
     await client.query('DELETE FROM org_structure WHERE evaluation_period_id = $1', [periodId]);
+    // 6) 그 기간의 조직 KPI — 자식 KPI(parent_kpi_id)·과업 배분(task_kpi_allocations)은 FK CASCADE.
+    //    (2026-07-14 사용자 지적: 기간 초기화에 KPI 가 빠져 잔존하던 누락 수정)
+    const kpiDel = await client.query('DELETE FROM org_kpis WHERE evaluation_period_id = $1', [periodId]);
     await client.query('COMMIT');
     res.json({
       ok: true,
       period_code: periodCode,
       deleted_evaluations: evalDel.rowCount,
-      message: `'${periodCode}' 평가기간의 평가·과업·매칭·조직정보를 삭제했습니다. 직원 명부는 유지됩니다.`,
+      deleted_org_kpis: kpiDel.rowCount,
+      message: `'${periodCode}' 평가기간의 평가·과업·매칭·조직정보·조직 KPI를 삭제했습니다. 직원 명부는 유지됩니다.`,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

@@ -338,7 +338,12 @@ function UserRowInner({
       </TableCell>
       <TableCell style={{ color: editing ? 'var(--fg)' : 'var(--fg-muted)' }}>{evaluatorName}</TableCell>
       <TableCell style={{ whiteSpace: 'nowrap' }}>
-        <Pill tone={statusTone(currentStatus)}>{statusLabel(currentStatus)}</Pill>
+        {/* F2-6: 선택 기간에 평가행이 없는 evaluatee 는 '기간 대상 아님'으로 구분 표시(표시만, 로직 불변). */}
+        {!evaluation && employee.available_roles.includes('evaluatee') ? (
+          <Pill tone="neutral">기간 대상 아님</Pill>
+        ) : (
+          <Pill tone={statusTone(currentStatus)}>{statusLabel(currentStatus)}</Pill>
+        )}
       </TableCell>
       <TableCell
         className="text-right sticky-col"

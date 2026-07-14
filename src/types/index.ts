@@ -89,6 +89,9 @@ export interface EvaluatorAssignmentHistory {
   cancelled_by_name?: string | null;
   evaluation_period_name?: string | null;
   evaluation_year?: number | null;
+  /** 이 단계에 연결된 평가행의 조직 스냅샷(발령 전후 부서가 단계마다 다름) — 서버 JOIN 파생. */
+  stage_dept_code?: string | null;
+  stage_department?: string | null;
 }
 
 // 평가자 변경요청·승인

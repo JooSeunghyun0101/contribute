@@ -1,9 +1,52 @@
 import { apiFetch } from '@/lib/api';
 import { Employee, EvaluatorAssignmentHistory } from '@/types';
 import { apiErrorHandler } from '@/utils/errorHandler';
-import type { DiffResult } from '@/lib/uploadDiff';
+import type { DiffItem, DiffResult } from '@/lib/uploadDiff';
 
-export type MatchingPreviewResult = DiffResult;
+// 매칭 업로드 preview/apply 공통 탈락·판정 카운트(서버 17키 계약).
+// stages_current_year=발령일 연도==기간 연도(또는 무날짜) 단계 수, stages_carry=이전 연도 단계 수,
+// stages_other_year_dropped=미래 연도라 제외된 단계 수. unchanged/created/corrected/ignored_date/removed
+// = reconcile 5-pass 판정 단계 수.
+export type MatchingImportCounts = {
+  total_rows: number;
+  valid: number;
+  warning: number;
+  error: number;
+  dropped_letter_id: number;
+  no_evaluator_rows: number;
+  employees_missing: number;
+  employees_no_stage: number;
+  stages_current_year: number;
+  stages_carry: number;
+  stages_other_year_dropped: number;
+  unchanged: number;
+  created: number;
+  corrected: number;
+  ignored_date: number;
+  removed: number;
+  name_mismatch: number;
+};
+
+// preview/apply 응답이 함께 알려주는 대상 평가기간(요청 evaluation_period_id 의 확정 정보).
+export type MatchingImportPeriodInfo = {
+  id: string;
+  name: string;
+  evaluation_year: number;
+};
+
+export type MatchingPreviewItem = DiffItem & {
+  // 서버 preview 전용: 이 직원이 통째로 스킵된 사유(단계 0건). null=스킵 아님.
+  skip_reason?: 'employees_no_stage' | null;
+};
+
+// 서버 preview 응답: items/summary 는 DiffResult 호환 + counts·evaluation_period 부가.
+// DB 미가용 폴백 시엔 { items: [], summary } 만 오므로 counts/evaluation_period 는 optional.
+export type MatchingPreviewResult = {
+  items: MatchingPreviewItem[];
+  summary: DiffResult['summary'];
+  counts?: MatchingImportCounts;
+  evaluation_period?: MatchingImportPeriodInfo;
+};
 
 export type OrgStructureImport = {
   evaluation_period_id: string | null;
@@ -125,6 +168,13 @@ export type MatchingImportResult = {
   baseline_assignment_history_count?: number;
   historical_tours_created?: number;
   stale_drafts_cancelled?: number;
+  corrected_assignments?: number;
+  removed_stages?: number;
+  ignored_date_stages?: number;
+  unchanged_stages?: number;
+  // 신규(기간 계약): preview 와 동일한 17키 탈락·판정 카운트 + 확정 평가기간 정보.
+  counts?: MatchingImportCounts;
+  evaluation_period?: MatchingImportPeriodInfo;
 };
 
 export type EmployeeProfileImportRowInput = {
@@ -328,6 +378,8 @@ export const employeeService = {
     }
   },
 
+  // 기간 계약: 서버가 evaluation_period_id 를 필수로 요구한다(누락/미존재 기간 → 400 한국어 error).
+  // 타입은 기존 호출부 호환을 위해 optional 로 두되, 미전달 시 서버에서 거부된다.
   async importEmployeeProfiles(payload: {
     source_file_name: string;
     changed_by?: string | null;
@@ -345,7 +397,9 @@ export const employeeService = {
     }
   },
 
-  // 개인별 매칭결과 엑셀 업로드 반영
+  // 개인별 매칭결과 엑셀 업로드 반영.
+  // 기간 계약: 서버가 evaluation_period_id 를 필수로 요구한다(누락/미존재 기간 → 400 한국어 error).
+  // 응답에는 기존 필드 + counts(17키)·evaluation_period 가 추가된다(MatchingImportResult 참조).
   async importMatchingRows(payload: {
     source_file_name: string;
     source_sheet_name?: string | null;
@@ -364,9 +418,12 @@ export const employeeService = {
     }
   },
 
-  // 매칭 업로드 변경 미리보기(dry-run): 적용 전 신규/변경/정정/무시/삭제 분류만 받아온다.
+  // 매칭 업로드 변경 미리보기(dry-run): 적용 전 신규/변경/무시/동일 분류 + 탈락 카운트를 받아온다.
+  // 기간 계약: evaluation_period_id 필수 — 서버가 apply 와 동일한 기간 스코프·연도 필터로 판정한다.
+  // 누락/미존재 기간이면 서버가 400(한국어 error)을 반환한다.
   async previewMatchingRows(payload: {
     rows: MatchingImportRowInput[];
+    evaluation_period_id: string;
   }): Promise<MatchingPreviewResult> {
     try {
       return await apiFetch<MatchingPreviewResult>('/api/matching-imports/preview', {
@@ -494,10 +551,15 @@ export const employeeService = {
     }
   },
 
-  async getEvaluatorAssignmentHistory(employeeId: string): Promise<EvaluatorAssignmentHistory[]> {
+  // 기간 계약: periodId 지정 시 그 평가기간의 배정 이력만, 미지정 시 전 기간(기존 동작 호환).
+  async getEvaluatorAssignmentHistory(
+    employeeId: string,
+    periodId?: string | null,
+  ): Promise<EvaluatorAssignmentHistory[]> {
     try {
+      const qs = periodId ? `?periodId=${encodeURIComponent(periodId)}` : '';
       return await apiFetch<EvaluatorAssignmentHistory[]>(
-        `/api/evaluator-assignment-history/employee/${employeeId}`,
+        `/api/evaluator-assignment-history/employee/${employeeId}${qs}`,
       );
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
@@ -505,18 +567,32 @@ export const employeeService = {
   },
 
   // S5: 배정이력 벌크 — 보드가 피평가자별로 개별 조회(N+1)하던 것을 한 요청으로. 키=사번.
+  // 기간 계약: periodId 지정 시 그 평가기간 이력만, 미지정 시 전 기간(기존 동작 호환).
   async getEvaluatorAssignmentHistoryBulk(
     employeeIds: string[],
+    periodId?: string | null,
   ): Promise<Record<string, EvaluatorAssignmentHistory[]>> {
     try {
-      return await apiFetch<Record<string, EvaluatorAssignmentHistory[]>>(
-        '/api/evaluator-assignment-history/bulk',
-        {
-          method: 'POST',
-          body: JSON.stringify({ employee_ids: employeeIds }),
-          headers: { 'Content-Type': 'application/json' },
-        },
+      // 서버 벌크 라우트는 1회 500명 캡(DoS 가드) — 전 직원 규모(700명대) 호출이 400으로
+      // 실패하지 않도록 여기서 400명 단위로 잘라 병렬 조회 후 병합한다(모든 콜러에 투명).
+      const CHUNK = 400;
+      const chunks: string[][] = [];
+      for (let i = 0; i < employeeIds.length; i += CHUNK) {
+        chunks.push(employeeIds.slice(i, i + CHUNK));
+      }
+      const parts = await Promise.all(
+        chunks.map((ids) =>
+          apiFetch<Record<string, EvaluatorAssignmentHistory[]>>(
+            '/api/evaluator-assignment-history/bulk',
+            {
+              method: 'POST',
+              body: JSON.stringify(periodId ? { employee_ids: ids, periodId } : { employee_ids: ids }),
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        ),
       );
+      return Object.assign({}, ...parts) as Record<string, EvaluatorAssignmentHistory[]>;
     } catch (error) {
       throw apiErrorHandler.handleApiError(error);
     }

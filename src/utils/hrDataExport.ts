@@ -9,7 +9,6 @@ import {
 } from '@/lib/services';
 import type {
   EmployeeProfileImportStoredRow,
-  MatchingImportStoredRow,
 } from '@/lib/services/employeeService';
 import { hrExportService } from '@/lib/services/hrExportService';
 import type {
@@ -429,24 +428,16 @@ const buildProfileSummaryRows = (
   }),
 ];
 
-// 그 평가기간의 '직원별 평가 1건'(스냅샷) 맵. 업로드 기록이 없는 기간(예: 일괄 적재된 25년)에도
-// 다운로드가 0건이 아니라 그 기간 대상자로 채워지게 하고, 부서·평가자·레벨·직책을 '그 기간 값'으로
+// 그 평가기간의 '직원별 평가 1건'(스냅샷) 맵 — 부서·평가자·레벨·직책을 '그 기간 값'으로
 // 내려보내기 위해 평가 스냅샷(evaluatee_department/_org_*, growth_level, evaluator_*)을 그대로 쓴다.
-// periodId 없으면 null(현재 전체 대상자·현재 값 사용). HR 전용 엔드포인트.
-const getPeriodEvaluationMap = async (
-  periodId: string | null,
-): Promise<Map<string, Evaluation> | null> => {
-  if (!periodId) return null;
-  try {
-    const evaluations = await evaluationService.getCurrentEvaluationsByEmployee({ periodId });
-    const map = new Map<string, Evaluation>();
-    for (const ev of evaluations) {
-      if (ev.evaluatee_id && !map.has(ev.evaluatee_id)) map.set(ev.evaluatee_id, ev);
-    }
-    return map;
-  } catch {
-    return null;
+// 기간 계약: periodId 필수. 조회 실패는 삼키지 않고 그대로 throw — 조용한 전체 폴백 금지.
+const getPeriodEvaluationMap = async (periodId: string): Promise<Map<string, Evaluation>> => {
+  const evaluations = await evaluationService.getCurrentEvaluationsByEmployee({ periodId });
+  const map = new Map<string, Evaluation>();
+  for (const ev of evaluations) {
+    if (ev.evaluatee_id && !map.has(ev.evaluatee_id)) map.set(ev.evaluatee_id, ev);
   }
+  return map;
 };
 
 // 직원 레코드를 '그 기간 스냅샷'으로 덮어쓴다(부서·직책·레벨). 다운로드가 25년 당시 값으로 나가게.
@@ -469,34 +460,74 @@ const sortByDeptNameId = (list: Employee[]) =>
       a.employee_id.localeCompare(b.employee_id),
   );
 
-// 그 기간 스냅샷 기반 매칭 행(현재 행 1건/인): 부서명·평가자를 평가 스냅샷 값으로.
-const buildMatchingSnapshotRow = (
+// 그 기간 연도에 발효된 매칭 단계 행(발령일 오름차순의 index번째): 부서ID·부서명은 그 기간
+// 평가행 스냅샷 값(evaluatee_dept_code/_department), 평가자는 그 단계 이력 값.
+// 근무종료일은 다음 단계 발령일 전날, 마지막 단계는 마스터 근무종료일.
+const buildMatchingPeriodStageRow = (
   employee: Employee,
   ev: Evaluation,
+  stage: EvaluatorAssignmentHistory,
+  nextStage: EvaluatorAssignmentHistory | undefined,
+  index: number,
   employeeMap: Map<string, Employee>,
 ) => [
   employee.employee_id,
   employee.name,
-  employee.org_sequence ?? '',
-  employee.department_id ?? '',
-  ev.evaluatee_department || employee.department || '',
-  dateText(employee.work_start_date),
-  dateText(employee.work_end_date),
-  ev.evaluator_id ?? '',
-  ev.evaluator_name ?? (ev.evaluator_id ? employeeMap.get(ev.evaluator_id)?.name ?? ev.evaluator_id : ''),
+  String(index + 1),
+  // 부서는 '이 단계'의 평가행 스냅샷 우선 — 대표 평가행 값을 쓰면 이동 전후가 같은 부서로 찍힌다.
+  stage.stage_dept_code ?? ev.evaluatee_dept_code ?? employee.department_id ?? '',
+  stage.stage_department || ev.evaluatee_department || employee.department || '',
+  dateText(stage.changed_at),
+  nextStage ? previousDateText(nextStage.changed_at) : dateText(employee.work_end_date),
+  stage.new_evaluator_id ?? '',
+  resolveEvaluatorName(stage.new_evaluator_id, stage.new_evaluator_name, employeeMap),
   employee.confirmer_id ?? '',
   employee.confirmer_name ?? '',
   employee.evaluation_type ?? '',
   employee.matching_result ?? '',
 ];
 
+// 당해 연도 단계가 없는 인원의 carry 1행: 평가자는 그 기간 평가행의 현재 평가자,
+// 근무시작일은 그 배정의 원본 발령일(전년 마지막 단계 포함, 없으면 공란).
+// 제도 규칙(2026-07-14 사용자): 별도 업로드가 없으면 **전년 마지막 정보가 이어진다** —
+// 기간 평가행에 값이 없을 때 평가자·부서를 carry 단계(전년 마지막)에서 승계한다.
+const buildMatchingCarryRow = (
+  employee: Employee,
+  ev: Evaluation,
+  carryStage: EvaluatorAssignmentHistory | null,
+  employeeMap: Map<string, Employee>,
+) => {
+  const evaluatorId = ev.evaluator_id ?? carryStage?.new_evaluator_id ?? null;
+  const evaluatorName = ev.evaluator_id
+    ? ev.evaluator_name ?? resolveEvaluatorName(ev.evaluator_id, null, employeeMap)
+    : resolveEvaluatorName(carryStage?.new_evaluator_id, carryStage?.new_evaluator_name, employeeMap);
+  return [
+    employee.employee_id,
+    employee.name,
+    employee.org_sequence ?? '',
+    ev.evaluatee_dept_code ?? carryStage?.stage_dept_code ?? employee.department_id ?? '',
+    ev.evaluatee_department || carryStage?.stage_department || employee.department || '',
+    carryStage ? dateText(carryStage.changed_at) : '',
+    dateText(employee.work_end_date),
+    evaluatorId ?? '',
+    evaluatorName,
+    employee.confirmer_id ?? '',
+    employee.confirmer_name ?? '',
+    employee.evaluation_type ?? '',
+    employee.matching_result ?? '',
+  ];
+};
+
+// 기간 계약: periodId 필수 — 없으면 즉시 오류. 기간 배치가 있으면 그 순서, 없으면 그 기간
+// 평가행 스냅샷, 그것도 없으면 오류(조용한 전체 덤프 금지). 내부 조회 실패도 그대로 throw.
 export const createEmployeeProfileUploadWorkbook = async (
   options: { periodId?: string | null } = {},
 ) => {
   const periodId = options.periodId ?? null;
+  if (!periodId) throw new Error('평가기간이 선택되지 않았습니다.');
   const [employees, latestImportRows, periodEvalMap] = await Promise.all([
     employeeService.getAllEmployees(),
-    employeeService.getLatestEmployeeProfileImportRows(periodId).catch((): never[] => []),
+    employeeService.getLatestEmployeeProfileImportRows(periodId),
     getPeriodEvaluationMap(periodId),
   ]);
   const profileEmployees = getProfileEmployees(employees);
@@ -507,19 +538,19 @@ export const createEmployeeProfileUploadWorkbook = async (
       .map((row) => [row.employee_id, row]),
   );
 
-  // 업로드 기록이 있으면 그 순서대로. 없고 기간이 지정됐으면 그 '기간의 실제 평가대상자'를
-  // 그 기간 스냅샷(부서·레벨·직책) 값으로 채운다(일괄 적재 기간이 0건으로 내려가던 문제 해소).
-  // 기간도 없으면 현재 전체 대상자.
+  // 그 기간 업로드 기록이 있으면 그 순서대로(appendMissing=false — 기간 밖 인원 미포함).
+  // 없으면 그 '기간의 실제 평가대상자'를 그 기간 스냅샷(부서·레벨·직책) 값으로 채운다.
   const targets =
     summaryImportRows.length > 0
       ? orderProfileEmployees(profileEmployees, summaryImportRows, false)
-      : periodEvalMap
-        ? sortByDeptNameId(
-            profileEmployees
-              .filter((e) => periodEvalMap.has(e.employee_id))
-              .map((e) => withPeriodSnapshot(e, periodEvalMap.get(e.employee_id)!)),
-          )
-        : sortByDeptNameId(profileEmployees);
+      : sortByDeptNameId(
+          profileEmployees
+            .filter((e) => periodEvalMap.has(e.employee_id))
+            .map((e) => withPeriodSnapshot(e, periodEvalMap.get(e.employee_id)!)),
+        );
+  if (targets.length === 0) {
+    throw new Error('해당 평가기간의 대상자 데이터가 없습니다. 평가기간을 확인해 주세요.');
+  }
   const wb = XLSX.utils.book_new();
 
   appendAoaSheet(wb, 'Sheet1', buildProfileSummaryRows(targets, sourceRowsByEmployee));
@@ -527,6 +558,7 @@ export const createEmployeeProfileUploadWorkbook = async (
   return { wb, targetCount: targets.length };
 };
 
+// 기간 계약: periodId 필수(createEmployeeProfileUploadWorkbook 이 강제 — 전체 덤프 금지).
 export const downloadEmployeeProfileUploadWorkbook = async (
   options: { periodId?: string | null; periodLabel?: string | null } = {},
 ): Promise<ExportResult> => {
@@ -545,56 +577,6 @@ const resolveEvaluatorName = (
   return employeeMap.get(evaluatorId)?.name ?? evaluatorId;
 };
 
-const buildMatchingCurrentRow = (
-  employee: Employee,
-  employeeMap: Map<string, Employee>,
-  sequence?: string,
-) => {
-  const evaluator = employee.evaluator_id ? employeeMap.get(employee.evaluator_id) : null;
-  return [
-    employee.employee_id,
-    employee.name,
-    sequence ?? employee.org_sequence ?? '',
-    employee.department_id ?? '',
-    employee.department ?? '',
-    dateText(employee.work_start_date),
-    dateText(employee.work_end_date),
-    employee.evaluator_id ?? '',
-    evaluator?.name ?? '',
-    employee.confirmer_id ?? '',
-    employee.confirmer_name ?? '',
-    employee.evaluation_type ?? '',
-    employee.matching_result ?? '',
-  ];
-};
-
-const buildMatchingHistoryRow = (
-  employee: Employee,
-  history: EvaluatorAssignmentHistory,
-  nextHistory: EvaluatorAssignmentHistory | undefined,
-  index: number,
-  employeeMap: Map<string, Employee>,
-) => [
-  employee.employee_id,
-  employee.name,
-  String(index + 1),
-  employee.department_id ?? '',
-  employee.department ?? '',
-  dateText(history.changed_at),
-  nextHistory ? dateText(nextHistory.changed_at) : '',
-  history.new_evaluator_id ?? '',
-  resolveEvaluatorName(history.new_evaluator_id, history.new_evaluator_name, employeeMap),
-  employee.confirmer_id ?? '',
-  employee.confirmer_name ?? '',
-  employee.evaluation_type ?? '',
-  history.status === 'cancelled' ? '취소' : employee.matching_result ?? '',
-];
-
-// 매칭 업로드 출처 이력(예전 'Matching import:' 변형 + 신 'Matching reconcile:').
-// 매칭 source 행과 짝지을 때, 그리고 수동 추가 이력과 구분할 때 쓴다.
-const isBulkMatchingHistory = (history: EvaluatorAssignmentHistory) =>
-  /^Matching (import|past tour|baseline import|reconcile):/i.test((history.reason ?? '').trim());
-
 const previousDateText = (value?: string | null) => {
   const text = dateText(value);
   if (!text) return '';
@@ -604,315 +586,96 @@ const previousDateText = (value?: string | null) => {
   return date.toISOString().slice(0, 10);
 };
 
-const getNextSequence = (sourceRows: MatchingImportStoredRow[], offset: number) => {
-  const maxSequence = sourceRows.reduce((max, row) => {
-    const value = Number(row.org_sequence);
-    return Number.isFinite(value) ? Math.max(max, value) : max;
-  }, 0);
-  return String(maxSequence + offset);
+// 발령일(changed_at)의 연도. 무날짜/파싱 불가면 null.
+const changedAtYear = (value?: string | null): number | null => {
+  const text = dateText(value);
+  const match = text.match(/^(\d{4})/);
+  return match ? Number(match[1]) : null;
 };
 
-const findSourceHistory = (
-  row: MatchingImportStoredRow,
-  histories: EvaluatorAssignmentHistory[],
-  usedHistoryIds: Set<string>,
-) => {
-  const rowStart = dateText(row.work_start_date);
-  const evaluatorId = row.evaluator_id ?? null;
-  const matches = histories.filter(
-    (history) =>
-      !usedHistoryIds.has(history.id) &&
-      isBulkMatchingHistory(history) &&
-      (history.new_evaluator_id ?? null) === evaluatorId &&
-      (!rowStart || dateText(history.changed_at) === rowStart),
-  );
-  const exact = matches.find((history) => dateText(history.changed_at) === rowStart);
-  const match = exact ?? matches[0] ?? null;
-  if (match) usedHistoryIds.add(match.id);
-  return match;
-};
-
-const buildMatchingSourceRow = ({
-  sourceRow,
-  employee,
-  employeeMap,
-  history,
-  correction,
-  hasManualRows,
-}: {
-  sourceRow: MatchingImportStoredRow;
-  employee?: Employee;
-  employeeMap: Map<string, Employee>;
-  history?: EvaluatorAssignmentHistory | null;
-  correction?: EvaluatorAssignmentHistory | null;
-  hasManualRows: boolean;
-}) => {
-  const effectiveEvaluatorId =
-    correction?.new_evaluator_id ??
-    (sourceRow.is_primary && !hasManualRows
-      ? employee?.evaluator_id ?? sourceRow.evaluator_id
-      : sourceRow.evaluator_id) ??
-    '';
-  const effectiveEvaluatorName = resolveEvaluatorName(
-    effectiveEvaluatorId,
-    correction?.new_evaluator_name ??
-      (effectiveEvaluatorId === sourceRow.evaluator_id ? sourceRow.evaluator_name : null),
-    employeeMap,
-  );
-  const isCancelledWithoutCorrection = history?.status === 'cancelled' && !correction;
-
-  return [
-    sourceRow.employee_id ?? '',
-    employee?.name ?? sourceRow.employee_name ?? '',
-    sourceRow.org_sequence ?? '',
-    sourceRow.department_id ?? '',
-    sourceRow.department_name ?? '',
-    dateText(sourceRow.work_start_date),
-    dateText(sourceRow.work_end_date),
-    effectiveEvaluatorId,
-    effectiveEvaluatorName,
-    sourceRow.confirmer_id ?? '',
-    sourceRow.confirmer_name ?? '',
-    sourceRow.evaluation_type ?? '',
-    isCancelledWithoutCorrection
-      ? '취소'
-      : sourceRow.matching_result ?? '',
-  ];
-};
-
-const buildMatchingManualHistoryRow = ({
-  employee,
-  templateRow,
-  sourceRows,
-  history,
-  nextHistory,
-  sequenceOffset,
-  employeeMap,
-}: {
-  employee: Employee;
-  templateRow?: MatchingImportStoredRow;
-  sourceRows: MatchingImportStoredRow[];
-  history: EvaluatorAssignmentHistory;
-  nextHistory?: EvaluatorAssignmentHistory;
-  sequenceOffset: number;
-  employeeMap: Map<string, Employee>;
-}) => [
-  employee.employee_id,
-  employee.name,
-  getNextSequence(sourceRows, sequenceOffset),
-  templateRow?.department_id ?? employee.department_id ?? '',
-  templateRow?.department_name ?? employee.department ?? '',
-  dateText(history.changed_at),
-  nextHistory ? previousDateText(nextHistory.changed_at) : '',
-  history.new_evaluator_id ?? '',
-  resolveEvaluatorName(history.new_evaluator_id, history.new_evaluator_name, employeeMap),
-  templateRow?.confirmer_id ?? employee.confirmer_id ?? '',
-  templateRow?.confirmer_name ?? employee.confirmer_name ?? '',
-  templateRow?.evaluation_type ?? employee.evaluation_type ?? '',
-  templateRow?.matching_result ?? employee.matching_result ?? '',
-];
-
-const buildMatchingRowsFromImportRows = (
-  sourceRows: MatchingImportStoredRow[],
-  employeeMap: Map<string, Employee>,
-  historiesByEmployee: Map<string, EvaluatorAssignmentHistory[]>,
-) => {
-  const rows: unknown[][] = [MATCHING_IMPORT_HEADERS];
-  const sourceRowsByEmployee = new Map<string, MatchingImportStoredRow[]>();
-  sourceRows.forEach((row) => {
-    if (!row.employee_id) return;
-    const employeeRows = sourceRowsByEmployee.get(row.employee_id) ?? [];
-    employeeRows.push(row);
-    sourceRowsByEmployee.set(row.employee_id, employeeRows);
+// 그 기간 연도(evaluation_year)에 발효된 applied 'change' 단계들(발령일 오름차순, cancelled 제외).
+// 무날짜 단계는 서버 counts 계약(stages_current_year)과 동일하게 당해 단계로 취급한다.
+const getPeriodYearStages = (
+  history: EvaluatorAssignmentHistory[],
+  periodYear: number | null,
+) =>
+  getSortedAssignmentHistory(history).filter((item) => {
+    if (item.status !== 'applied') return false;
+    if (periodYear == null) return true;
+    const year = changedAtYear(item.changed_at);
+    return year == null || year === periodYear;
   });
 
-  const historyContextByEmployee = new Map<
-    string,
-    {
-      sourceHistoryByRowNumber: Map<number, EvaluatorAssignmentHistory>;
-      correctionBySourceHistoryId: Map<string, EvaluatorAssignmentHistory>;
-      manualRows: EvaluatorAssignmentHistory[];
-    }
-  >();
-
-  sourceRowsByEmployee.forEach((employeeSourceRows, employeeId) => {
-    const histories = getSortedAssignmentHistory(historiesByEmployee.get(employeeId) ?? []);
-    const usedHistoryIds = new Set<string>();
-    const sourceHistoryByRowNumber = new Map<number, EvaluatorAssignmentHistory>();
-    const correctionBySupersededId = new Map<string, EvaluatorAssignmentHistory>();
-    histories
-      .filter((history) => history.status === 'applied' && history.supersedes_history_id)
-      .forEach((history) => {
-        if (history.supersedes_history_id) {
-          correctionBySupersededId.set(history.supersedes_history_id, history);
-        }
-      });
-
-    employeeSourceRows.forEach((sourceRow) => {
-      const history = findSourceHistory(sourceRow, histories, usedHistoryIds);
-      if (!history) return;
-      sourceHistoryByRowNumber.set(sourceRow.row_number, history);
-      const correction = correctionBySupersededId.get(history.id);
-      if (correction) usedHistoryIds.add(correction.id);
-    });
-
-    const manualRows = histories.filter(
-      (history) =>
-        history.status === 'applied' &&
-        history.change_type === 'change' &&
-        !isBulkMatchingHistory(history) &&
-        !usedHistoryIds.has(history.id),
-    );
-
-    historyContextByEmployee.set(employeeId, {
-      sourceHistoryByRowNumber,
-      correctionBySourceHistoryId: correctionBySupersededId,
-      manualRows,
-    });
-  });
-
-  const emittedSourceRowsByEmployee = new Map<string, unknown[][]>();
-
-  sourceRows.forEach((sourceRow, index) => {
-    const employeeId = sourceRow.employee_id ?? '';
-    const employee = employeeMap.get(employeeId);
-    const employeeSourceRows = sourceRowsByEmployee.get(employeeId) ?? [];
-    const context = historyContextByEmployee.get(employeeId);
-    const history = context?.sourceHistoryByRowNumber.get(sourceRow.row_number) ?? null;
-    const correction = history ? context?.correctionBySourceHistoryId.get(history.id) ?? null : null;
-    const manualRows = context?.manualRows ?? [];
-    const row = buildMatchingSourceRow({
-      sourceRow,
-      employee,
-      employeeMap,
-      history,
-      correction,
-      hasManualRows: manualRows.length > 0,
-    });
-    rows.push(row);
-
-    if (employeeId) {
-      const emitted = emittedSourceRowsByEmployee.get(employeeId) ?? [];
-      emitted.push(row);
-      emittedSourceRowsByEmployee.set(employeeId, emitted);
-    }
-
-    const nextSourceRow = sourceRows[index + 1];
-    if (!employee || nextSourceRow?.employee_id === employeeId || manualRows.length === 0) return;
-
-    const emitted = emittedSourceRowsByEmployee.get(employeeId) ?? [];
-    const rowBeforeManual = [...emitted].reverse().find((item) => item[7]) ?? emitted[emitted.length - 1];
-    if (rowBeforeManual && manualRows[0]?.changed_at) {
-      rowBeforeManual[6] = previousDateText(manualRows[0].changed_at);
-    }
-
-    const templateRow =
-      employeeSourceRows.find((item) => item.is_primary) ??
-      employeeSourceRows[employeeSourceRows.length - 1];
-    manualRows.forEach((historyItem, manualIndex) => {
-      rows.push(
-        buildMatchingManualHistoryRow({
-          employee,
-          templateRow,
-          sourceRows: employeeSourceRows,
-          history: historyItem,
-          nextHistory: manualRows[manualIndex + 1],
-          sequenceOffset: manualIndex + 1,
-          employeeMap,
-        }),
-      );
-    });
-  });
-
-  return rows;
-};
-
+// 매칭 업로드 양식 다운로드(왕복용) 조립.
+// 기간 계약: periodId 필수 — 없으면 즉시 오류(조용한 전체 폴백 전면 제거). 내부 조회 실패도 throw.
+// 저장된 import 배치 재생(replay) 경로는 폐기 — 항상 '그 기간의 DB 진실'로 조립한다:
+//   1) 그 기간 평가행 스냅샷(대상자·부서·현재 평가자) 2) 기간 스코프 배정이력(벌크 1회, 인당 N+1 제거)
+//   3) 인별 행 = 당해 연도 applied 'change' 단계들, 없으면 carry 1행(현재 평가자 + 원본 발령일).
+// 이 파일을 그대로 재업로드하면 서버 reconcile 판정이 전건 unchanged 인 것이 왕복 계약이다.
 export const createMatchingUploadWorkbook = async (
   options: { periodId?: string | null } = {},
 ) => {
   const periodId = options.periodId ?? null;
-  const [employees, latestImportRows, periodEvalMap] = await Promise.all([
+  if (!periodId) throw new Error('평가기간이 선택되지 않았습니다.');
+  const [employees, periodEvalMap] = await Promise.all([
     employeeService.getAllEmployees(),
-    employeeService.getLatestMatchingImportRows(periodId).catch((): never[] => []),
     getPeriodEvaluationMap(periodId),
   ]);
   const employeeMap = getEmployeeMap(employees);
 
-  // 업로드 기록이 없고 기간이 지정됐으면 그 기간의 실제 매칭(스냅샷)으로 채운다 —
-  // 부서명·평가자를 그 기간 값으로(현재 값이 아니라). 인당 1행.
-  if (!latestImportRows.length && periodEvalMap) {
-    const targets = getTargets(employees)
-      .filter((employee) => periodEvalMap.has(employee.employee_id))
-      .sort((a, b) => {
-        const da = periodEvalMap.get(a.employee_id)?.evaluatee_department ?? '';
-        const db = periodEvalMap.get(b.employee_id)?.evaluatee_department ?? '';
-        return da.localeCompare(db) || a.name.localeCompare(b.name) || a.employee_id.localeCompare(b.employee_id);
-      });
-    const rows: unknown[][] = [
-      MATCHING_IMPORT_HEADERS,
-      ...targets.map((employee) =>
-        buildMatchingSnapshotRow(employee, periodEvalMap.get(employee.employee_id)!, employeeMap),
-      ),
-    ];
-    const wb = XLSX.utils.book_new();
-    appendAoaSheet(wb, MATCHING_IMPORT_SHEET_NAME, rows);
-    return { wb, targetCount: targets.length, rowCount: Math.max(0, rows.length - 1) };
-  }
-
-  if (latestImportRows.length > 0) {
-    const sourceEmployeeIds = [
-      ...new Set(latestImportRows.map((row) => row.employee_id).filter(Boolean)),
-    ];
-    const historyPairs = await Promise.all(
-      sourceEmployeeIds.map(async (employeeId) => [
-        employeeId,
-        getSortedAssignmentHistory(await safeAssignmentHistory(employeeId)),
-      ] as const),
-    );
-    const rows = buildMatchingRowsFromImportRows(
-      latestImportRows,
-      employeeMap,
-      new Map(historyPairs),
-    );
-    const wb = XLSX.utils.book_new();
-    appendAoaSheet(wb, MATCHING_IMPORT_SHEET_NAME, rows);
-
-    return {
-      wb,
-      targetCount: new Set(latestImportRows.map((row) => row.employee_id).filter(Boolean)).size,
-      rowCount: Math.max(0, rows.length - 1),
-    };
-  }
-
-  // 기간 미지정(전체) — 현재 전체 대상자 + 평가자 배정 이력 기반.
-  const targets = getTargets(employees);
-  const historyPairs = await Promise.all(
-    targets.map(async (employee) => [
-      employee.employee_id,
-      getSortedAssignmentHistory(await safeAssignmentHistory(employee.employee_id)),
-    ] as const),
-  );
-  const historiesByEmployee = new Map(historyPairs);
-  const rows: unknown[][] = [MATCHING_IMPORT_HEADERS];
-
-  targets.forEach((employee) => {
-    const history = historiesByEmployee.get(employee.employee_id) ?? [];
-
-    history.forEach((item, index) => {
-      rows.push(buildMatchingHistoryRow(employee, item, history[index + 1], index, employeeMap));
+  const targets = getTargets(employees)
+    .filter((employee) => periodEvalMap.has(employee.employee_id))
+    .sort((a, b) => {
+      const da = periodEvalMap.get(a.employee_id)?.evaluatee_department ?? '';
+      const db = periodEvalMap.get(b.employee_id)?.evaluatee_department ?? '';
+      return da.localeCompare(db) || a.name.localeCompare(b.name) || a.employee_id.localeCompare(b.employee_id);
     });
+  if (targets.length === 0) {
+    throw new Error('해당 평가기간의 평가 대상 데이터가 없습니다. 평가기간을 확인해 주세요.');
+  }
 
-    const latestHistory = history[history.length - 1];
-    const currentEvaluatorId = employee.evaluator_id ?? null;
-    const latestEvaluatorId = latestHistory?.new_evaluator_id ?? null;
-    const needsCurrentRow =
-      history.length === 0 ||
-      latestHistory?.status === 'cancelled' ||
-      latestEvaluatorId !== currentEvaluatorId;
+  // 이력은 전 기간으로 조회한다 — 행 방출은 아래에서 '당해 연도 단계'로 거르므로 섞이지 않고,
+  // 당해 단계가 없는 인원은 **전년 마지막 단계**를 carry 로 승계해야 하기 때문
+  // (제도 규칙: 별도 업로드가 없으면 전년 마지막 정보(평가자·발령일·부서)가 이어진다).
+  const historiesByEmployee = await employeeService.getEvaluatorAssignmentHistoryBulk(
+    targets.map((employee) => employee.employee_id),
+  );
+  const periodYear =
+    targets
+      .map((employee) => periodEvalMap.get(employee.employee_id)?.evaluation_year)
+      .find((year) => year != null) ?? null;
 
-    if (needsCurrentRow) {
-      rows.push(buildMatchingCurrentRow(employee, employeeMap, history.length > 0 ? String(history.length + 1) : undefined));
+  const rows: unknown[][] = [MATCHING_IMPORT_HEADERS];
+  targets.forEach((employee) => {
+    const ev = periodEvalMap.get(employee.employee_id)!;
+    const history = historiesByEmployee[employee.employee_id] ?? [];
+    const stages = getPeriodYearStages(history, periodYear);
+    if (stages.length > 0) {
+      stages.forEach((stage, index) => {
+        rows.push(
+          buildMatchingPeriodStageRow(employee, ev, stage, stages[index + 1], index, employeeMap),
+        );
+      });
+      return;
     }
+    // 당해 단계 없음 → carry 1행: 전년(이하) 마지막 정보를 승계한다.
+    //   평가자 = 기간 평가행 파생값 우선, 없으면 전년 마지막 단계의 평가자.
+    //   발령일 = 그 평가자가 배정된 마지막 단계의 원본 발령일(전년 날짜 그대로 —
+    //            재업로드 시 서버가 carry 로 분류해 왕복 안전).
+    const pastApplied = getSortedAssignmentHistory(history).filter((item) => {
+      if (item.status !== 'applied' || item.change_type !== 'change') return false;
+      const year = changedAtYear(item.changed_at);
+      return periodYear == null || year == null || year <= periodYear;
+    });
+    // 기간 평가행에 평가자가 있으면 그 평가자의 마지막 배정 단계를, 없으면 그냥 마지막 단계를 승계.
+    const matchingEvaluator = pastApplied.filter(
+      (item) => (item.new_evaluator_id ?? null) === (ev.evaluator_id ?? null),
+    );
+    const carryStage =
+      (ev.evaluator_id ? matchingEvaluator[matchingEvaluator.length - 1] : null) ??
+      pastApplied[pastApplied.length - 1] ??
+      null;
+    rows.push(buildMatchingCarryRow(employee, ev, carryStage, employeeMap));
   });
 
   const wb = XLSX.utils.book_new();
@@ -921,12 +684,91 @@ export const createMatchingUploadWorkbook = async (
   return { wb, targetCount: targets.length, rowCount: Math.max(0, rows.length - 1) };
 };
 
+// 기간 계약: periodId 필수(createMatchingUploadWorkbook 이 강제). 파일명 접미사는
+// '_업로드양식'(왕복용) — 전 기간 이력 대장은 downloadMatchingLedgerWorkbook 으로 분리.
 export const downloadMatchingUploadWorkbook = async (
   options: { periodId?: string | null; periodLabel?: string | null } = {},
 ): Promise<ExportResult> => {
   const { wb, targetCount, rowCount } = await createMatchingUploadWorkbook(options);
-  const fileName = writeWorkbook(wb, buildExportFileName('개인별매칭결과_업로드양식', options.periodLabel, '_이력포함'));
+  const fileName = writeWorkbook(wb, buildExportFileName('개인별매칭결과', options.periodLabel, '_업로드양식'));
   return { fileName, targetCount, rowCount };
+};
+
+// ── 개인별 매칭 이력 대장(읽기 전용, 전 기간) ────────────────────────────────
+// 첫 헤더가 '평가기간'인 것이 업로드 거부 마커다 — 매칭 업로드 파서가 이 파일을 양식으로 오인해
+// 재업로드하는 왕복 오염을 차단한다. 업로드 양식(13열)과 헤더가 다르므로 업로드에 쓸 수 없다.
+const MATCHING_LEDGER_HEADERS = [
+  '평가기간',
+  '연도',
+  '사번',
+  '성명',
+  '부서ID',
+  '부서명',
+  '발령일',
+  '이전평가자사번',
+  '이전평가자명',
+  '평가자사번',
+  '평가자명',
+  '변경유형',
+  '상태',
+  '정정대상',
+  '사유',
+  '취소일',
+  '취소사유',
+];
+
+// 기간 계약: 의도적으로 '전 기간·전 직원' — periodId 를 쓰지 않는 유일한 매칭 다운로드(대장).
+// 데이터 = 전 직원 × 배정이력 벌크(기간 미지정=전체). 상태(applied/cancelled)·취소 이력도 전부 포함.
+export const downloadMatchingLedgerWorkbook = async (
+  _options: { periodLabel?: string | null } = {},
+): Promise<ExportResult> => {
+  const employees = await employeeService.getAllEmployees();
+  const employeeMap = getEmployeeMap(employees);
+  const subjects = sortByDeptNameId(getProfileEmployees(employees));
+  const historiesByEmployee = await employeeService.getEvaluatorAssignmentHistoryBulk(
+    subjects.map((employee) => employee.employee_id),
+  );
+
+  const rows: unknown[][] = [MATCHING_LEDGER_HEADERS];
+  subjects.forEach((employee) => {
+    const history = [...(historiesByEmployee[employee.employee_id] ?? [])].sort((a, b) => {
+      const at = a.changed_at ? new Date(a.changed_at).getTime() : 0;
+      const bt = b.changed_at ? new Date(b.changed_at).getTime() : 0;
+      if (at !== bt) return at - bt;
+      return a.id.localeCompare(b.id);
+    });
+    history.forEach((item) => {
+      rows.push([
+        item.evaluation_period_name ?? '',
+        item.evaluation_year ?? '',
+        employee.employee_id,
+        employee.name,
+        // 부서는 '그 단계' 평가행 스냅샷 우선 — 현재 마스터 값을 쓰면 과거 이력이 전부 현 부서로 찍힌다.
+        item.stage_dept_code ?? employee.department_id ?? '',
+        item.stage_department ?? employee.department ?? '',
+        dateText(item.changed_at),
+        item.previous_evaluator_id ?? '',
+        resolveEvaluatorName(item.previous_evaluator_id, item.previous_evaluator_name, employeeMap),
+        item.new_evaluator_id ?? '',
+        resolveEvaluatorName(item.new_evaluator_id, item.new_evaluator_name, employeeMap),
+        item.change_type,
+        item.status,
+        item.supersedes_history_id ?? '',
+        item.reason ?? '',
+        dateTimeText(item.cancelled_at),
+        item.cancel_reason ?? '',
+      ]);
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  appendAoaSheet(wb, '매칭이력대장', rows);
+  const fileName = writeWorkbook(wb, buildExportFileName('개인별매칭이력대장', '전체기간'));
+  return {
+    fileName,
+    targetCount: subjects.filter((e) => (historiesByEmployee[e.employee_id] ?? []).length > 0).length,
+    rowCount: Math.max(0, rows.length - 1),
+  };
 };
 
 const getEntryTime = (entry: TaskEvaluationEntry) => {
@@ -1390,17 +1232,19 @@ export const downloadFullEvaluationDataWorkbook = async (
   return { fileName, ...result };
 };
 
+// 기간 계약: 대상자·매칭 시트는 periodId 필수(없으면 하위 함수가 한국어 오류를 throw).
+// 평가데이터 시트는 전체 기간 벌크(getEvaluationExportData) 그대로.
 export const createHrBackupWorkbook = async (
-  options: { includePastEvaluations?: boolean } = {},
+  options: { includePastEvaluations?: boolean; periodId?: string | null } = {},
 ) => {
   const [
     profile,
     matching,
     evaluation,
   ] = await Promise.all([
-    createEmployeeProfileUploadWorkbook(),
-    createMatchingUploadWorkbook(),
-    createFullEvaluationDataWorkbook(options),
+    createEmployeeProfileUploadWorkbook({ periodId: options.periodId }),
+    createMatchingUploadWorkbook({ periodId: options.periodId }),
+    createFullEvaluationDataWorkbook({ includePastEvaluations: options.includePastEvaluations }),
   ]);
 
   const wb = XLSX.utils.book_new();
@@ -1425,8 +1269,9 @@ export const createHrBackupWorkbook = async (
   };
 };
 
+// 기간 계약: periodId 필수(대상자·매칭 시트 조립에 필요 — createHrBackupWorkbook 참조).
 export const downloadHrBackupWorkbook = async (
-  options: { includePastEvaluations?: boolean } = {},
+  options: { includePastEvaluations?: boolean; periodId?: string | null } = {},
 ): Promise<ExportResult & { matchingRowCount?: number }> => {
   const result = await createHrBackupWorkbook(options);
   const suffix = options.includePastEvaluations === false ? '' : '_이전평가포함';

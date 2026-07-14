@@ -25,6 +25,8 @@ export type HrEvaluationExportPayload = {
 };
 
 export const hrExportService = {
+  // 기간 계약: '전체 기간' export 의도 — periodId 를 보내지 않으며, 서버도 이제 evaluations 를
+  // 포함한 6배열 전부를 전 기간으로 일관되게 반환한다(기간별 export 가 아님. 파일명에 기간을 붙이지 말 것).
   async getEvaluationExportData(): Promise<HrEvaluationExportPayload> {
     try {
       return await apiFetch<HrEvaluationExportPayload>('/api/hr/export/evaluation-data');

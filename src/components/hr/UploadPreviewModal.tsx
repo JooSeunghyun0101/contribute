@@ -7,12 +7,93 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { DiffItem, DiffResult, DiffStatus } from '@/lib/uploadDiff';
+import type { MatchingImportCounts } from '@/lib/services/employeeService';
+
+// F2-1: 매칭 preview/apply 가 공통으로 돌려주는 17키 카운트(서버 계약)는
+// employeeService 의 MatchingImportCounts 를 단일 원천으로 재사용한다.
+export type { MatchingImportCounts };
+
+// 탈락 사유별 요약 항목 — 0건은 숨긴다.
+const DROP_ITEMS: Array<{ key: keyof MatchingImportCounts; label: (n: number) => string }> = [
+  {
+    key: 'stages_other_year_dropped',
+    label: (n) => `연도 불일치로 제외된 발령 단계 ${n}건 (발령일 연도가 평가기간 연도와 다름)`,
+  },
+  {
+    key: 'no_evaluator_rows',
+    label: (n) => `평가자 없는 행 ${n}건 (평가자사번 공란·영문 — 반영 제외)`,
+  },
+  { key: 'dropped_letter_id', label: (n) => `영문 사번 행 폐기 ${n}건` },
+  {
+    key: 'ignored_date',
+    label: (n) => `발령일 무시 ${n}건 (같은 평가자 — 발령일만 달라 기존 날짜 유지)`,
+  },
+  {
+    key: 'name_mismatch',
+    label: (n) => `성명 불일치 ${n}건 (매칭 업로드는 성명을 갱신하지 않습니다)`,
+  },
+  { key: 'employees_missing', label: (n) => `미등록 사번 ${n}건 (직원 마스터에 없어 건너뜀)` },
+  { key: 'employees_no_stage', label: (n) => `반영할 발령 단계가 없어 건너뛴 직원 ${n}명` },
+];
+
+// 미리보기 모달과 업로드 결과 다이얼로그가 같은 형태로 재사용하는 요약 패널.
+export const MatchingCountsSummary = ({
+  counts,
+  mode,
+}: {
+  counts: MatchingImportCounts;
+  mode: 'preview' | 'result';
+}) => {
+  const drops = DROP_ITEMS.filter((d) => (counts[d.key] ?? 0) > 0);
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--bg-subtle)',
+        padding: '10px 14px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        fontSize: 'var(--fs-sm)',
+      }}
+    >
+      <strong>{mode === 'preview' ? '반영 제외·주의 요약' : '반영 제외·주의 상세'}</strong>
+      {drops.length === 0 ? (
+        <span style={{ color: 'var(--fg-muted)' }}>제외·주의 항목이 없습니다.</span>
+      ) : (
+        <ul
+          style={{
+            margin: 0,
+            paddingLeft: 18,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            color: 'var(--fg-muted)',
+          }}
+        >
+          {drops.map((d) => (
+            <li key={d.key}>{d.label(counts[d.key])}</li>
+          ))}
+        </ul>
+      )}
+      <span style={{ color: 'var(--fg-muted)' }}>
+        무변경 <strong className="tnum">{counts.unchanged}</strong>건 —{' '}
+        {mode === 'preview'
+          ? '적용해도 값이 그대로인 발령 단계입니다(미리보기에서 "변경"으로 보여도 실제로는 무변경일 수 있음).'
+          : '값이 그대로 유지된 발령 단계입니다.'}
+      </span>
+    </div>
+  );
+};
 
 interface Props {
   title: string;
   fileName: string;
   result: DiffResult;
   isApplying: boolean;
+  // F2-1: 매칭 업로드 미리보기에서만 전달 — 서버 dry-run 의 탈락 사유별 카운트.
+  counts?: MatchingImportCounts | null;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -46,7 +127,7 @@ const Chip = ({ label, value, tone }: { label: string; value: number; tone: stri
   </span>
 );
 
-const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, onClose }: Props) => {
+const UploadPreviewModal = ({ title, fileName, result, isApplying, counts, onConfirm, onClose }: Props) => {
   const [showUnchanged, setShowUnchanged] = useState(false);
   const { summary } = result;
 
@@ -91,6 +172,13 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, onConfirm, on
             동일 항목도 표시
           </label>
         </div>
+
+        {/* F2-1: 서버 counts 가 오면 "조용한 탈락" 사유를 전부 노출한다(0건 항목은 숨김). */}
+        {counts && (
+          <div style={{ marginBottom: 12 }}>
+            <MatchingCountsSummary counts={counts} mode="preview" />
+          </div>
+        )}
 
         <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
