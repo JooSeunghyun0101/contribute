@@ -147,7 +147,9 @@ CREATE TABLE public.admin_audit_logs (
     previous_value jsonb,
     new_value jsonb,
     reason text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_name text,
+    target_employee_name text
 );
 
 
@@ -1386,19 +1388,11 @@ CREATE TRIGGER trg_set_final_assessment_growth_level BEFORE INSERT OR UPDATE ON 
 
 
 --
--- Name: admin_audit_logs fk_admin_audit_logs_actor; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.admin_audit_logs
-    ADD CONSTRAINT fk_admin_audit_logs_actor FOREIGN KEY (actor_id) REFERENCES public.employees(employee_id) ON UPDATE CASCADE ON DELETE SET NULL;
-
-
---
--- Name: admin_audit_logs fk_admin_audit_logs_target_employee; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.admin_audit_logs
-    ADD CONSTRAINT fk_admin_audit_logs_target_employee FOREIGN KEY (target_employee_id) REFERENCES public.employees(employee_id) ON UPDATE CASCADE ON DELETE SET NULL;
+-- admin_audit_logs 는 employees 로의 FK 를 두지 않는다(의도).
+-- 감사 로그는 append-only 신원 스냅샷(actor_id/name, target_employee_id/name)이라
+-- '대상자 일괄삭제(전체 초기화)'로 직원이 삭제돼도 행위자·대상자 기록이 보존돼야 한다.
+-- FK(ON DELETE SET NULL)를 두면 초기화 때 ID 가 NULL 로 소실되므로 제거했다.
+-- (db_mig/add_audit_log_identity_snapshot.sql 참조)
 
 
 --

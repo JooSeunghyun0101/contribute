@@ -274,6 +274,14 @@ async function ensureRuntimeSchema() {
       `CREATE INDEX IF NOT EXISTS idx_employee_profile_import_batches_period ON employee_profile_import_batches(evaluation_period_id)`,
       `CREATE INDEX IF NOT EXISTS idx_matching_import_batches_period ON matching_import_batches(evaluation_period_id)`,
       `CREATE INDEX IF NOT EXISTS idx_evaluator_assignment_history_period ON evaluator_assignment_history(evaluation_period_id)`,
+      // 감사 로그 신원 스냅샷: 이름 컬럼 추가 + employees FK(ON DELETE SET NULL) 제거.
+      // FK 가 살아있으면 '대상자 일괄삭제'로 직원이 지워질 때 감사 행의 행위자·대상자 ID 가
+      // NULL 로 날아가 '누가/누구에게'가 통째로 소실된다(read-time JOIN 이라 이름도 함께 사라짐).
+      // 감사 로그는 append-only 스냅샷이라 직원 생명주기와 분리해 보존한다.
+      `ALTER TABLE admin_audit_logs ADD COLUMN IF NOT EXISTS actor_name text`,
+      `ALTER TABLE admin_audit_logs ADD COLUMN IF NOT EXISTS target_employee_name text`,
+      `ALTER TABLE admin_audit_logs DROP CONSTRAINT IF EXISTS fk_admin_audit_logs_actor`,
+      `ALTER TABLE admin_audit_logs DROP CONSTRAINT IF EXISTS fk_admin_audit_logs_target_employee`,
     ];
     for (const ddl of uploadHeals) {
       try {
@@ -1266,26 +1274,37 @@ const insertNotificationRow = async (
 
 const insertAdminAuditLog = async (
   client,
-  { actionType, actorId, targetEmployeeId, previousValue, newValue, reason }
+  { actionType, actorId, targetEmployeeId, actorName, targetEmployeeName, previousValue, newValue, reason }
 ) => {
   try {
+    // actor_name/target_employee_name 은 '쓰기 시점' 이름 스냅샷이다. 호출자가 명시하지 않으면
+    // 지금 employees 에서 조회해 박제한다(초기화로 직원이 삭제돼도 감사 행에 이름이 남도록).
     await client.query(
       `
         INSERT INTO admin_audit_logs (
           action_type,
           actor_id,
           target_employee_id,
+          actor_name,
+          target_employee_name,
           previous_value,
           new_value,
           reason,
           created_at
         )
-        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,NOW())
+        VALUES (
+          $1,$2,$3,
+          COALESCE($4, (SELECT name FROM employees WHERE employee_id = $2)),
+          COALESCE($5, (SELECT name FROM employees WHERE employee_id = $3)),
+          $6::jsonb,$7::jsonb,$8,NOW()
+        )
       `,
       [
         actionType,
         actorId ?? null,
         targetEmployeeId ?? null,
+        actorName ?? null,
+        targetEmployeeName ?? null,
         JSON.stringify(previousValue ?? null),
         JSON.stringify(newValue ?? null),
         reason ?? null,
@@ -1295,11 +1314,42 @@ const insertAdminAuditLog = async (
     if (err.code === '42P01') {
       return;
     }
+    // 42703 = 스냅샷 컬럼 미존재(마이그레이션/부팅 보강 전 환경) → 구 스키마로 안전 재시도(하위호환).
+    if (err.code === '42703') {
+      try {
+        await client.query(
+          `INSERT INTO admin_audit_logs
+             (action_type, actor_id, target_employee_id, previous_value, new_value, reason, created_at)
+           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,NOW())`,
+          [
+            actionType,
+            actorId ?? null,
+            targetEmployeeId ?? null,
+            JSON.stringify(previousValue ?? null),
+            JSON.stringify(newValue ?? null),
+            reason ?? null,
+          ]
+        );
+      } catch (legacyErr) {
+        if (legacyErr.code === '42P01') return;
+        if (legacyErr.code === '23503' && actorId) {
+          await insertAdminAuditLog(client, {
+            actionType, actorId: null, targetEmployeeId, actorName, targetEmployeeName, previousValue, newValue, reason,
+          });
+          return;
+        }
+        throw legacyErr;
+      }
+      return;
+    }
+    // 23503 = actor_id FK 위반(FK 미제거 환경 + 존재하지 않는 사번) → actor_id 없이 재시도.
     if (err.code === '23503' && actorId) {
       await insertAdminAuditLog(client, {
         actionType,
         actorId: null,
         targetEmployeeId,
+        actorName,
+        targetEmployeeName,
         previousValue,
         newValue,
         reason,
@@ -6444,12 +6494,13 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // 감사 추적: 삭제 전에 같은 트랜잭션으로 기록. actor FK는 직원 삭제 시 SET NULL 되므로
-    // reason 텍스트에 actor 를 함께 남긴다. (admin_audit_logs 는 더 이상 TRUNCATE 대상이 아님)
-    await client.query(
-      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_employees', $1, $2)`,
-      [actorId, `대상자 일괄삭제 실행 (actor: ${actorId})`]
-    );
+    // 감사 추적: 삭제 전에 같은 트랜잭션으로 기록. FK 제거 후 actor_id 는 삭제돼도 보존되며,
+    // 헬퍼가 '지금'(직원 삭제 전) actor_name 을 스냅샷으로 박제한다. (admin_audit_logs 는 TRUNCATE 대상 아님)
+    await insertAdminAuditLog(client, {
+      actionType: 'reset_employees',
+      actorId,
+      reason: `대상자 일괄삭제 실행 (actor: ${actorId})`,
+    });
     // employees 가 import_batches 를 FK 참조하므로, batches 를 TRUNCATE CASCADE 하면
     // employees(admin 포함)까지 cascade 삭제된다. 이를 막기 위해 먼저 참조를 끊는다.
     await client.query(
@@ -6459,6 +6510,10 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
     // 2026-07-14 보강: FK 가 없어 CASCADE 에 안 딸려가던 이력성 테이블들
     // (변경요청·QnA 로그·비번 초기화 요청·자동저장 임시본·조직 KPI)이 초기화 후에도
     // 남아 '이전 이력'으로 보이던 누락 수정.
+    // 2026-07-15 보강: org_structure 는 FK 가 evaluation_periods(보존 대상)로만 걸려
+    //   CASCADE 에 안 딸려가고 목록에도 없어, 전체 초기화 후에도 이전 연도 조직 계층이
+    //   잔존해 '전체가 안 지워진다'는 증상을 냈다. 리프 테이블이라 함께 TRUNCATE.
+    //   (reset/period 는 이미 org_structure 를 지우고 있었음 — 전체 초기화만 누락됐던 불일치.)
     await client.query(`
       TRUNCATE TABLE
         feedback_history,
@@ -6475,6 +6530,7 @@ app.post('/api/admin/reset/employees', requireHr, async (req, res) => {
         password_reset_requests,
         ui_drafts,
         org_kpis,
+        org_structure,
         evaluations
       RESTART IDENTITY CASCADE
     `);
@@ -6515,11 +6571,12 @@ app.post('/api/admin/reset/matching', requireHr, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록.
-    await client.query(
-      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_matching', $1, $2)`,
-      [actorId, `매칭정보 일괄삭제 실행 (actor: ${actorId})`]
-    );
+    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록(actor_name 스냅샷 포함).
+    await insertAdminAuditLog(client, {
+      actionType: 'reset_matching',
+      actorId,
+      reason: `매칭정보 일괄삭제 실행 (actor: ${actorId})`,
+    });
     // employees 가 matching_import_batches 를 FK 참조하므로, 먼저 참조를 끊어
     // batches TRUNCATE CASCADE 가 employees 로 전파되지 않도록 한다.
     await client.query(`UPDATE employees SET last_matching_batch_id = NULL`);
@@ -6595,11 +6652,12 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
       return res.status(404).json({ error: '평가기간을 찾을 수 없습니다.' });
     }
     const periodCode = periodRows[0].code;
-    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록.
-    await client.query(
-      `INSERT INTO admin_audit_logs (action_type, actor_id, reason) VALUES ('reset_period', $1, $2)`,
-      [actorId, `평가기간 초기화: ${periodCode} (actor: ${actorId})`]
-    );
+    // 감사 추적: 실행 전에 같은 트랜잭션으로 기록(actor_name 스냅샷 포함).
+    await insertAdminAuditLog(client, {
+      actionType: 'reset_period',
+      actorId,
+      reason: `평가기간 초기화: ${periodCode} (actor: ${actorId})`,
+    });
     const inPeriodEvals = '(SELECT id FROM evaluations WHERE evaluation_period_id = $1)';
     // 0) AI 생성물(성장제안·요약·키워드) — scope_id 가 FK 가 아니라 cascade 로 안 지워진다. 이 기간 것만 정리.
     //    과업 성장제안(scope=과업 uuid)은 과업 삭제 '전에' 매칭해 지운다.
@@ -11085,8 +11143,9 @@ app.get('/api/audit-logs', requireHr, async (req, res) => {
     const rowsResult = await pool.query(
       `SELECT a.id, a.action_type, a.actor_id, a.target_employee_id,
               a.previous_value, a.new_value, a.reason, a.created_at,
-              actor.name AS actor_name,
-              target.name AS target_employee_name
+              -- 저장된 스냅샷 이름 우선(직원 삭제 후에도 보존). 스냅샷 없는 구 행만 employees JOIN 폴백.
+              COALESCE(a.actor_name, actor.name) AS actor_name,
+              COALESCE(a.target_employee_name, target.name) AS target_employee_name
          FROM admin_audit_logs a
          LEFT JOIN employees actor ON actor.employee_id = a.actor_id
          LEFT JOIN employees target ON target.employee_id = a.target_employee_id
