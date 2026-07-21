@@ -247,7 +247,12 @@ const buildEmployeeProfileRows = (
           evaluator_position: toOptionalCellText(row[16]),
           target_status: toOptionalCellText(row[20]),
         };
-        return { ...item, raw_data: item };
+        // 상세시트에도 주민번호 뒷자리 헤더가 있으면 읽는다(무음 탈락 방지). raw_data 에는 미포함.
+        return {
+          ...item,
+          rrn_back: get('주민번호 뒷자리') ?? get('주민등록번호 뒷자리'),
+          raw_data: item,
+        };
       }
 
       const item = {
@@ -266,7 +271,13 @@ const buildEmployeeProfileRows = (
         available_roles: parseRolesFromCells(get('권한1'), get('권한2'), get('권한3')),
         job_role: get('직무'),
       };
-      return { ...item, raw_data: item };
+      // 주민번호 뒷자리(초기 비밀번호)는 raw_data(임포트 이력에 JSON 저장) 밖에만 싣는다 —
+      // item 에 넣으면 평문 PII 가 이력 테이블에 남는다.
+      return {
+        ...item,
+        rrn_back: get('주민번호 뒷자리') ?? get('주민등록번호 뒷자리'),
+        raw_data: item,
+      };
     })
     .filter((row) => row.employee_id || row.employee_name);
 };
@@ -1607,7 +1618,9 @@ const HrUsersPage = () => {
       });
       toast({
         title: '대상자 다운로드가 완료되었습니다.',
-        description: `${result.targetCount}명의 현재 대상자를 업로드 양식 그대로 받았습니다.`,
+        description:
+          `${result.targetCount}명의 현재 대상자를 업로드 양식 그대로 받았습니다. ` +
+          `'주민번호 뒷자리' 컬럼은 보안상 항상 빈칸으로 내려갑니다(해시만 저장 — 값을 채워 업로드하면 초기 비밀번호 설정, 빈칸 재업로드 시 기존 설정 유지).`,
       });
     } catch (error) {
       console.error('대상자 다운로드 실패:', error);
@@ -1829,7 +1842,9 @@ const HrUsersPage = () => {
         // F2-2: 결과 토스트를 카운트 요약으로 확장(오류 건수 포함).
         toast({
           title: '대상자 업로드가 완료되었습니다.',
-          description: `${r.applied_count}명 등록 · 평가자 ${r.evaluator_count}명 · 경고 ${r.warning_count}건 · 오류 ${r.error_count}건`,
+          description:
+            `${r.applied_count}명 등록 · 평가자 ${r.evaluator_count}명 · ` +
+            `초기 비밀번호 ${r.initial_password_count ?? 0}명 설정 · 경고 ${r.warning_count}건 · 오류 ${r.error_count}건`,
         });
       } else {
         // F2-2: 서버가 counts(17키)·evaluation_period 를 함께 돌려준다(MatchingImportResult 확장).

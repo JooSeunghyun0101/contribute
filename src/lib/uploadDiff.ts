@@ -33,7 +33,20 @@ export interface DiffItem {
 
 export interface DiffResult {
   items: DiffItem[];
-  summary: { new: number; changed: number; unchanged: number; ignored: number; error: number; total: number };
+  summary: {
+    new: number;
+    changed: number;
+    unchanged: number;
+    ignored: number;
+    error: number;
+    total: number;
+    // 대상자 업로드 전용: 주민번호 뒷자리(초기 비밀번호)가 유효하게 입력된 인원 수.
+    // 서버와 동일 규칙(공백·하이픈 제거 후 숫자 7자리)으로 집계해 적용 결과와 어긋나지 않게 한다.
+    // 행 상태(변경/동일)에는 반영하지 않는다 — 전원 입력 시 모든 행이 '변경'으로 도배되는 것 방지.
+    rrnBackCount?: number;
+    // 형식 오류(7자리 숫자 아님)로 적용 시 초기 비밀번호가 설정되지 않을 인원 수.
+    rrnBackInvalidCount?: number;
+  };
 }
 
 const ROLE_KO: Record<string, string> = {
@@ -84,7 +97,15 @@ interface MergedProfile extends OrgFields {
   job_role?: string | null;
   roles?: string[];
   evaluator_id?: string | null;
+  hasRrnBack?: boolean;
+  hasRrnInvalid?: boolean;
 }
+
+// 서버(normalizeEmployeeProfileImportRow)와 동일한 주민번호 뒷자리 판정 — 프리뷰가 과대 약속하지 않게.
+const rrnBackState = (v?: string | null): 'valid' | 'invalid' | null => {
+  if (v == null || String(v).trim() === '') return null;
+  return /^\d{7}$/.test(String(v).replace(/[\s-]/g, '')) ? 'valid' : 'invalid';
+};
 
 export const diffProfileRows = (
   rows: EmployeeProfileImportRowInput[],
@@ -111,6 +132,9 @@ export const diffProfileRows = (
     if (r.job_role != null) cur.job_role = r.job_role;
     if (r.available_roles && r.available_roles.length) cur.roles = r.available_roles;
     if (r.evaluator_id != null) cur.evaluator_id = r.evaluator_id;
+    const rrnState = rrnBackState(r.rrn_back);
+    if (rrnState === 'valid') cur.hasRrnBack = true;
+    else if (rrnState === 'invalid') cur.hasRrnInvalid = true;
     merged.set(r.employee_id, cur);
   }
 
@@ -148,7 +172,11 @@ export const diffProfileRows = (
     }
     items.push({ employeeId: m.employee_id, name: m.name, status: changes.length ? 'changed' : 'unchanged', changes });
   }
-  return summarize(items);
+  const result = summarize(items);
+  const mergedList = [...merged.values()];
+  result.summary.rrnBackCount = mergedList.filter((m) => m.hasRrnBack && m.name).length;
+  result.summary.rrnBackInvalidCount = mergedList.filter((m) => !m.hasRrnBack && m.hasRrnInvalid).length;
+  return result;
 };
 
 // ── 매칭(평가자 배정) 업로드 diff ─────────────────────────────

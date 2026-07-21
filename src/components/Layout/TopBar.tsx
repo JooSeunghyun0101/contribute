@@ -311,7 +311,7 @@ export const TopBar = () => {
               />
             </label>
             <label style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)' }}>
-              새 비밀번호 (8자 이상, 사번 불가)
+              새 비밀번호 (8자 이상, 사번·주민번호 뒷자리 불가)
               <input
                 type="password"
                 autoComplete="new-password"

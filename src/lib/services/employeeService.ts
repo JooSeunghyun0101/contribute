@@ -200,6 +200,9 @@ export type EmployeeProfileImportRowInput = {
   evaluator_position?: string | null;
   target_status?: string | null;
   available_roles?: string[];
+  // 주민번호 뒷자리(초기 비밀번호 설정용). 서버가 즉시 bcrypt 해시로 변환·저장하고
+  // 평문은 어디에도(임포트 이력 raw_data 포함) 남기지 않는다. raw_data 에 넣지 말 것.
+  rrn_back?: string | null;
   raw_data?: Record<string, unknown>;
 };
 
@@ -233,6 +236,8 @@ export type EmployeeProfileImportResult = {
   evaluator_count: number;
   warning_count: number;
   error_count: number;
+  // 주민번호 뒷자리로 초기 비밀번호가 설정된 인원 수.
+  initial_password_count?: number;
 };
 
 export interface ContributionImportRow {

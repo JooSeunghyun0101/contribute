@@ -10,7 +10,7 @@ import {
 import { employeeService } from '@/lib/services/employeeService';
 
 // HR 비밀번호 초기화 관리: 대기 요청 승인/반려 + 요청 없이 직접 초기화.
-// 승인·직접초기화 모두 대상 직원 비밀번호를 사번(초기 비밀번호)으로 되돌린다.
+// 승인·직접초기화 모두 대상 직원 비밀번호를 초기 비밀번호(주민번호 뒷자리, 미등록 시 사번)로 되돌린다.
 const PasswordResetManager = () => {
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -44,14 +44,14 @@ const PasswordResetManager = () => {
   const handleApprove = async (req: PasswordResetRequest) => {
     const ok = await confirm({
       title: '비밀번호 초기화 승인',
-      description: `${labelOf(req)}님의 비밀번호를 사번으로 초기화합니다. 해당 직원은 사번으로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
+      description: `${labelOf(req)}님의 비밀번호를 초기 비밀번호(주민번호 뒷자리, 미등록 시 사번)로 초기화합니다. 해당 직원은 초기 비밀번호로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
       confirmText: '승인',
     });
     if (!ok) return;
     setBusyId(req.id);
     try {
       await passwordResetService.approve(req.id);
-      toast({ title: '초기화 승인 완료', description: `${labelOf(req)}님의 비밀번호를 사번으로 초기화했습니다.` });
+      toast({ title: '초기화 승인 완료', description: `${labelOf(req)}님의 비밀번호를 초기 비밀번호로 초기화했습니다.` });
       await load();
     } catch {
       toast({ title: '승인 실패', description: '서버와 통신 중 오류가 발생했습니다.', variant: 'destructive' });
@@ -112,14 +112,14 @@ const PasswordResetManager = () => {
     const label = `${name}(${id})`;
     const ok = await confirm({
       title: 'HR 직접 비밀번호 초기화',
-      description: `${label} 님의 비밀번호를 사번으로 즉시 초기화합니다. 해당 직원은 사번으로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
+      description: `${label} 님의 비밀번호를 초기 비밀번호(주민번호 뒷자리, 미등록 시 사번)로 즉시 초기화합니다. 해당 직원은 초기 비밀번호로 로그인 후 새 비밀번호를 설정하게 됩니다.`,
       confirmText: '초기화',
     });
     if (!ok) return;
     setDirectBusy(true);
     try {
       await passwordResetService.directReset(id);
-      toast({ title: '초기화 완료', description: `${label} 님의 비밀번호를 사번으로 초기화했습니다.` });
+      toast({ title: '초기화 완료', description: `${label} 님의 비밀번호를 초기 비밀번호로 초기화했습니다.` });
       setDirectId('');
       setDirectName(null);
       setLookupState('idle');
@@ -200,7 +200,7 @@ const PasswordResetManager = () => {
       <section className="sd-card sd-card-lg">
         <h3 style={{ fontSize: 'var(--fs-h4)', fontWeight: 800, marginBottom: 8 }}>직접 초기화</h3>
         <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--fg-muted)', marginBottom: 14, lineHeight: 1.6 }}>
-          요청 없이 특정 직원의 비밀번호를 <b>사번(초기 비밀번호)</b>으로 즉시 되돌립니다.
+          요청 없이 특정 직원의 비밀번호를 <b>초기 비밀번호(주민번호 뒷자리, 미등록 시 사번)</b>로 즉시 되돌립니다.
           해당 직원은 다음 로그인 시 새 비밀번호 설정을 강제받습니다.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

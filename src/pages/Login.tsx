@@ -68,7 +68,7 @@ const Login = () => {
     setIsLoading(true);
     try {
       const res = await authService.requestPasswordReset(employeeId, resetReason || undefined);
-      setInfo(res.message ?? '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 사번으로 로그인하세요.');
+      setInfo(res.message ?? '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 초기 비밀번호(주민번호 뒷자리)로 로그인하세요.');
       setResetReason('');
       setResetOpen(false);
     } catch (err) {
@@ -93,7 +93,7 @@ const Login = () => {
     e.preventDefault();
     setError('');
     if (!password) {
-      setError('현재 비밀번호를 입력해주세요. (최초 로그인은 사번)');
+      setError('현재 비밀번호를 입력해주세요. (최초 로그인은 초기 비밀번호)');
       return;
     }
     if (newPassword.length < 8) {
@@ -240,7 +240,7 @@ const Login = () => {
                 />
               </div>
               <div className="sd-field">
-                <label htmlFor="login-password" className="login-label">비밀번호 (최초 로그인은 사번)</label>
+                <label htmlFor="login-password" className="login-label">비밀번호 (최초 로그인: 주민번호 뒷자리, 미등록 계정은 사번)</label>
                 <input
                   id="login-password"
                   className="login-input"
@@ -281,8 +281,8 @@ const Login = () => {
                 }}
               >
                 <div style={{ fontSize: 'var(--fs-sm)', color: 'var(--lg-text-soft)', lineHeight: 1.55 }}>
-                  사번을 입력하면 관리자에게 초기화 요청이 전달됩니다. 승인되면 <b>사번(초기 비밀번호)</b>으로
-                  로그인 후 새 비밀번호를 설정하세요.
+                  사번을 입력하면 관리자에게 초기화 요청이 전달됩니다. 승인되면 <b>초기 비밀번호(주민번호
+                  뒷자리, 미등록 계정은 사번)</b>로 로그인 후 새 비밀번호를 설정하세요.
                 </div>
                 <div className="sd-field">
                   <label htmlFor="login-reset-employee-id" className="login-label">사번</label>
@@ -326,7 +326,7 @@ const Login = () => {
             style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}
           >
             <div className="sd-field">
-              <label htmlFor="login-current-password" className="login-label">현재 비밀번호 (최초 로그인은 사번)</label>
+              <label htmlFor="login-current-password" className="login-label">현재 비밀번호 (최초 로그인은 초기 비밀번호)</label>
               <input
                 id="login-current-password"
                 className="login-input"
@@ -338,7 +338,7 @@ const Login = () => {
               />
             </div>
             <div className="sd-field">
-              <label htmlFor="login-new-password" className="login-label">새 비밀번호 (8자 이상, 사번 사용 불가)</label>
+              <label htmlFor="login-new-password" className="login-label">새 비밀번호 (8자 이상, 사번·주민번호 뒷자리 사용 불가)</label>
               <input
                 id="login-new-password"
                 className="login-input"

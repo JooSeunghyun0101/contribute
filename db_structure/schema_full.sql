@@ -265,6 +265,7 @@ CREATE TABLE public.employees (
     org_team text,
     password_hash text,
     must_change_password boolean DEFAULT true NOT NULL,
+    initial_password_hash text,
     ai_rule_exempt boolean DEFAULT false NOT NULL
 );
 
@@ -281,6 +282,13 @@ COMMENT ON COLUMN public.employees.password_hash IS 'bcrypt 해시. NULL=초기 
 --
 
 COMMENT ON COLUMN public.employees.must_change_password IS 'true면 로그인 직후 비밀번호 변경 강제';
+
+
+--
+-- Name: COLUMN employees.initial_password_hash; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.employees.initial_password_hash IS '초기 비밀번호(주민번호 뒷자리 7자리)의 bcrypt 해시. NULL=미등록(초기 비밀번호=사번 폴백). 평문 미저장.';
 
 
 --

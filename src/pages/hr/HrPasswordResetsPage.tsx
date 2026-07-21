@@ -7,7 +7,7 @@ const HrPasswordResetsPage = () => (
   <div>
     <PageHeader
       title="비밀번호 초기화 승인"
-      subtitle="직원의 비밀번호 초기화 요청을 승인·반려하거나, 요청 없이 직접 초기화합니다. 초기화 시 비밀번호는 사번(초기 비밀번호)으로 되돌아갑니다."
+      subtitle="직원의 비밀번호 초기화 요청을 승인·반려하거나, 요청 없이 직접 초기화합니다. 초기화 시 비밀번호는 초기 비밀번호(주민번호 뒷자리, 미등록 시 사번)로 되돌아갑니다."
     />
     <div style={{ padding: '24px 32px 32px' }}>
       <PasswordResetManager />

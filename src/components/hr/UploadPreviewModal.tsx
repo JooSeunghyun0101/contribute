@@ -173,6 +173,40 @@ const UploadPreviewModal = ({ title, fileName, result, isApplying, counts, onCon
           </label>
         </div>
 
+        {/* 대상자 업로드: 주민번호 뒷자리(초기 비밀번호) 입력 인원 안내 — 행 상태와 별개의 부수효과라 따로 보여준다. */}
+        {((summary.rrnBackCount ?? 0) > 0 || (summary.rrnBackInvalidCount ?? 0) > 0) && (
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--bg-subtle)',
+              padding: '10px 14px',
+              marginBottom: 12,
+              fontSize: 'var(--fs-sm)',
+              color: 'var(--fg-muted)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <span>
+              주민번호 뒷자리 입력 <strong className="tnum">{summary.rrnBackCount ?? 0}</strong>명 — 적용 시
+              해당 인원의 초기 비밀번호(주민번호 뒷자리)가 설정됩니다. 값은 암호화(해시)되어 저장되며 평문은
+              남지 않습니다.
+            </span>
+            {(summary.rrnBackInvalidCount ?? 0) > 0 && (
+              <span style={{ color: 'var(--warning)' }}>
+                형식 오류 <strong className="tnum">{summary.rrnBackInvalidCount}</strong>명 — 숫자 7자리가
+                아니어서 초기 비밀번호가 설정되지 않습니다(경고로 처리).
+              </span>
+            )}
+            <span>
+              컬럼이 빈 인원은 기존 설정이 유지되며(해제 아님), 한 번도 등록된 적 없는 인원의 초기
+              비밀번호는 사번입니다.
+            </span>
+          </div>
+        )}
+
         {/* F2-1: 서버 counts 가 오면 "조용한 탈락" 사유를 전부 노출한다(0건 항목은 숨김). */}
         {counts && (
           <div style={{ marginBottom: 12 }}>

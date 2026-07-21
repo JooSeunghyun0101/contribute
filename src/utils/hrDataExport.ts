@@ -26,6 +26,8 @@ import type { AuditLogRow } from '@/lib/services/auditLogService';
 // 부서명(표시명)은 매칭 업로드의 부서명에서 채운다.
 // 부서ID: 매칭 파일은 피평가자 행만 있어 평가자 전용 인원(임원 등)의 부서ID를 넣을 수 없다 —
 // 대상자 양식에도 열을 두되, 충돌 시 매칭 업로드가 1순위(서버 department_id_source 로 보장).
+// 주민번호 뒷자리: 초기 비밀번호 설정용 입력 전용 컬럼 — DB에 평문 미저장(해시만)이라
+// 다운로드에서는 항상 빈칸으로 나간다. HR이 값을 붙여 재업로드하면 초기 비밀번호가 설정된다.
 const PROFILE_SUMMARY_HEADERS = [
   '사번',
   '성명',
@@ -36,6 +38,7 @@ const PROFILE_SUMMARY_HEADERS = [
   '권한2',
   '권한3',
   '직무',
+  '주민번호 뒷자리',
 ];
 
 const MATCHING_IMPORT_HEADERS = [
@@ -424,6 +427,8 @@ const buildProfileSummaryRows = (
       roles[1] ?? '',
       roles[2] ?? '',
       employee.job_role ?? '',
+      // 주민번호 뒷자리 — 평문 미저장(해시만)이라 항상 빈칸. HR이 채워서 업로드하는 입력 전용 열.
+      '',
     ];
   }),
 ];

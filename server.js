@@ -243,6 +243,7 @@ async function ensureRuntimeSchema() {
          ADD COLUMN IF NOT EXISTS org_team               text,
          ADD COLUMN IF NOT EXISTS password_hash          text,
          ADD COLUMN IF NOT EXISTS must_change_password   boolean NOT NULL DEFAULT true,
+         ADD COLUMN IF NOT EXISTS initial_password_hash  text,
          ADD COLUMN IF NOT EXISTS ai_rule_exempt         boolean NOT NULL DEFAULT false`,
       `ALTER TABLE employee_profile_import_batches ADD COLUMN IF NOT EXISTS evaluation_period_id uuid`,
       `ALTER TABLE matching_import_batches         ADD COLUMN IF NOT EXISTS evaluation_period_id uuid`,
@@ -660,6 +661,12 @@ const normalizeEmployeeProfileImportRow = (row = {}, index = 0) => {
   const growthLevelLabel = normalizeOptionalText(row.growth_level_label ?? row.growthLevelLabel);
   const growthLevel = parseGrowthLevel(row.growth_level ?? row.growthLevel ?? growthLevelLabel);
 
+  // 주민번호 뒷자리(초기 비밀번호 원문) — 여기서는 형식 검증만 하고, apply 단계에서 즉시
+  // bcrypt 해시(employees.initial_password_hash)로 변환한다. 평문은 DB·로그·응답 어디에도 저장 금지.
+  const rrnBackRaw = normalizeOptionalText(row.rrn_back ?? row.rrnBack);
+  const rrnBackDigits = rrnBackRaw ? rrnBackRaw.replace(/[\s-]/g, '') : null;
+  const rrnBack = rrnBackDigits && /^\d{7}$/.test(rrnBackDigits) ? rrnBackDigits : null;
+
   let validationStatus = 'valid';
   const messages = [];
   if (!employeeId) messages.push('사번 누락');
@@ -668,9 +675,17 @@ const normalizeEmployeeProfileImportRow = (row = {}, index = 0) => {
     validationStatus = 'warning';
     messages.push('성장레벨 확인 필요');
   }
+  if (rrnBackRaw && !rrnBack) {
+    validationStatus = 'warning';
+    messages.push('주민번호 뒷자리 형식 확인 필요(숫자 7자리) — 초기 비밀번호 미설정');
+  }
   if (messages.some((message) => message.includes('누락'))) {
     validationStatus = 'error';
   }
+
+  // PII 격리: raw_data(import 이력 테이블에 JSON 저장)에서 주민번호 평문 키를 제거.
+  const { rrn_back: _rrnRaw1, rrnBack: _rrnRaw2, ...sanitizedRawData } =
+    row.raw_data ?? row.rawData ?? row;
 
   return {
     sheet_name: normalizeOptionalText(row.sheet_name ?? row.sheetName) ?? 'Sheet1',
@@ -702,9 +717,10 @@ const normalizeEmployeeProfileImportRow = (row = {}, index = 0) => {
     evaluator_position: normalizeOptionalText(row.evaluator_position ?? row.evaluatorPosition),
     target_status: normalizeOptionalText(row.target_status ?? row.targetStatus),
     available_roles: normalizeAvailableRoles(row.available_roles ?? row.availableRoles),
+    rrn_back: rrnBack,
     validation_status: validationStatus,
     validation_message: messages.join(', ') || null,
-    raw_data: row.raw_data ?? row.rawData ?? row,
+    raw_data: sanitizedRawData,
   };
 };
 
@@ -736,6 +752,7 @@ const mergeEmployeeProfileRows = (rows) => {
       evaluator_position: null,
       target_status: null,
       available_roles: [],
+      rrn_back: null,
       primary_row: null,
     };
     const isDetailed = row.department_id || row.org_sequence || row.evaluator_id || row.target_status;
@@ -771,6 +788,7 @@ const mergeEmployeeProfileRows = (rows) => {
       evaluator_position: row.evaluator_position ?? current.evaluator_position,
       target_status: row.target_status ?? current.target_status,
       available_roles: mergedRoles,
+      rrn_back: row.rrn_back ?? current.rrn_back,
       primary_row:
         !current.primary_row || (isDetailed && !currentIsDetailed) ? row : current.primary_row,
     });
@@ -2514,11 +2532,17 @@ app.post('/api/ai/chat', async (req, res) => {
 
 /* ==================== Auth Routes ==================== */
 // 자체 비밀번호(G-1) + httpOnly 쿠키 세션. 세션은 인메모리(단일 인스턴스 전제) —
-// 서버 재시작 시 전원 재로그인. password_hash NULL = 초기 상태(초기 비밀번호=사번, 변경 강제).
+// 서버 재시작 시 전원 재로그인. password_hash NULL = 초기 상태(변경 강제) —
+// 초기 비밀번호는 initial_password_hash(주민번호 뒷자리, 대상자 업로드로 설정)가 있으면 그것,
+// 없으면 사번(전환기·admin·수동 추가 계정 폴백).
 const SESSION_COOKIE = 'egs_session';
 const SESSION_ABS_TTL_MS = 8 * 60 * 60 * 1000; // 절대 8시간
 const SESSION_IDLE_TTL_MS = 2 * 60 * 60 * 1000; // 유휴 2시간
 const BCRYPT_ROUNDS = 10;
+// 초기 비밀번호(주민번호 뒷자리) 해시 전용 라운드 — 대상자 업로드가 수백 명을 한 요청에서
+// 해시하므로(비용 10이면 771명 ≈ 1분+) 낮춘다. 7자리 숫자는 라운드 수가 방어선이 아니라
+// 로그인 rate-limit 이 방어선이고, 첫 로그인 시 즉시 변경이 강제된다.
+const INITIAL_PW_BCRYPT_ROUNDS = 8;
 const sessions = new Map(); // token -> { employeeId, createdAt, lastSeenAt }
 
 setInterval(() => {
@@ -2587,11 +2611,14 @@ const getSession = (req) => {
 // 응답에서 인증 비밀은 항상 제거한다.
 const sanitizeEmployee = (employee) => {
   if (!employee) return employee;
-  const { password_hash: _ph, ...safe } = employee;
+  const { password_hash: _ph, initial_password_hash: _iph, ...safe } = employee;
   return safe;
 };
 
-// 로그인 브루트포스 완화: IP별 분당 10회.
+// 로그인 브루트포스 완화: IP별 + 사번(계정)별 각각 분당 10회.
+// IP 키는 X-Forwarded-For 를 우선하므로 클라이언트가 헤더를 바꿔가며 우회할 수 있다 —
+// 초기 비밀번호가 저엔트로피(주민번호 뒷자리 7자리)가 된 지금은 조작 불가능한
+// '사번 단위' 버킷이 실질 방어선이다(특정 계정 브루트포스를 분당 10회로 고정).
 const LOGIN_RATE_LIMIT_PER_MINUTE = 10;
 const loginRateBuckets = new Map();
 const loginRateLimited = (key) => {
@@ -2616,16 +2643,28 @@ const clientIpOf = (req) => {
   return (typeof fwd === 'string' ? fwd.split(',')[0].trim() : '') || req.socket?.remoteAddress || 'unknown';
 };
 
+// 비밀번호 변경·초기화 시 해당 계정의 기존 세션 무효화(탈취 세션 정리).
+// exceptToken: 변경을 수행한 본인 세션은 유지.
+const invalidateSessionsFor = (employeeId, exceptToken = null) => {
+  const target = String(employeeId);
+  for (const [token, s] of sessions) {
+    if (s.employeeId === target && token !== exceptToken) sessions.delete(token);
+  }
+};
+
 app.post('/api/auth/login', async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
-  if (loginRateLimited(clientIpOf(req))) {
-    return res.status(429).json({ error: '로그인 시도가 너무 잦습니다. 잠시 후 다시 시도해 주세요.' });
-  }
   const { employee_id: employeeIdRaw, password } = req.body ?? {};
   if (typeof employeeIdRaw !== 'string' || !employeeIdRaw.trim() || typeof password !== 'string' || !password) {
     return res.status(400).json({ error: '사번과 비밀번호를 입력해 주세요.' });
   }
   const employeeId = employeeIdRaw.trim();
+  // IP 버킷(스푸핑 가능한 XFF 기반)만으로는 우회될 수 있어 사번 버킷을 병행한다 — 둘 다 항상 카운트.
+  const ipLimited = loginRateLimited(`ip:${clientIpOf(req)}`);
+  const idLimited = loginRateLimited(`id:${employeeId}`);
+  if (ipLimited || idLimited) {
+    return res.status(429).json({ error: '로그인 시도가 너무 잦습니다. 잠시 후 다시 시도해 주세요.' });
+  }
   // 사번 존재 여부를 구분해 노출하지 않는다(계정 열거 방지).
   const fail = () => res.status(401).json({ error: '사번 또는 비밀번호가 올바르지 않습니다.' });
   try {
@@ -2638,8 +2677,13 @@ app.post('/api/auth/login', async (req, res) => {
       const ok = await bcrypt.compare(password, employee.password_hash);
       if (!ok) return fail();
       mustChange = employee.must_change_password === true;
+    } else if (employee.initial_password_hash) {
+      // 초기 상태 + 주민번호 뒷자리 등록됨: 초기 비밀번호 = 주민번호 뒷자리(사번 불가). 로그인 후 변경 강제.
+      const ok = await bcrypt.compare(password, employee.initial_password_hash);
+      if (!ok) return fail();
+      mustChange = true;
     } else {
-      // 초기 상태: 초기 비밀번호 = 사번. 로그인 후 변경 강제.
+      // 초기 상태(주민번호 미등록 — admin·수동 추가 계정): 초기 비밀번호 = 사번. 로그인 후 변경 강제.
       if (password !== String(employee.employee_id)) return fail();
       mustChange = true;
     }
@@ -2700,14 +2744,30 @@ app.post('/api/auth/change-password', async (req, res) => {
 
     const currentOk = employee.password_hash
       ? await bcrypt.compare(currentPassword, employee.password_hash)
-      : currentPassword === String(employee.employee_id);
+      : employee.initial_password_hash
+        ? await bcrypt.compare(currentPassword, employee.initial_password_hash)
+        : currentPassword === String(employee.employee_id);
     if (!currentOk) return res.status(401).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+
+    // 초기 비밀번호(주민번호 뒷자리)를 새 비밀번호로 재사용하는 것 금지 — 사번 금지 규칙과 동일 취지.
+    // 현 규칙(RRN 7자리 < 최소 8자)에서는 위 길이 검사가 먼저 걸러 도달하지 않지만,
+    // 길이 규칙·RRN 자릿수 정책이 바뀌어도 깨지지 않도록 방어적으로 유지한다.
+    if (
+      employee.initial_password_hash &&
+      (await bcrypt.compare(newPassword, employee.initial_password_hash))
+    ) {
+      return res
+        .status(400)
+        .json({ error: '새 비밀번호로 초기 비밀번호(주민번호 뒷자리)를 사용할 수 없습니다.' });
+    }
 
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await pool.query(
       'UPDATE employees SET password_hash = $1, must_change_password = FALSE WHERE employee_id::text = $2',
       [hash, session.employeeId],
     );
+    // 다른 기기의 구 세션 무효화(본인 현재 세션은 유지).
+    invalidateSessionsFor(session.employeeId, parseCookies(req)[SESSION_COOKIE]);
     res.json({ ok: true });
   } catch (err) {
     console.error('비밀번호 변경 실패:', err.message);
@@ -2726,7 +2786,7 @@ app.post('/api/auth/password-reset-request', async (req, res) => {
     return res.status(400).json({ error: '사번을 입력해 주세요.' });
   }
   const successMessage =
-    '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 사번(초기 비밀번호)으로 로그인할 수 있습니다.';
+    '비밀번호 초기화 요청이 접수되었습니다. 관리자 승인 후 초기 비밀번호(주민번호 뒷자리, 미등록 계정은 사번)로 로그인할 수 있습니다.';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -2846,8 +2906,12 @@ const requireHrOrEvaluator = async (req, res, next) => {
 // 직원 응답에서 인증 컬럼 제거 — SELECT * 라우트가 password_hash 를 흘리지 않도록 응답 직전에 벗긴다.
 const stripAuthFields = (data) => {
   if (Array.isArray(data)) return data.map(stripAuthFields);
-  if (data && typeof data === 'object' && ('password_hash' in data || 'must_change_password' in data)) {
-    const { password_hash: _ph, must_change_password: _mc, ...safe } = data;
+  if (
+    data &&
+    typeof data === 'object' &&
+    ('password_hash' in data || 'must_change_password' in data || 'initial_password_hash' in data)
+  ) {
+    const { password_hash: _ph, must_change_password: _mc, initial_password_hash: _iph, ...safe } = data;
     return safe;
   }
   return data;
@@ -3923,6 +3987,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
       );
     }
 
+    let initialPasswordCount = 0;
     for (const row of mergedRows) {
       const fileRoles = row.available_roles ?? [];
       const isEvaluatorRef = evaluatorRefs.has(row.employee_id);
@@ -3933,6 +3998,12 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
         isEvaluatorRef && !baseRoles.includes('evaluator')
           ? [...baseRoles, 'evaluator']
           : baseRoles;
+      // 주민번호 뒷자리 → 초기 비밀번호 해시. 평문은 여기서 소멸(이후 응답·로그·이력 미저장).
+      // 컬럼이 빈 행은 기존 해시 유지(COALESCE) — 주민번호 없이 재업로드해도 초기 비밀번호가 풀리지 않는다.
+      const initialPasswordHash = row.rrn_back
+        ? await bcrypt.hash(row.rrn_back, INITIAL_PW_BCRYPT_ROUNDS)
+        : null;
+      if (initialPasswordHash) initialPasswordCount += 1;
       await client.query(
         `
           INSERT INTO employees (
@@ -3956,10 +4027,11 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             org_division,
             org_department,
             org_team,
+            initial_password_hash,
             created_at,
             updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,CASE WHEN $5::text IS NULL THEN NULL ELSE 'profile' END,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,NOW(),NOW())
+          VALUES ($1,$2,$3,$4,$5,CASE WHEN $5::text IS NULL THEN NULL ELSE 'profile' END,$6,$7::text[],$8,$9,$10,$11,$12,$13,$14,$15,$17,$18,$19,$20,$21,NOW(),NOW())
           ON CONFLICT (employee_id) DO UPDATE SET
             name = EXCLUDED.name,
             position = COALESCE(NULLIF(EXCLUDED.position, ''), employees.position),
@@ -4011,6 +4083,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
             org_division = COALESCE(EXCLUDED.org_division, employees.org_division),
             org_department = COALESCE(EXCLUDED.org_department, employees.org_department),
             org_team = COALESCE(EXCLUDED.org_team, employees.org_team),
+            initial_password_hash = COALESCE(EXCLUDED.initial_password_hash, employees.initial_password_hash),
             updated_at = NOW()
         `,
         [
@@ -4034,6 +4107,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
           row.org_division ?? null,
           row.org_department ?? null,
           row.org_team ?? null,
+          initialPasswordHash,
         ]
       );
     }
@@ -4177,6 +4251,8 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
         row_count: normalizedRows.length,
         applied_count: mergedRows.length,
         evaluator_count: evaluatorRefs.size,
+        // 주민번호 뒷자리로 초기 비밀번호가 설정된 인원 수(값 자체는 어디에도 기록하지 않음).
+        initial_password_count: initialPasswordCount,
       },
       reason: `Employee profile import: ${sourceFileName}`,
     });
@@ -4185,7 +4261,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
     const { rows: hrRecipients } = await client.query(
       `SELECT employee_id FROM employees WHERE 'hr' = ANY(available_roles)`
     );
-    const summaryMessage = `${sourceFileName} · ${mergedRows.length}명 반영 · 평가자 ${evaluatorRefs.size}명 · 경고 ${warningCount}건`;
+    const summaryMessage = `${sourceFileName} · ${mergedRows.length}명 반영 · 평가자 ${evaluatorRefs.size}명 · 초기 비밀번호 ${initialPasswordCount}명 · 경고 ${warningCount}건`;
     for (const recipient of hrRecipients) {
       await insertNotificationRow(client, {
         notificationType: 'profile_imported',
@@ -4206,6 +4282,7 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
       evaluator_count: evaluatorRefs.size,
       warning_count: warningCount,
       error_count: errorCount,
+      initial_password_count: initialPasswordCount,
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -5653,7 +5730,8 @@ app.put('/api/employee/:id', requireHr, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json(updatedEmployee);
+    // RETURNING * 행이라 인증 컬럼(password_hash·initial_password_hash)을 벗겨서 응답.
+    res.json(stripAuthFields(updatedEmployee));
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error updating employee:', err);
@@ -5871,7 +5949,7 @@ app.get('/api/hr/export/evaluation-data', requireHr, async (req, res) => {
     ]);
     // 보안: 인증 컬럼은 응답에서 제거(SELECT * 라우트 공통 규칙).
     const employees = employeesQ.rows.map(
-      ({ password_hash: _ph, must_change_password: _mc, ...safe }) => safe
+      ({ password_hash: _ph, must_change_password: _mc, initial_password_hash: _iph, ...safe }) => safe
     );
     res.json({
       employees,
@@ -6177,7 +6255,8 @@ const cancelEvaluatorAssignmentHistoryRow = async (client, { historyId, actorId,
 
     return {
       cancelled: cancelledRows[0],
-      employee: updatedEmployee,
+      // RETURNING * 행 — 응답으로 나가므로 인증 컬럼 제거.
+      employee: stripAuthFields(updatedEmployee),
       cancelled_entries: cancelledEntryCount,
       restored_history: restoredSupersededHistory,
       evaluation: reconciledEvaluation,
@@ -6483,7 +6562,8 @@ app.post('/api/evaluator-assignment-history/:id/correct', requireHr, async (req,
     await client.query('COMMIT');
     res.json({
       correction: correctionRow,
-      employee: updatedEmployee,
+      // RETURNING * 행 — 인증 컬럼 제거 후 응답.
+      employee: stripAuthFields(updatedEmployee),
       is_current_assignment: isCurrentAssignment,
       transferred_entries: correctionResult.transferredEntries.length,
       merged_entries: correctionResult.mergedEntries.length,
@@ -6902,7 +6982,7 @@ app.get('/api/badge-counts', async (req, res) => {
   }
 });
 
-// 요청 승인 → 해당 직원 비밀번호를 사번으로 초기화.
+// 요청 승인 → 해당 직원 비밀번호를 초기 상태로 되돌린다(초기 비밀번호 = 주민번호 뒷자리, 미등록 시 사번).
 app.post('/api/admin/password-reset-requests/:id/approve', requireHr, async (req, res) => {
   if (!isDbAvailable) return sendDbUnavailable(res);
   const actorId = req.session.employeeId;
@@ -6932,6 +7012,8 @@ app.post('/api/admin/password-reset-requests/:id/approve', requireHr, async (req
       await client.query('ROLLBACK');
       return res.status(404).json({ error: '대상 직원을 찾을 수 없습니다.' });
     }
+    // 초기화 시 대상 계정의 기존 세션 전부 무효화(탈취 의심 대응 포함).
+    invalidateSessionsFor(request.employee_id);
     await client.query(
       `UPDATE password_reset_requests
           SET status = 'approved', resolved_by = $2, resolved_at = now(), updated_at = now()
@@ -6996,6 +7078,8 @@ app.post('/api/admin/password-reset/:employeeId', requireHr, async (req, res) =>
       await client.query('ROLLBACK');
       return res.status(404).json({ error: '대상 직원을 찾을 수 없습니다.' });
     }
+    // 초기화 시 대상 계정의 기존 세션 전부 무효화(탈취 의심 대응 포함).
+    invalidateSessionsFor(targetId);
     // 대기 중인 같은 직원의 요청이 있으면 함께 승인 처리(정합).
     await client.query(
       `UPDATE password_reset_requests
