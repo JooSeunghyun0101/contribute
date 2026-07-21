@@ -13,6 +13,7 @@ import { EvaluationMatrixProvider } from "@/contexts/EvaluationMatrixContext";
 import { ExpectationProvider } from "@/contexts/ExpectationContext";
 import { NotificationProviderDB } from "@/contexts/NotificationContextDB";
 import { EvaluationPeriodProvider } from "@/contexts/EvaluationPeriodContext";
+import { TourProvider } from "@/components/Tour/TourContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/Layout/AppLayout";
 
@@ -83,13 +84,16 @@ const AppShell = () => {
   return (
     <ProtectedRoute>
       <EvaluationPeriodProvider>
-        <AppLayout>
-          <ErrorBoundary resetKey={location.pathname}>
-            <Suspense fallback={<FullScreenLoader message="화면을 불러오는 중입니다…" />}>
-              <Outlet />
-            </Suspense>
-          </ErrorBoundary>
-        </AppLayout>
+        {/* 화면 안내(코치마크) — 인증된 셸 전체에서 사용. 오버레이는 body 포털로 렌더 */}
+        <TourProvider>
+          <AppLayout>
+            <ErrorBoundary resetKey={location.pathname}>
+              <Suspense fallback={<FullScreenLoader message="화면을 불러오는 중입니다…" />}>
+                <Outlet />
+              </Suspense>
+            </ErrorBoundary>
+          </AppLayout>
+        </TourProvider>
       </EvaluationPeriodProvider>
     </ProtectedRoute>
   );

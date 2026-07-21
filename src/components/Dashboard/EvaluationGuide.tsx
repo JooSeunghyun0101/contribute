@@ -14,6 +14,18 @@ interface EvaluationGuideProps {
 const EvaluationGuide: React.FC<EvaluationGuideProps> = ({ onClose }) => {
   const { matrix } = useEvaluationMatrix();
 
+  // Esc 로 닫기 — preventDefault 로 아래 레이어(화면 안내 투어 등)가 대신 닫히는 것을 막는다.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   return (
     // 모달 스크림 — 전 화면 공통 표준값(var(--overlay), 인라인 스타일 모달들과 통일)
     <div

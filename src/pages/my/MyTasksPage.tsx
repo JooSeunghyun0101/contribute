@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { HelpCircle } from 'lucide-react';
+import { Compass, HelpCircle } from 'lucide-react';
 import PageHeader from '@/components/Layout/PageHeader';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
+import { useTour, useTourAutoStart } from '@/components/Tour/TourContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationPeriod } from '@/contexts/EvaluationPeriodContext';
 import { employeeService, evaluationService } from '@/lib/services';
 import { formatEvaluatorPeriod } from '@/lib/evaluatorHistory';
 import { buildEvaluatorPeriods } from '@/lib/evaluatorHistory';
 import EvaluationAccordionCard from './EvaluationAccordionCard';
+import { EVALUATEE_TASK_LOCKED_STATUSES } from './_taskHelpers';
 import { ErrorState, EmptyState, LoadingState } from '@/components/ui/state-views';
 import type { Evaluation, Employee, EvaluatorAssignmentHistory } from '@/types';
 
@@ -24,6 +26,7 @@ const MyTasksPage = () => {
   const [reloadKey, setReloadKey] = useState(0);
   // P3-11: 평가 가이드 모달(기구현 EvaluationGuide 재배선) — 작성 기준·매트릭스 안내.
   const [showGuide, setShowGuide] = useState(false);
+  const { startTour } = useTour();
 
   useEffect(() => {
     if (!employeeId) return;
@@ -87,19 +90,39 @@ const MyTasksPage = () => {
     });
   }, [evaluations, selectedPeriod?.id, selectedPeriod?.evaluation_year]);
 
+  // 첫 방문 시 과업 등록 순서를 화면 위에서 단계별로 안내(사용자·화면별 1회, 이후 버튼으로 재실행).
+  // 현재 평가가 편집 가능할 때만 자동 시작 — 잠금(제출 완료 등)·마감 기간에서 시작하면
+  // '작성' 안내가 헛돌고 1회성 자동 표시 기회만 소모된다(평가자 화면의 canEvaluate 게이트와 동일 원칙).
+  const currentEvaluation = visibleEvaluations[0];
+  const isCurrentEditable =
+    !!currentEvaluation &&
+    !EVALUATEE_TASK_LOCKED_STATUSES.has(currentEvaluation.evaluation_status) &&
+    (!selectedPeriod || selectedPeriod.status === 'active');
+  useTourAutoStart('my-tasks', !isLoading && !loadError && isCurrentEditable);
+
   return (
     <>
       <PageHeader
         title="내 과업"
         actions={
-          <button
-            className="sd-btn sd-btn-outline sd-btn-sm"
-            onClick={() => setShowGuide(true)}
-            title="평가 기준·매트릭스 가이드를 봅니다."
-          >
-            <HelpCircle size={14} aria-hidden="true" />
-            평가 가이드
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => startTour('my-tasks', { force: true })}
+              title="과업 등록 순서를 화면 위에서 단계별로 안내합니다."
+            >
+              <Compass size={14} aria-hidden="true" />
+              화면 안내
+            </button>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => setShowGuide(true)}
+              title="평가 기준·매트릭스 가이드를 봅니다."
+            >
+              <HelpCircle size={14} aria-hidden="true" />
+              평가 가이드
+            </button>
+          </div>
         }
       />
       {showGuide && <EvaluationGuide onClose={() => setShowGuide(false)} />}

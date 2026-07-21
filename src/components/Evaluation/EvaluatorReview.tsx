@@ -399,6 +399,9 @@ const TaskTabs = ({ group, selectedTaskId, onSelectTask }: TaskTabsProps) => {
   const feedbackCount = group.tasks.filter((t) => (t.displayTask.feedback ?? '').trim()).length;
   return (
   <nav
+    // 화면 안내(코치마크) 앵커 — 본인(현재 평가자) 그룹에만. HR 열람 화면(EvaluationReadonlyView)
+    // 은 isOwnedByCurrentUser=false 라 앵커가 붙지 않는다.
+    data-tour={group.isOwnedByCurrentUser ? 'eval-task-tabs' : undefined}
     style={{
       borderRight: '1px solid var(--border)',
       background: 'var(--bg-muted)',
@@ -682,7 +685,7 @@ const TaskDetail = ({
           </p>
         )}
 
-        <div style={{ marginTop: 26 }}>
+        <div style={{ marginTop: 26 }} data-tour={group.isOwnedByCurrentUser ? 'eval-score-matrix' : undefined}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             {/* 이중 라벨(스코어링 매트릭스 + 평가자가 선택한 점수) → 단일(2026-07-07 사용자) */}
             <h3 style={{ margin: 0, fontSize: 'var(--fs-body)', fontWeight: 800 }}>
@@ -771,7 +774,7 @@ const TaskDetail = ({
           />
         </div>
 
-        <div style={{ marginTop: 24 }}>
+        <div style={{ marginTop: 24 }} data-tour={group.isOwnedByCurrentUser ? 'eval-feedback' : undefined}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div className="sd-label-mini">피드백</div>
             <AiOpinionButton
@@ -854,6 +857,7 @@ const TaskDetail = ({
           배지와 중복)도 제거. 가중치 반영 + AI 검수 결과만 남긴다. */}
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div
+          data-tour={group.isOwnedByCurrentUser ? 'eval-weighted-score' : undefined}
           style={{
             padding: 18,
             borderRadius: 'var(--r-lg)',

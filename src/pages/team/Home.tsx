@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3, HelpCircle } from 'lucide-react';
+import { AlertCircle, BellRing, CheckCircle2, ClipboardCheck, Clock3, Compass, HelpCircle } from 'lucide-react';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
 import PageHeader from '@/components/Layout/PageHeader';
+import { useTour, useTourAutoStart } from '@/components/Tour/TourContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state-views';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -332,6 +333,10 @@ const TeamHome = () => {
   // P3-11: 평가 가이드 모달(기구현 EvaluationGuide 재배선).
   const [showGuide, setShowGuide] = useState(false);
 
+  // 화면 안내(코치마크) — 첫 방문 시 보드 사용 순서를 단계별로 안내(사용자·화면별 1회)
+  const { startTour } = useTour();
+  useTourAutoStart('team-board', !isLoading && !error);
+
   // P3-8: 미제출 팀원 전원에게 성과보고 제출 리마인드 알림 발송(현재 담당 카드만 — 과거 담당 제외).
   const confirmDialog = useConfirm();
   const [remindSending, setRemindSending] = useState(false);
@@ -399,6 +404,14 @@ const TeamHome = () => {
         }`}
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="sd-btn sd-btn-outline sd-btn-sm"
+              onClick={() => startTour('team-board', { force: true })}
+              title="평가 보드 사용 순서를 화면 위에서 단계별로 안내합니다."
+            >
+              <Compass size={14} aria-hidden="true" />
+              화면 안내
+            </button>
             {/* P3-11: 평가 가이드(기구현 모달) 재배선 — 평가 기준·매트릭스 안내 */}
             <button
               className="sd-btn sd-btn-outline sd-btn-sm"
@@ -413,6 +426,7 @@ const TeamHome = () => {
               onClick={startNextReview}
               disabled={stats.reviewableCount === 0}
               title={stats.reviewableCount === 0 ? '검토 가능한 제출 건이 없습니다.' : '다음 검토 대상 열기'}
+              data-tour="board-start-review"
             >
               <ClipboardCheck size={14} aria-hidden="true" />
               검토 시작
@@ -447,6 +461,7 @@ const TeamHome = () => {
                 return (
                   <div
                     key={column}
+                    data-tour={column === 'review' ? 'board-review-column' : undefined}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -490,6 +505,7 @@ const TeamHome = () => {
                           <button
                             className="sd-btn sd-btn-outline sd-btn-xs"
                             onClick={() => void remindUnsubmitted()}
+                            data-tour="board-remind"
                             disabled={remindSending || items.length === 0 || !isSelectedPeriodEditable}
                             title={
                               !isSelectedPeriodEditable

@@ -25,6 +25,8 @@ import {
   type EvaluatorTaskView,
 } from '@/components/Evaluation/EvaluatorReview';
 import EvaluationGuide from '@/components/Dashboard/EvaluationGuide';
+import { useTour, useTourAutoStart } from '@/components/Tour/TourContext';
+import { TOUR_START_EVENT, type TourStartEventDetail } from '@/components/Tour/tourTypes';
 
 const getEvaluatorStatusMessage = (status?: string) => {
   switch (status) {
@@ -198,6 +200,11 @@ const Evaluation = () => {
       : getEvaluatorStatusMessage(evaluationStatus);
   const currentEvaluatorId = getCurrentEvaluatorId(user);
 
+  // 화면 안내(코치마크) — 첫 검토 진입 시 채점 순서를 단계별로 안내.
+  // 편집 가능한(제출됨·평가중) 본인 평가가 있을 때만 자동 시작(읽기 전용이면 앵커가 없어 스텝이 헛돈다).
+  const { startTour } = useTour();
+  useTourAutoStart('evaluation-review', !isLoading && !!evaluationData && canEvaluate);
+
   const evaluatorGroups = useMemo<EvaluatorGroup[]>(() => {
     if (!evaluationData || !user) return [];
 
@@ -335,6 +342,21 @@ const Evaluation = () => {
     () => evaluatorGroups.find((group) => group.isOwnedByCurrentUser) ?? null,
     [evaluatorGroups],
   );
+
+  // 화면 안내(코치마크) 시작 시 본인 평가 그룹을 자동으로 펼친다 — 접힌 상태에서 안내를
+  // 실행하면 그룹 내부 앵커(과업 목록·매트릭스 등)가 언마운트라 스텝이 전부 건너뛰어지는 문제 방지.
+  useEffect(() => {
+    const onTourStart = (event: Event) => {
+      const detail = (event as CustomEvent<TourStartEventDetail>).detail;
+      if (detail?.tourId !== 'evaluation-review') return;
+      const ownKey = currentEvaluatorGroup?.key;
+      if (ownKey) {
+        setExpandedGroupKeys((prev) => (prev.includes(ownKey) ? prev : [...prev, ownKey]));
+      }
+    };
+    window.addEventListener(TOUR_START_EVENT, onTourStart);
+    return () => window.removeEventListener(TOUR_START_EVENT, onTourStart);
+  }, [currentEvaluatorGroup]);
 
   useEffect(() => {
     if (groupKeys.length === 0) {
@@ -681,6 +703,13 @@ const Evaluation = () => {
           <div style={{ display: 'flex', gap: 8 }}>
               <button
                 className="sd-btn sd-btn-ghost sd-btn-sm"
+                onClick={() => startTour('evaluation-review', { force: true })}
+                title="평가 진행 순서를 화면 위에서 단계별로 안내합니다."
+              >
+                화면 안내
+              </button>
+              <button
+                className="sd-btn sd-btn-ghost sd-btn-sm"
                 onClick={() => setShowGuide(true)}
                 title="평가 기준·절차·점수 매트릭스 가이드를 엽니다."
               >
@@ -702,6 +731,7 @@ const Evaluation = () => {
               <button
                 className="sd-btn sd-btn-outline sd-btn-sm"
                 onClick={onTemporarySaveClick}
+                data-tour="eval-temp-save"
                 disabled={
                   isDraftSaving ||
                   (evaluationStatus === 'completed'
@@ -728,20 +758,23 @@ const Evaluation = () => {
                     ? '평가 중으로 되돌리기'
                     : '임시저장'}
               </button>
-              {isSaving || isAiReviewing ? (
-                // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시
-                // 끝나 검수가 도는 걸 알 수 없던 문제 — 검수 완료 시 통과/경고 토스트로 마무리).
-                <AiOpinionButton loading label="AI 검수 중…" />
-              ) : (
-                <button
-                  className="sd-btn sd-btn-primary sd-btn-sm"
-                  onClick={onSaveClick}
-                  disabled={!canEvaluate}
-                  title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
-                >
-                  평가 저장
-                </button>
-              )}
+              {/* 저장↔AI 검수 스피너 교체로 버튼 노드가 바뀌므로, 화면 안내 앵커는 고정 래퍼에 */}
+              <span data-tour="eval-save" style={{ display: 'inline-flex' }}>
+                {isSaving || isAiReviewing ? (
+                  // 저장 중 + 저장 후 백그라운드 AI 검수가 끝날 때까지 유지(S3에서 저장이 즉시
+                  // 끝나 검수가 도는 걸 알 수 없던 문제 — 검수 완료 시 통과/경고 토스트로 마무리).
+                  <AiOpinionButton loading label="AI 검수 중…" />
+                ) : (
+                  <button
+                    className="sd-btn sd-btn-primary sd-btn-sm"
+                    onClick={onSaveClick}
+                    disabled={!canEvaluate}
+                    title={!canEvaluate ? evaluatorEditMessage ?? undefined : undefined}
+                  >
+                    평가 저장
+                  </button>
+                )}
+              </span>
             </div>
         }
       />

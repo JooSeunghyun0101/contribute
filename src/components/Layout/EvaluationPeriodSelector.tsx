@@ -75,6 +75,7 @@ export const EvaluationPeriodSelector = () => {
 
   return (
     <label
+      data-tour="period-selector"
       style={{
         position: 'relative',
         width: 264,

@@ -11,6 +11,7 @@ import { ScoreExpectationContent } from '@/components/Evaluation/ExpectationTool
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DateRangePicker, isValidDateValue } from '@/components/ui/date-picker';
 import { NumBadge, Pill } from '@/components/brand';
+import { TOUR_START_EVENT, type TourStartEventDetail } from '@/components/Tour/tourTypes';
 import { useEvaluationMatrix } from '@/contexts/EvaluationMatrixContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEvaluationDataDB } from '@/hooks/useEvaluationDataDB';
@@ -88,6 +89,18 @@ const EvaluationAccordionCard = ({
   const [isSaving, setIsSaving] = useState(false);
   const [reportAiLoading, setReportAiLoading] = useState(false);
   const [reportAiSuggestion, setReportAiSuggestion] = useState<string | null>(null);
+
+  // 화면 안내(코치마크) 시작 시 현재 평가 카드를 자동으로 펼친다 — 접힌 상태에서 안내를
+  // 실행하면 카드 내부 앵커가 전부 언마운트라 모든 스텝이 건너뛰어지는 문제 방지.
+  useEffect(() => {
+    if (!isCurrent) return;
+    const onTourStart = (event: Event) => {
+      const detail = (event as CustomEvent<TourStartEventDetail>).detail;
+      if (detail?.tourId === 'my-tasks') setExpanded(true);
+    };
+    window.addEventListener(TOUR_START_EVENT, onTourStart);
+    return () => window.removeEventListener(TOUR_START_EVENT, onTourStart);
+  }, [isCurrent]);
 
   const tasks = useMemo(() => evaluationData?.tasks ?? [], [evaluationData?.tasks]);
   const selectedTask = useMemo(
@@ -658,6 +671,8 @@ const EvaluationAccordionCard = ({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="qc-acc-header"
+        // 화면 안내(코치마크) 앵커 — 현재 평가 카드에만 부여해 이전 평가 카드와 중복 매칭 방지
+        data-tour={isCurrent ? 'mytasks-card-header' : undefined}
         style={{
           width: '100%',
           minHeight: 72,
@@ -737,12 +752,14 @@ const EvaluationAccordionCard = ({
                   onClick={startCreate}
                   disabled={mode === 'create' || !canEditTasks}
                   title={canEditTasks ? '과업 추가' : taskEditMessage ?? undefined}
+                  data-tour={isCurrent ? 'mytasks-add-task' : undefined}
                 >
                   <Plus size={14} strokeWidth={2.5} aria-hidden="true" />
                   과업 추가
                 </button>
               </div>
               <div
+                data-tour={isCurrent ? 'mytasks-weight-summary' : undefined}
                 style={{
                   marginTop: 10,
                   padding: '10px 12px',
@@ -956,6 +973,7 @@ const EvaluationAccordionCard = ({
                     <button
                       className="sd-btn sd-btn-outline sd-btn-sm"
                       onClick={() => handleSave(false)}
+                      data-tour={isCurrent ? 'mytasks-save-draft' : undefined}
                       disabled={
                         // view 모드는 '기존 과업의 미저장 변경'이 있을 때만 활성 — 복원된 새 과업
                         // draft(hasUnsavedEdits 에는 포함)는 이 버튼 경로로 저장되지 않아
@@ -978,6 +996,7 @@ const EvaluationAccordionCard = ({
                     <button
                       className="sd-btn sd-btn-primary sd-btn-sm"
                       onClick={() => handleSave(true)}
+                      data-tour={isCurrent ? 'mytasks-submit' : undefined}
                       disabled={isSaving || !canEditTasks || !hasTitle || draftTotalWeight !== 100}
                       title={
                         !canEditTasks
@@ -1015,6 +1034,7 @@ const EvaluationAccordionCard = ({
                     value={draft.title}
                     onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                     disabled={!canEditTasks}
+                    data-tour={isCurrent ? 'mytasks-title' : undefined}
                     placeholder={mode === 'create' ? '새 과업 제목을 입력하세요' : '과업 제목'}
                     style={{
                       fontSize: 'var(--fs-h2)',
@@ -1027,6 +1047,7 @@ const EvaluationAccordionCard = ({
                     }}
                   />
                   <label
+                    data-tour={isCurrent ? 'mytasks-ai-check' : undefined}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1053,78 +1074,82 @@ const EvaluationAccordionCard = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 18 }}>
                   <div className="flex flex-col gap-4">
                     <div className="sd-card sd-card-lg">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="sd-label-mini">과업 설명</div>
-                        <AiOpinionButton
-                          onClick={handleGenerateReportDescription}
-                          disabled={!canEditTasks}
-                          loading={reportAiLoading}
-                          title={
-                            canEditTasks
-                              ? '과업 제목과 현재 입력값을 바탕으로 성과보고 초안을 작성합니다.'
-                              : taskEditMessage ?? undefined
-                          }
-                        />
-                      </div>
-                      <div
-                        style={{
-                          marginTop: 10,
-                          display: 'grid',
-                          gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 0.7fr)',
-                          gap: 12,
-                          alignItems: 'stretch',
-                        }}
-                      >
-                        <textarea
-                          value={draft.description}
-                          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                          disabled={!canEditTasks}
-                          placeholder="과업의 목적·범위·기대 결과를 입력하세요."
-                          rows={6}
-                          style={{
-                            width: '100%',
-                            minHeight: 158,
-                            padding: '10px 12px',
-                            borderRadius: 'var(--r-sm)',
-                            border: '1px solid var(--border)',
-                            background: 'var(--bg-card)',
-                            fontSize: 'var(--fs-body)',
-                            lineHeight: 1.7,
-                            color: 'var(--fg)',
-                            resize: 'vertical',
-                            fontFamily: 'inherit',
-                            ...lockedInputStyle,
-                          }}
-                        />
+                      {/* 화면 안내 앵커 — 설명 입력과 AI 초안 버튼을 한 스포트라이트에 담는 래퍼
+                          (앵커를 textarea 에 두면 안내 문구가 가리키는 AI 버튼이 딤에 가려 눌리지 않는다) */}
+                      <div data-tour={isCurrent ? 'mytasks-desc' : undefined}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="sd-label-mini">과업 설명</div>
+                          <AiOpinionButton
+                            onClick={handleGenerateReportDescription}
+                            disabled={!canEditTasks}
+                            loading={reportAiLoading}
+                            title={
+                              canEditTasks
+                                ? '과업 제목과 현재 입력값을 바탕으로 성과보고 초안을 작성합니다.'
+                                : taskEditMessage ?? undefined
+                            }
+                          />
+                        </div>
                         <div
-                          className={reportAiSuggestion ? 'ai-shine-border' : undefined}
-                          onCopy={(event) => {
-                            event.preventDefault();
-                            toast({ title: 'AI 의견은 복사할 수 없습니다.' });
-                          }}
-                          onCut={(event) => event.preventDefault()}
-                          onContextMenu={(event) => event.preventDefault()}
                           style={{
-                            minHeight: 158,
-                            padding: '12px 14px',
-                            borderRadius: 'var(--r-sm)',
-                            border: '1px solid var(--border)',
-                            background: 'var(--bg-muted)',
-                            color: 'var(--fg)',
-                            fontSize: 'var(--fs-sm)',
-                            lineHeight: 1.7,
-                            userSelect: 'none',
-                            WebkitUserSelect: 'none',
-                            cursor: 'default',
+                            marginTop: 10,
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 0.7fr)',
+                            gap: 12,
+                            alignItems: 'stretch',
                           }}
                         >
-                          {reportAiLoading ? (
-                            <span style={{ color: 'var(--fg-muted)' }}>작성 중입니다...</span>
-                          ) : reportAiSuggestion ? (
-                            <AiContentText text={reportAiSuggestion} accent="var(--ai-accent)" />
-                          ) : (
-                            <span style={{ color: 'var(--fg-muted)' }}>AI 성과보고를 생성하면 여기에 표시됩니다.</span>
-                          )}
+                          <textarea
+                            value={draft.description}
+                            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                            disabled={!canEditTasks}
+                            placeholder="과업의 목적·범위·기대 결과를 입력하세요."
+                            rows={6}
+                            style={{
+                              width: '100%',
+                              minHeight: 158,
+                              padding: '10px 12px',
+                              borderRadius: 'var(--r-sm)',
+                              border: '1px solid var(--border)',
+                              background: 'var(--bg-card)',
+                              fontSize: 'var(--fs-body)',
+                              lineHeight: 1.7,
+                              color: 'var(--fg)',
+                              resize: 'vertical',
+                              fontFamily: 'inherit',
+                              ...lockedInputStyle,
+                            }}
+                          />
+                          <div
+                            className={reportAiSuggestion ? 'ai-shine-border' : undefined}
+                            onCopy={(event) => {
+                              event.preventDefault();
+                              toast({ title: 'AI 의견은 복사할 수 없습니다.' });
+                            }}
+                            onCut={(event) => event.preventDefault()}
+                            onContextMenu={(event) => event.preventDefault()}
+                            style={{
+                              minHeight: 158,
+                              padding: '12px 14px',
+                              borderRadius: 'var(--r-sm)',
+                              border: '1px solid var(--border)',
+                              background: 'var(--bg-muted)',
+                              color: 'var(--fg)',
+                              fontSize: 'var(--fs-sm)',
+                              lineHeight: 1.7,
+                              userSelect: 'none',
+                              WebkitUserSelect: 'none',
+                              cursor: 'default',
+                            }}
+                          >
+                            {reportAiLoading ? (
+                              <span style={{ color: 'var(--fg-muted)' }}>작성 중입니다...</span>
+                            ) : reportAiSuggestion ? (
+                              <AiContentText text={reportAiSuggestion} accent="var(--ai-accent)" />
+                            ) : (
+                              <span style={{ color: 'var(--fg-muted)' }}>AI 성과보고를 생성하면 여기에 표시됩니다.</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       {/* 기여 방식·범위 타일 제거(2026-07-07 사용자) — 우측 '현재 점수' 매트릭스
@@ -1137,7 +1162,10 @@ const EvaluationAccordionCard = ({
                           gap: 10,
                         }}
                       >
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}>
+                        <div
+                          data-tour={isCurrent ? 'mytasks-weight' : undefined}
+                          style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}
+                        >
                           <div className="sd-label-mini">가중치 (%)</div>
                           <input
                             type="number"
@@ -1167,7 +1195,10 @@ const EvaluationAccordionCard = ({
                             }}
                           />
                         </div>
-                        <div style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}>
+                        <div
+                          data-tour={isCurrent ? 'mytasks-period' : undefined}
+                          style={{ padding: 12, background: 'var(--bg-muted)', borderRadius: 'var(--r-sm)', minWidth: 0 }}
+                        >
                           <div className="sd-label-mini">기간</div>
                           <DateRangePicker
                             startValue={draft.startDate}
