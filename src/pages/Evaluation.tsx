@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Compass, PencilLine } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Compass, HelpCircle, PencilLine } from 'lucide-react';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import PageHeader from '@/components/Layout/PageHeader';
 import { EmptyState, LoadingState } from '@/components/ui/state-views';
@@ -710,11 +710,13 @@ const Evaluation = () => {
                 <Compass size={14} aria-hidden="true" />
                 화면 안내
               </button>
+              {/* '평가 가이드' 버튼도 전 화면 공통 스타일(outline + HelpCircle) — 내 과업·평가 보드와 통일 */}
               <button
-                className="sd-btn sd-btn-ghost sd-btn-sm"
+                className="sd-btn sd-btn-outline sd-btn-sm"
                 onClick={() => setShowGuide(true)}
                 title="평가 기준·절차·점수 매트릭스 가이드를 엽니다."
               >
+                <HelpCircle size={14} aria-hidden="true" />
                 평가 가이드
               </button>
               <button
