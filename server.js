@@ -4132,6 +4132,12 @@ app.post('/api/employee-profile-imports', requireHr, async (req, res) => {
                 changeType: 'change',
                 evaluationId,
                 evaluationPeriodId: targetPeriod.id,
+                // 발령일을 업로드 시각(NOW)으로 두면 이후 매칭 업로드가 만든 실제 발령일
+                // 이력보다 '최신 배정'이 되어 전보자의 현재/이전 평가가 뒤집힌다.
+                // baseline 은 기간 시작일로 고정 — 어떤 실제 발령일보다 뒤설 수 없게 한다.
+                changedAt:
+                  targetPeriod.starts_on ??
+                  (targetPeriod.evaluation_year ? `${targetPeriod.evaluation_year}-01-01` : null),
               });
               if (ah?.id) {
                 await client.query(
@@ -4421,7 +4427,7 @@ const reconcileEmployeeMatchingStages = async (
   );
 
   const { rows: existing } = await client.query(
-    `SELECT id, evaluation_id, new_evaluator_id, to_char(changed_at,'YYYY-MM-DD') AS date_str
+    `SELECT id, evaluation_id, new_evaluator_id, reason, to_char(changed_at,'YYYY-MM-DD') AS date_str
        FROM evaluator_assignment_history
       WHERE employee_id=$1 AND status='applied' AND change_type<>'cancel'
         AND COALESCE(evaluation_period_id::text,'') = COALESCE($2::text,'')
@@ -4480,7 +4486,10 @@ const reconcileEmployeeMatchingStages = async (
     }
   }
 
-  // pass 3: 같은 평가자·다른 발령일 → 무시(기존 발령일 유지)
+  // pass 3: 같은 평가자·다른 발령일 → 원칙은 무시(기존 발령일 유지 — HR 수동 정정 보호).
+  // 단 '프로필 업로드 baseline' 행은 발령일이 업로드 시각(NOW)으로 찍힌 임시값이라
+  // 파일의 실제 발령일로 정렬한다 — 안 하면 baseline 이 최신 배정으로 남아 전보자의
+  // 현재/이전 평가가 뒤집힌다(2026-07-21 권오선 사례: 정호영 baseline 이 '현재'로 표시).
   for (let si = 0; si < stages.length; si += 1) {
     if (stageMatched[si]) continue;
     const fs = stages[si];
@@ -4488,9 +4497,18 @@ const reconcileEmployeeMatchingStages = async (
       (e, idx) => !existingMatched[idx] && (e.new_evaluator_id ?? null) === (fs.evaluatorId ?? null)
     );
     if (ei >= 0) {
+      const e = existing[ei];
+      if (e.reason === 'Profile import baseline' && e.date_str !== fs.startDate) {
+        await client.query(
+          `UPDATE evaluator_assignment_history SET changed_at = $2 WHERE id = $1`,
+          [e.id, fs.startDate]
+        );
+        result.corrected += 1;
+      } else {
+        result.ignoredDate += 1;
+      }
       existingMatched[ei] = true;
       stageMatched[si] = true;
-      result.ignoredDate += 1;
     }
   }
 
