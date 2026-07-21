@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, PencilLine } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Compass, PencilLine } from 'lucide-react';
 import { useTeamDashboardRecords } from '@/hooks/useDashboardRecords';
 import PageHeader from '@/components/Layout/PageHeader';
 import { EmptyState, LoadingState } from '@/components/ui/state-views';
@@ -701,11 +701,13 @@ const Evaluation = () => {
         actions={
           // 성장레벨/달성여부/반영점수는 아코디언 헤더 스탯으로 이동(2026-07-07 사용자) — 상단은 액션 버튼만.
           <div style={{ display: 'flex', gap: 8 }}>
+              {/* '화면 안내' 버튼은 전 화면 공통 스타일(outline + Compass) — 내 과업·평가 보드와 통일 */}
               <button
-                className="sd-btn sd-btn-ghost sd-btn-sm"
+                className="sd-btn sd-btn-outline sd-btn-sm"
                 onClick={() => startTour('evaluation-review', { force: true })}
                 title="평가 진행 순서를 화면 위에서 단계별로 안내합니다."
               >
+                <Compass size={14} aria-hidden="true" />
                 화면 안내
               </button>
               <button
