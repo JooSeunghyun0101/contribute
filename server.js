@@ -6676,7 +6676,9 @@ app.post('/api/admin/reset/period', requireHr, async (req, res) => {
         WHERE draft_key LIKE '%' || $1 || '%'
            OR draft_key IN (
              SELECT 'taskCardDraft:' || e.evaluatee_id || ':' || e.id
-             FROM evaluations e WHERE e.evaluation_period_id = $1
+             -- $1 은 위 LIKE 의 문자열 연결 때문에 text 로 추론된다 — uuid 컬럼과 비교하려면
+             -- 명시 캐스트가 필요(없으면 42883 'operator does not exist: uuid = text'로 전체 초기화 실패).
+             FROM evaluations e WHERE e.evaluation_period_id = $1::uuid
            )`,
       [periodId]
     );
