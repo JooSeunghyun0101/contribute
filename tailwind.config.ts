@@ -175,12 +175,19 @@ export default {
           "0%": { transform: "scale(0.97)", opacity: "0" },
           "100%": { transform: "scale(1)", opacity: "1" },
         },
+        // 로그인 히어로 aurora-background (docs/aurora-background-설치정의서.md §4)
+        aurora: {
+          from: { backgroundPosition: "50% 50%, 50% 50%" },
+          to: { backgroundPosition: "350% 50%, 350% 50%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in-up": "fade-in-up 0.45s cubic-bezier(0.16, 1, 0.3, 1)",
         "zoom-in": "zoom-in 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+        // 주기(60s) 변경 시 aurora-background.tsx 의 AURORA_CYCLE_SECONDS 도 동기화할 것
+        aurora: "aurora 60s linear infinite",
       },
       transitionTimingFunction: {
         "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",

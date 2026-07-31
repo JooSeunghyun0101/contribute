@@ -9,9 +9,11 @@
 //   v4: ⚠ 삭제됨 — Unicorn Studio OpenAI Codex 배경(청크 ~1.27MB). 미사용 죽은 코드 +
 //        unicornstudio-react 라이선스 리스크(P0-11)라 2026-07 제거. 복구 시 라이선스 확인 필요.
 //   v5: ⚠ 삭제됨 — CSS 그라디언트 간소화 버전(미사용, v4와 함께 정리).
-//   v6: paper.design ColorPanels — 사용자 지정 팔레트(WebGL 로컬 렌더, 내부망 동작) ← 현재
+//   v6: paper.design ColorPanels — 사용자 지정 팔레트(WebGL 로컬 렌더, 내부망 동작). 파일 보존(롤백용).
+//   v7: Aurora Background — CSS repeating-gradient 애니메이션, OK 주황/금색 팔레트.
+//        설치·설정: docs/aurora-background-설치정의서.md ← 현재
 //
 // 배경 위 텍스트(기여도 평가 / OK금융그룹 ...)는 Login.tsx 의 오버레이에서 따로 렌더링하므로
 // 버전에 무관하게 유지된다.
 
-export { default } from "./hero-v6"
+export { default } from "./hero-v7"
