@@ -2439,6 +2439,10 @@ const AI_MODEL_DEFAULT = 'openai/gpt-4.1-mini';
 const aiBaseUrl = (process.env.AI_BASE_URL || AI_BASE_URL_DEFAULT).replace(/\/+$/, '');
 const aiApiKey = (process.env.AI_API_KEY || '').trim();
 const aiModel = process.env.AI_MODEL || AI_MODEL_DEFAULT;
+// 추론형 모델(gpt-oss 계열)은 reasoning 토큰이 max_tokens 예산을 잠식해 content 가 빈 값이 될 수 있다
+// (예: max_tokens=256 인 feedback_keywords 에서 reasoning 254 소모 → finish_reason=length, content='').
+// 'low' 로 두면 예산이 본문에 남는다. 비추론 업스트림은 이 파라미터를 거부할 수 있어 env 설정 시에만 전송.
+const aiReasoningEffort = (process.env.AI_REASONING_EFFORT || '').trim();
 // 명시적 AI_BASE_URL(내부 GPT-OSS 등)은 키 없이 동작, 외부 기본값은 키가 있어야 동작.
 const aiConfigured = Boolean(process.env.AI_BASE_URL) || aiApiKey.length > 0;
 const aiIsExternal = !process.env.AI_BASE_URL || aiBaseUrl.startsWith('https://models.github.ai');
@@ -2506,6 +2510,7 @@ app.post('/api/ai/chat', async (req, res) => {
     const payload = { model: aiModel, messages: safeMessages };
     if (typeof temperature === 'number') payload.temperature = temperature;
     if (typeof maxTokens === 'number') payload.max_tokens = maxTokens;
+    if (aiReasoningEffort) payload.reasoning_effort = aiReasoningEffort;
 
     const upstream = await fetch(`${aiBaseUrl}/chat/completions`, {
       method: 'POST',

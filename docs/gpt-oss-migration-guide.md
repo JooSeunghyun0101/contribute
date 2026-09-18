@@ -10,7 +10,7 @@
 ## 0. 한 줄 요약
 
 AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전환은 원칙적으로
-**서버 `.env` 3줄(`AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY`) 교체 + 서버 재시작**이면 끝이다.
+**서버 `.env` 4줄(`AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY`/`AI_REASONING_EFFORT`) 교체 + 서버 재시작**이면 끝이다.
 다만 "env만으로 끝나는지"는 **GPT-OSS 서버의 OpenAI 호환성·인증·속도**에 달려 있어, 아래
 **§4 호환성 체크리스트**를 반드시 확인하고, 필요 시 **§5 코드 수정**을 한다.
 
@@ -27,7 +27,8 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
   모든 AI 호출은 `src/lib/gptOss.ts` → `POST /api/ai/chat` 경유. (`AI_CHAT_URL = '/api/ai/chat'`)
 - **서버 프록시**(`server.js`, 핸들러 `app.post('/api/ai/chat', …)`):
   - 업스트림으로 **`${AI_BASE_URL}/chat/completions`** 에 POST (OpenAI Chat Completions 규격).
-  - 페이로드: `{ model: AI_MODEL, messages, temperature?, max_tokens? }`.
+  - 페이로드: `{ model: AI_MODEL, messages, temperature?, max_tokens?, reasoning_effort? }`.
+    (`reasoning_effort` 는 `AI_REASONING_EFFORT` 가 설정된 경우에만 전송.)
   - 헤더: `Content-Type: application/json` + (`AI_API_KEY` 가 있을 때만) `Authorization: Bearer <AI_API_KEY>`.
   - **비스트리밍**(단일 응답). 업스트림 JSON을 그대로 클라이언트로 전달.
   - 업스트림 타임아웃 **60초**(`AbortSignal.timeout(60_000)`).
@@ -44,6 +45,7 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
 |---|---|---|
 | `AI_BASE_URL` | 비움(기본 `https://models.github.ai/inference`) | **GPT-OSS 베이스 URL** (예: `http://<GPT_OSS_HOST>:<PORT>/v1`) |
 | `AI_MODEL` | 비움(기본 `openai/gpt-4.1-mini`) | **GPT-OSS 모델명** (예: `gpt-oss-120b`) |
+| `AI_REASONING_EFFORT` | 비움 | **`low`** — gpt-oss는 추론형이라 필수. 미설정 시 reasoning 토큰이 `max_tokens` 를 잠식해 `content` 가 빈 값이 된다(실측: `max_tokens=256` 에서 reasoning 254 소모 → `finish_reason=length`, 화면에 "AI 응답에서 텍스트를 찾을 수 없습니다"). `low` 로 두면 reasoning 13~95 토큰. |
 | `AI_API_KEY` | **GitHub Models 토큰(필수)** | 보통 **비움**(키 없으면 Authorization 헤더 미전송) |
 
 > 서버 코드 기본값: `AI_BASE_URL_DEFAULT='https://models.github.ai/inference'`,
