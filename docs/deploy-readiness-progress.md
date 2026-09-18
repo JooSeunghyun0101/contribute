@@ -21,7 +21,7 @@
 | 이메일 알림 | **나중에 구현** — dispatch.ts 이메일 어댑터 스텁 유지, UI에서 이메일 노출만 정리(A-2). SMTP/스케줄러는 보류 섹션 |
 | 모바일 | **계획 없음** — 반응형/모바일 레이아웃 작업 전면 제외. 데스크톱(노트북 포함) 기준만 |
 | 기능 통합 | 합칠 수 있는 건 묶음 항목으로 통합 구현 (각 Phase의 묶음 구성 참조) |
-| AI 연동 | GPT-OSS(내부망 `172.17.170.201`)는 **이식 후 사용할 코드** — 이식 전 임시로 **GitHub Models API**(OpenAI 호환, `https://models.github.ai/inference`, 모델 `openai/gpt-4.1-mini`) 연결. env 전환만으로 GPT-OSS 복귀 가능하게 설계(B-1) |
+| AI 연동 | GPT-OSS(내부망 `172.17.170.201`)는 **이식 후 사용할 코드** — 이식 전 임시로 **GitHub Models API**(OpenAI 호환, `https://models.github.ai/inference`, 모델 `openai/gpt-4.1-mini`) 연결. env 전환만으로 GPT-OSS 복귀 가능하게 설계(B-1) <br>⚠ **후속(2026-09-18)**: GitHub Models 가 **2026-07-30 폐지**(HTTP 410)되어 임시 업스트림을 외부 OpenAI 호환 API(Groq `openai/gpt-oss-120b`)로 교체했다. 서버 코드의 업스트림 기본값은 제거되어 `AI_BASE_URL`·`AI_MODEL` 이 필수다. 아래 B-1 기록은 당시 사실 그대로 보존한 것이며 현재 설정과 다르다 — 현행 기준은 `AI_SETUP.md` / `docs/gpt-oss-migration-guide.md`. |
 | 인증 방식(G-1) | **자체 비밀번호** — employees `password_hash`(bcrypt) + 서버 로그인 + 최초 로그인 비밀번호 변경 강제 + **httpOnly 쿠키 세션** |
 | 브랜드 오렌지(G-2) | **역할 분리** — 브랜드 강조(로고·그래픽·대형 점수 숫자)=`#F55000`, 본문 텍스트·버튼 등 가독 요소=`#B45309`. 둘 다 토큰으로 정의(`--ok-orange-brand` / `--ok-orange`), 하드코딩만 치환 |
 | AI API 키(B-0) | **사용자가 직접 `.env`에 `AI_API_KEY` 입력** — 루프는 키 존재를 가정하고 B-1 완성, 키 미입력 상태에서도 'AI 미설정' 안내로 graceful 동작해야 함 |

@@ -172,9 +172,12 @@
   - UnicornStudio **무료플랜 워터마크를 제거한 로컬 씬(`/unicorn/tulip.json`)** 사용 + 코드에 "배포 전 반드시 유료 전환 후 projectId로 복귀" 경고. 금융사 운영 빌드에 워터마크 제거 자산 = 법무 리스크. **+ 내부망(인터넷 차단)에선 UnicornStudio 런타임이 로드 안 될 수 있어** 어차피 검은 배경 폴백.
   - 조치(택1): 유료 전환 후 `projectId` 복귀 / **배경을 정적 OK 브랜드 그라데이션으로 교체**(내부망 권장, `unicornstudio-react` 의존 제거).
   - **결정(2026-06-19): 보류** — 현 상태 유지(리스크 인지), 반입 직전 재결정. ⚠️ 반입 빌드 전 반드시 재검토.
-- [ ] **P0-12** 🤖 [운영] **AI 프록시 env 스왑 (GitHub Models → GPT-oss)** — `.env`
-  - 현재(테스트): GitHub Models 외부 API(`.env.example:19-21` 경고 — 실데이터 검수 금지, 테스트/샘플만). 반입 후: **아래 2줄만** 설정, `AI_API_KEY` 불필요.
-    `AI_BASE_URL=http://172.17.170.201:8000/v1` · `AI_MODEL=gpt-oss-120b`
+- [ ] **P0-12** 🤖 [운영] **AI 프록시 env 스왑 (외부 임시 API → GPT-oss)** — `.env`
+  - 현재(테스트): 외부 OpenAI 호환 API(2026-09-18 기준 Groq `openai/gpt-oss-120b`) — 실데이터 검수 금지, 테스트/샘플만.
+    ⚠ 당초 쓰던 GitHub Models 는 **2026-07-30 폐지**(HTTP 410)되어 그 사이 AI 기능이 전면 장애였다.
+  - 반입 후: **아래 3줄만** 설정, `AI_API_KEY` 불필요.
+    `AI_BASE_URL=http://172.17.170.201:8000/v1` · `AI_MODEL=gpt-oss-120b` · `AI_REASONING_EFFORT=low`
+    (마지막 줄은 **필수** — gpt-oss 는 추론형이라 없으면 reasoning 토큰이 `max_tokens` 를 잠식해 응답이 빈 값이 된다)
   - 효과: AI 입력이 **사내망을 벗어나지 않음** → 실데이터 검수 가능해짐(아래 'AI 내부망' 섹션 참조). env 교체만으로 코드 수정 불필요.
 - [x] **P0-13** ✅🤖 [불필요·보안] **죽은 `VITE_*` AI 키 제거** — `.env.example:11-12`, `AI_SETUP.md`
   - `VITE_OPENAI_API_KEY`/`VITE_GEMINI_API_KEY`는 소스 미사용인데 `VITE_` 접두라 **채우면 클라이언트 번들에 키 노출**. AI는 서버 프록시 전용이므로 두 줄 삭제. (GPT-oss 전환과 무관하게 정리)
@@ -255,7 +258,8 @@
 
 ## 🤖 AI 내부망(GPT-oss) 이식 — 통합 메모
 
-현재 GitHub Models(외부, 테스트용) → 반입 후 GPT-oss(`http://172.17.170.201:8000/v1`, `gpt-oss-120b`, 키 불필요). **코드 수정 없이 env 교체만**으로 전환되도록 이미 설계됨(`.env.example:22-24`).
+현재 외부 OpenAI 호환 API(테스트용, Groq `openai/gpt-oss-120b`) → 반입 후 GPT-oss(`http://172.17.170.201:8000/v1`, `gpt-oss-120b`, 키 불필요). **코드 수정 없이 env 교체만**으로 전환되도록 설계됨(`.env.example` 의 AI 구획).
+`AI_REASONING_EFFORT=low` 를 함께 설정해야 한다(추론형 모델 필수 — 상세는 `docs/gpt-oss-migration-guide.md`).
 
 | 항목 | 전환 시 변화 | 조치 위치 |
 |---|---|---|

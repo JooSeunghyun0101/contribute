@@ -8,9 +8,11 @@ LLM 키/엔드포인트는 **서버 `.env` 에만** 둔다. `VITE_` 접두 변�
 `.env.example` 을 `.env` 로 복사한 뒤 대상 머신에서만 값을 채운다.
 
 ```env
-# [임시·테스트] GitHub Models(외부 API) — AI_API_KEY 만 채우면 됨
-#   기본 AI_BASE_URL=https://models.github.ai/inference, 기본 AI_MODEL=openai/gpt-4.1-mini
+# [임시·테스트] 외부 OpenAI 호환 API — 예) Groq
+#   AI_BASE_URL=https://api.groq.com/openai/v1
+#   AI_MODEL=openai/gpt-oss-120b  /  AI_REASONING_EFFORT=low  /  AI_API_KEY=<키>
 #   ⚠ 외부 API로 전송되므로 실제 평가 데이터 검수에 쓰지 말고 테스트/샘플로만 사용.
+#   ⚠ 구 GitHub Models 는 2026-07-30 폐지(HTTP 410) — 사용 불가.
 # [운영·내부망] GPT-OSS 로 전환 — 아래 세 줄만 설정(AI_API_KEY 불필요)
 #   AI_BASE_URL=http://172.17.170.201:8000/v1
 #   AI_MODEL=gpt-oss-120b

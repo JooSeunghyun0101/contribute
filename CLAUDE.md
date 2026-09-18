@@ -33,7 +33,7 @@ HR 운영 규칙(daily 로그 하네스, DRM, 스킬 라우팅, 보이스 톤 �
 | State | React Context API + React Query |
 | Routing | React Router DOM |
 | Backend | `server.js` (Express) + PostgreSQL (pg 풀) |
-| AI | OpenAI 호환 프록시 `/api/ai/chat` (임시 GitHub Models → 내부망 이식 후 GPT-OSS, env 교체만) |
+| AI | OpenAI 호환 프록시 `/api/ai/chat` (임시 외부 API → 내부망 이식 후 GPT-OSS, env 교체만) |
 | Infra | Docker, docker-compose |
 
 주요 디렉터리:

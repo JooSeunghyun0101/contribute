@@ -39,7 +39,7 @@ AI가 성장 제안·요약·키워드를 생성하고 HR이 전사 현황을 �
 | 라우팅 | React Router DOM |
 | Backend | Express (`server.js`) REST API |
 | DB | PostgreSQL (`pg` 풀, **백엔드 API 경유** — 프런트는 DB 직접 접근 안 함) |
-| AI | OpenAI 호환 프록시 `/api/ai/chat` (임시 GitHub Models → 내부망 GPT-OSS, `.env` 교체만) |
+| AI | OpenAI 호환 프록시 `/api/ai/chat` (임시 외부 API → 내부망 GPT-OSS, `.env` 교체만) |
 | Infra | Docker · docker-compose · Render(임시 데모 배포) |
 
 ---
@@ -84,10 +84,13 @@ npm install
 `.env.example` → `.env` 복사 후 값 입력:
 ```bash
 DATABASE_URL=postgresql://<user>:<password>@localhost:5532/human-resource
-# AI(서버 프록시 전용) — 임시 GitHub Models 사용 시
-AI_BASE_URL=https://models.github.ai/inference
-AI_API_KEY=<github-models-token>
-AI_MODEL=openai/gpt-4.1-mini
+# AI(서버 프록시 전용) — OpenAI 호환 업스트림. BASE_URL·MODEL 은 필수(기본값 없음).
+# 예) 임시 외부 테스트: Groq
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_API_KEY=<groq-api-key>
+AI_MODEL=openai/gpt-oss-120b
+AI_REASONING_EFFORT=low   # 추론형(gpt-oss) 필수 — 없으면 응답이 빈 값
+# 예) 운영 내부망 GPT-OSS: AI_BASE_URL=http://<host>:<port>/v1, AI_MODEL=gpt-oss-120b, AI_API_KEY 생략
 ```
 > 전체 변수·AI 연동 상세는 [`AI_SETUP.md`](./AI_SETUP.md), 백엔드·프런트 흐름은 [`BACKEND_FRONTEND_OVERVIEW.md`](./BACKEND_FRONTEND_OVERVIEW.md) 참조.
 

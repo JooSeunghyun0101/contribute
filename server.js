@@ -2432,20 +2432,52 @@ app.use('/api', (req, res, next) => {
 
 /* ==================== AI Proxy Routes ==================== */
 // 브라우저가 LLM 서버를 직접 호출하지 않도록 서버가 중계한다. (모델·키는 서버가 강제)
-// - 이식 전(임시): GitHub Models(외부 API) 기본값 — AI_API_KEY 필수
-// - 내부망 이식 후: .env 의 AI_BASE_URL 만 GPT-OSS 주소로 바꾸면 복귀 (키 불필요)
-const AI_BASE_URL_DEFAULT = 'https://models.github.ai/inference';
-const AI_MODEL_DEFAULT = 'openai/gpt-4.1-mini';
-const aiBaseUrl = (process.env.AI_BASE_URL || AI_BASE_URL_DEFAULT).replace(/\/+$/, '');
+// 업스트림은 OpenAI 호환 /chat/completions 를 제공하면 무엇이든 된다 — .env 교체만으로 전환.
+// 과거 기본값이던 GitHub Models 는 2026-07-30 폐지되어(HTTP 410 github_models_retirement_brownout)
+// 기본값으로 둘 수 없다. 죽은 기본값이 조용히 410 을 내는 것보다 '미설정'으로 명확히 실패하는 편이
+// 낫기 때문에, AI_BASE_URL·AI_MODEL 을 필수로 요구한다.
+const aiBaseUrl = (process.env.AI_BASE_URL || '').trim().replace(/\/+$/, '');
 const aiApiKey = (process.env.AI_API_KEY || '').trim();
-const aiModel = process.env.AI_MODEL || AI_MODEL_DEFAULT;
+const aiModel = (process.env.AI_MODEL || '').trim();
 // 추론형 모델(gpt-oss 계열)은 reasoning 토큰이 max_tokens 예산을 잠식해 content 가 빈 값이 될 수 있다
 // (예: max_tokens=256 인 feedback_keywords 에서 reasoning 254 소모 → finish_reason=length, content='').
 // 'low' 로 두면 예산이 본문에 남는다. 비추론 업스트림은 이 파라미터를 거부할 수 있어 env 설정 시에만 전송.
 const aiReasoningEffort = (process.env.AI_REASONING_EFFORT || '').trim();
-// 명시적 AI_BASE_URL(내부 GPT-OSS 등)은 키 없이 동작, 외부 기본값은 키가 있어야 동작.
-const aiConfigured = Boolean(process.env.AI_BASE_URL) || aiApiKey.length > 0;
-const aiIsExternal = !process.env.AI_BASE_URL || aiBaseUrl.startsWith('https://models.github.ai');
+// 업스트림 주소·모델명이 둘 다 있어야 동작. 키는 업스트림에 따라 선택(내부 GPT-OSS 는 불필요).
+const aiConfigured = aiBaseUrl.length > 0 && aiModel.length > 0;
+
+// 사내망(사설 IP·loopback·도트 없는 인트라넷 호스트명)이면 내부, 그 밖은 외부(공인 인터넷)로 본다.
+// 이 값이 UI 의 '외부 전송 주의' 경고 기준이므로 특정 벤더명을 하드코딩하지 않는다 —
+// 업스트림을 어떤 외부 API 로 바꿔도 경고가 유지되어야 한다.
+const isPrivateAiHost = (rawHost) => {
+  const h = (rawHost || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === '::1') return true;
+  if (!h.includes('.') && !h.includes(':')) return true; // 단일 라벨 = 인트라넷 호스트명
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+};
+// 미설정은 '외부 아님'(경고할 대상이 없음). 파싱 불가한 주소는 안전하게 외부로 간주한다.
+const aiIsExternal = (() => {
+  if (!aiBaseUrl) return false;
+  try {
+    return !isPrivateAiHost(new URL(aiBaseUrl).hostname);
+  } catch {
+    return true;
+  }
+})();
+
+// 재시도가 무의미한 업스트림 상태코드(설정·인증·요청 오류·폐지된 엔드포인트).
+// 429/5xx 는 일시적일 수 있어 제외한다.
+const AI_PERMANENT_UPSTREAM_STATUSES = new Set([400, 401, 403, 404, 405, 410, 422, 501]);
 
 // 인증 도입(Phase S) 전 임시 레이트리밋: IP별 분당 호출 수 제한. 인증 후 세션 주체 기준으로 교체.
 const AI_RATE_LIMIT_PER_MINUTE = 40;
@@ -2482,7 +2514,7 @@ app.post('/api/ai/chat', async (req, res) => {
     return res.status(503).json({
       configured: false,
       error: 'AI not configured',
-      message: 'AI_API_KEY(임시 GitHub Models) 또는 AI_BASE_URL(내부 GPT-OSS)을 .env에 설정해 주세요.',
+      message: '.env 에 AI_BASE_URL 과 AI_MODEL 을 설정해 주세요(업스트림에 따라 AI_API_KEY 도 필요).',
     });
   }
 
@@ -2525,7 +2557,14 @@ app.post('/api/ai/chat', async (req, res) => {
       console.error('AI upstream error:', upstream.status, text.slice(0, 500));
       // 레이트리밋(429)은 상태코드를 그대로 전달 → 클라이언트가 재시도/안내할 수 있게 한다.
       const passthrough = upstream.status === 429 ? 429 : 502;
-      return res.status(passthrough).json({ error: 'AI upstream error', status: upstream.status });
+      // 설정·인증·폐지된 엔드포인트 같은 영구 실패는 재시도해도 결과가 같다. retryable=false 로
+      // 알려 클라이언트가 백오프로 4회 헛시도하며 4배 느리게 실패하지 않게 한다.
+      // (예: GitHub Models 폐지 후 모든 요청이 410 Gone)
+      return res.status(passthrough).json({
+        error: 'AI upstream error',
+        status: upstream.status,
+        retryable: !AI_PERMANENT_UPSTREAM_STATUSES.has(upstream.status),
+      });
     }
     res.type('application/json').send(text);
   } catch (err) {

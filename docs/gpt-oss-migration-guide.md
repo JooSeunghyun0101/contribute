@@ -1,6 +1,8 @@
 # GPT-OSS 마이그레이션 가이드 (내부망 LLM 실행용)
 
-> **이 문서의 용도**: 이 앱은 현재 **임시로 GitHub Models(외부 API)** 를 쓰고 있다.
+> **이 문서의 용도**: 이 앱은 현재 **임시로 외부 OpenAI 호환 API** 를 쓰고 있다.
+> (2026-09-18 기준 Groq `openai/gpt-oss-120b`. 그 전에 쓰던 GitHub Models 는
+> **2026-07-30 폐지**되어 모든 요청이 `HTTP 410 github_models_retirement_brownout` 을 반환한다 — 되살릴 수 없다.)
 > 내부망 이식 후 **GPT-OSS(사내 자체 LLM)** 로 전환할 때, **내부망의 LLM(=실행 주체)** 이
 > 이 문서를 읽고 마이그레이션을 안전·효율적으로 수행하도록 작성했다.
 > 사람이 이 문서를 LLM에게 건네며 "이대로 마이그레이션 해줘"라고 지시하는 시나리오를 전제한다.
@@ -20,7 +22,7 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
 
 ```
 브라우저(프런트)  ──POST /api/ai/chat──►  서버(server.js, Express)  ──POST {AI_BASE_URL}/chat/completions──►  업스트림 LLM
-   gptOss.ts                                  AI 프록시 핸들러                                  (지금: GitHub Models / 나중: GPT-OSS)
+   gptOss.ts                                  AI 프록시 핸들러                                  (지금: 외부 호환 API / 나중: GPT-OSS)
 ```
 
 - **프런트는 LLM을 직접 호출하지 않는다.** 키·주소·모델명은 프런트 번들에 없다.
@@ -37,20 +39,28 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
   - `external=true` 면 프런트에 "외부 API 주의" 캡션이 뜬다. 내부 GPT-OSS로 바꾸면 `external=false`.
 - **응답 파싱**(프런트 `gptOss.ts`): **`data.choices[0].message.content`** 를 읽는다.
   → **업스트림은 OpenAI Chat Completions 응답 형식이어야 한다.**
-- **클라이언트 타임아웃**: `callGptOss` 기본 **20초**(`AbortController`). 보고서 등 `fullLength` 호출은
+- **클라이언트 타임아웃**: `callGptOss` 기본 **60초**(`AbortController`). 보고서 등 `fullLength` 호출은
   `max_tokens` 2048, 그 외 768.
+- **재시도**: 기본 3회 재시도(총 4회). 단 프록시가 응답 본문에 `retryable: false` 를 주면 **즉시 중단**한다
+  — 영구 실패(폐지된 엔드포인트의 410, 인증 401/403, 잘못된 요청 400 등)를 백오프로 4회 헛시도하면
+  실패가 4배 느려지기 때문이다. 판정 목록은 `server.js` 의 `AI_PERMANENT_UPSTREAM_STATUSES`.
 
 ### 설정 키 (서버 `.env` 전용 — `VITE_` 금지)
-| 키 | 지금(GitHub Models) | 전환 후(GPT-OSS) |
+| 키 | 지금(임시 외부 API) | 전환 후(GPT-OSS) |
 |---|---|---|
-| `AI_BASE_URL` | 비움(기본 `https://models.github.ai/inference`) | **GPT-OSS 베이스 URL** (예: `http://<GPT_OSS_HOST>:<PORT>/v1`) |
-| `AI_MODEL` | 비움(기본 `openai/gpt-4.1-mini`) | **GPT-OSS 모델명** (예: `gpt-oss-120b`) |
+| `AI_BASE_URL` | **필수** (예: `https://api.groq.com/openai/v1`) | **GPT-OSS 베이스 URL** (예: `http://<GPT_OSS_HOST>:<PORT>/v1`) |
+| `AI_MODEL` | **필수** (예: `openai/gpt-oss-120b`) | **GPT-OSS 모델명** (예: `gpt-oss-120b`) |
 | `AI_REASONING_EFFORT` | 비움 | **`low`** — gpt-oss는 추론형이라 필수. 미설정 시 reasoning 토큰이 `max_tokens` 를 잠식해 `content` 가 빈 값이 된다(실측: `max_tokens=256` 에서 reasoning 254 소모 → `finish_reason=length`, 화면에 "AI 응답에서 텍스트를 찾을 수 없습니다"). `low` 로 두면 reasoning 13~95 토큰. |
-| `AI_API_KEY` | **GitHub Models 토큰(필수)** | 보통 **비움**(키 없으면 Authorization 헤더 미전송) |
+| `AI_API_KEY` | 업스트림이 요구하면 필수 | 보통 **비움**(키 없으면 Authorization 헤더 미전송) |
 
-> 서버 코드 기본값: `AI_BASE_URL_DEFAULT='https://models.github.ai/inference'`,
-> `AI_MODEL_DEFAULT='openai/gpt-4.1-mini'`. `aiConfigured = AI_BASE_URL 있음 || AI_API_KEY 있음`.
-> `aiIsExternal = AI_BASE_URL 없음 || base가 models.github.ai 로 시작`.
+> **서버 코드에 업스트림 기본값은 없다.** 폐지된 GitHub Models 를 기본값으로 두면 조용히 410 을
+> 내기 때문에 제거했다 — `AI_BASE_URL`·`AI_MODEL` 이 **둘 다** 있어야 동작한다
+> (`aiConfigured = AI_BASE_URL 있음 && AI_MODEL 있음`). 미설정이면 `/api/ai/chat` 이 503 +
+> `configured:false` 를 반환하고 화면엔 "AI 기능이 아직 설정되지 않았습니다" 가 뜬다.
+>
+> `aiIsExternal` 은 **업스트림 호스트로** 판정한다(벤더명 하드코딩 없음): 사설 IP(10/172.16-31/192.168/
+> 127/169.254)·`::1`·`localhost`·`.local`·`.internal`·도트 없는 단일 라벨 호스트명 → 내부(`false`),
+> 그 밖의 공인 인터넷 호스트 → 외부(`true`). 따라서 사내 GPT-OSS 주소를 넣으면 자동으로 내부가 된다.
 
 ---
 
@@ -126,8 +136,9 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
 - **(d) 프롬프트/형식 미세조정** — 프롬프트와 응답 파싱 로직 모두 `src/lib/gptOss.ts` 안에 있다
   (`reviewEvaluationFeedbacks` 등). 형식 미준수가 잦으면 system 프롬프트에 형식 지시를 강화하거나
   파싱을 관대하게.
-- **(e) 외부/내부 판별 캡션** — `aiIsExternal` 로직이 `models.github.ai` 문자열에 의존한다. GPT-OSS URL이면
-  자동으로 `external=false`. 만약 캡션이 잘못 뜨면 `server.js` 의 `aiIsExternal` 판별을 확인.
+- **(e) 외부/내부 판별 캡션** — `aiIsExternal` 은 호스트 기반 판정이라(위 §1 표 참고) 사내 GPT-OSS 주소면
+  자동으로 `external=false` 가 된다. **단 사내 LLM이 공인 도메인 뒤에 있으면 외부로 잡힌다** —
+  그 경우 `server.js` 의 `isPrivateAiHost` 에 해당 호스트를 추가한다.
 - **(f) 레이트리밋** — 내부 모델이면 분당 20회가 빡빡할 수 있다. `server.js` `AI_RATE_LIMIT_PER_MINUTE` 조정.
 
 ---
@@ -157,7 +168,9 @@ AI 호출은 **서버 프록시 `/api/ai/chat` 한 곳**으로만 나간다. 전
 
 ## 8. 롤백
 
-- `.env` 의 `AI_BASE_URL`/`AI_MODEL` 비우고 `AI_API_KEY`(GitHub Models 토큰) 복원 → 재시작.
+- `.env` 의 `AI_BASE_URL`/`AI_MODEL`(필요 시 `AI_API_KEY`)을 **전환 전 외부 API 값으로 복원** → 재시작.
+  ⚠ 구 GitHub Models 는 폐지되어 롤백 대상이 될 수 없다. 비워두면 'AI 미설정' 상태가 되고,
+  AI 기능은 휴리스틱으로 축소 동작한다(앱 자체는 정상).
   (코드를 §5에서 수정했다면 그 커밋도 함께 되돌린다.)
 
 ---

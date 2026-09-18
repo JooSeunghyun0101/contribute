@@ -217,6 +217,12 @@ function truncateAiText(content: string): string {
   return lastSentenceEnd > 300 ? truncated.substring(0, lastSentenceEnd + 1) : `${truncated}...`;
 }
 
+/** /api/ai/chat 의 업스트림 오류 응답 본문. retryable=false 면 재시도해도 결과가 같다. */
+interface UpstreamErrorDetail {
+  retryable?: boolean;
+  status?: number;
+}
+
 /**
  * GPT‑OSS 프록시(/api/ai/chat)에 프롬프트를 전달하고 응답 텍스트를 반환한다.
  * 일시적 실패(레이트리밋 429 / 업스트림 일시오류 502·504 / 타임아웃·네트워크)는 백오프 후 재시도한다.
@@ -253,6 +259,16 @@ async function callGptOss(
       }
       // 레이트리밋(429)·업스트림 일시오류(502/504) → 재시도 대상.
       if (response.status === 429 || response.status === 502 || response.status === 504) {
+        // 단, 서버가 영구 실패로 판정했으면(retryable=false) 즉시 중단한다. 재시도해도 결과가
+        // 같은데 백오프까지 붙어 실패가 4배 느려지기 때문이다(예: 폐지된 업스트림의 410 Gone).
+        const detail: UpstreamErrorDetail | null = await response
+          .json()
+          .then((body: unknown) => body as UpstreamErrorDetail)
+          .catch((): null => null);
+        if (detail?.retryable === false) {
+          console.warn('⚠️ GPT‑OSS 업스트림 영구 오류(재시도 생략):', detail.status);
+          return '⚠️ AI 업스트림 설정에 문제가 있습니다. 관리자에게 문의해 주세요.';
+        }
         lastError = new Error(`retriable ${response.status}`);
         // Retry-After 헤더가 있으면(초 단위) 그 시간만큼 기다린다(최대 30초로 제한).
         const ra = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
